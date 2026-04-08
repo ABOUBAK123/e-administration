@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14-alpine
+    container_name: e-parapheur-postgres-dev
+    environment:
+      POSTGRES_USER: epAdminDev
+      POSTGRES_PASSWORD: epPasswordDev2024
+      POSTGRES_DB: e_parapheur_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    networks:
+      - e-parapheur-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U epAdminDev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # NestJS Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend.dev
+    container_name: e-parapheur-backend-dev
+    environment:
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: epAdminDev
+      DB_PASSWORD: epPasswordDev2024
+      DB_NAME: e_parapheur_dev
+      JWT_SECRET: development_secret_key_change_in_production
+      ONLYOFFICE_URL: http://onlyoffice:80
+      API_PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./apps/backend:/app
+      - /app/node_modules
+    networks:
+      - e-parapheur-network
+    command: npm run start:dev
+
+  # React Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend.dev
+    container_name: e-parapheur-frontend-dev
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://localhost:3000/api
+      VITE_ONLYOFFICE_URL: http://localhost/onlyoffice
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./apps/frontend:/app
+      - /app/node_modules
+    networks:
+      - e-parapheur-network
+    depends_on:
+      - backend
+    command: npm run dev -- --host
+
+  # OnlyOffice Document Server
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: e-parapheur-onlyoffice-dev
+    environment:
+      POSTGRESQL_SERVER_HOST: postgres
+      POSTGRESQL_SERVER_PORT: 5432
+      POSTGRESQL_SERVER_DB_NAME: onlyoffice_dev
+      POSTGRESQL_SERVER_DB_USER: onlyoffice_user
+      POSTGRESQL_SERVER_DB_PASSWORD: onlyoffice_password
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - onlyoffice_data_dev:/var/www/onlyoffice/Data
+      - onlyoffice_logs_dev:/var/log/onlyoffice
+    networks:
+      - e-parapheur-network
+    depends_on:
+      - postgres
+
+  # Redis for caching and sessions (optional but recommended)
+  redis:
+    image: redis:7-alpine
+    container_name: e-parapheur-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data_dev:/data
+    networks:
+      - e-parapheur-network
+
+networks:
+  e-parapheur-network:
+    driver: bridge
+
+volumes:
+  postgres_data_dev:
+  onlyoffice_data_dev:
+  onlyoffice_logs_dev:
+  redis_data_dev:

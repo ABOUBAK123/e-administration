@@ -1,0 +1,23 @@
+# Auditd rules for E-administration production host
+# Copy to /etc/audit/rules.d/99-eadministration.rules then reload auditd.
+
+# Monitor authentication and account files
+-w /etc/passwd -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/sudoers -p wa -k privileged
+-w /etc/sudoers.d/ -p wa -k privileged
+
+# Monitor SSH and service configs
+-w /etc/ssh/sshd_config -p wa -k sshd
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd
+-w /etc/apache2/ -p wa -k apache
+-w /etc/webmin/ -p wa -k webmin
+
+# Monitor project and deployment scripts
+-w /var/www/E-administration/ -p wa -k app_files
+-w /opt/eadministration/scripts/ -p wa -k app_scripts
+
+# Monitor PM2 process list and startup scripts
+-w /root/.pm2/ -p wa -k pm2
+-w /etc/systemd/system/ -p wa -k systemd

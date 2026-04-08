@@ -1,0 +1,51 @@
+{
+  "name": "e-parapheur-connect-sign",
+  "version": "1.0.0",
+  "description": "E-Parapheur Connect & Sign - Document Management Platform with Electronic Signatures",
+  "private": true,
+  "workspaces": [
+    "apps/backend",
+    "apps/frontend",
+    "packages/shared"
+  ],
+  "scripts": {
+    "bootstrap": "npm install",
+    "backend:install": "cd apps/backend && npm install",
+    "backend:dev": "cd apps/backend && npm run start:dev",
+    "backend:dev:ensure": "node scripts/ensure-backend-dev.js",
+    "backend:build": "cd apps/backend && npm run build",
+    "backend:test": "cd apps/backend && npm test",
+    "frontend:install": "cd apps/frontend && npm install",
+    "frontend:dev": "cd apps/frontend && npm run dev",
+    "frontend:build": "cd apps/frontend && npm run build",
+    "frontend:test": "cd apps/frontend && npm test",
+    "frontend:preview": "cd apps/frontend && npm run preview",
+    "shared:build": "cd packages/shared && npm run build",
+    "docker:up": "docker-compose -f docker-compose.dev.yml up",
+    "docker:up:prod": "docker-compose -f docker-compose.prod.yml up",
+    "docker:down": "docker-compose -f docker-compose.dev.yml down",
+    "docker:down:prod": "docker-compose -f docker-compose.prod.yml down",
+    "docker:build": "docker-compose -f docker-compose.dev.yml build",
+    "docker:build:prod": "docker-compose -f docker-compose.prod.yml build",
+    "migration:create": "cd apps/backend && npm run typeorm migration:create",
+    "migration:run": "cd apps/backend && npm run typeorm migration:run",
+    "migration:revert": "cd apps/backend && npm run typeorm migration:revert",
+    "lint": "npm run lint --workspaces",
+    "format": "npm run format --workspaces",
+    "dev:clean-ports": "node scripts/kill-ports.js 3000 5173 5174",
+    "dev": "npm run dev:clean-ports && concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "build": "npm run backend:build && npm run frontend:build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": [
+    "document-management",
+    "electronic-signature",
+    "workflows",
+    "collaboration",
+    "onlyoffice"
+  ],
+  "author": "E-Parapheur Team",
+  "license": "MIT"
+}

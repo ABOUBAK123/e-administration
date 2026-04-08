@@ -1,0 +1,26 @@
+# Development Dockerfile for NestJS Backend
+
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install dependencies for building
+RUN apk add --no-cache python3 make g++
+
+# Copy only package files for better caching
+COPY apps/backend/package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the entire backend source
+COPY apps/backend .
+
+# Copy shared packages
+COPY packages ./packages
+
+# Expose port
+EXPOSE 3000
+
+# Run the application in development mode
+CMD ["npm", "run", "start:dev"]

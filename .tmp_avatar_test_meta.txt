@@ -1,0 +1,3 @@
+EMAIL=avatar.test+20260408175712@local.test
+USERNAME=avatartest20260408175712
+PASSWORD=Test1234!

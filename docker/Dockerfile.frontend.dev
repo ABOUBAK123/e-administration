@@ -1,0 +1,23 @@
+# Development Dockerfile for React Frontend
+
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY apps/frontend/package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the entire frontend source
+COPY apps/frontend .
+
+# Copy shared packages
+COPY packages ../packages
+
+# Expose port for Vite dev server
+EXPOSE 5173
+
+# Run the development server
+CMD ["npm", "run", "dev"]
