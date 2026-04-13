@@ -7,7 +7,7 @@ set -euo pipefail
 
 # ── Configuration ────────────────────────────────────────────
 APP_DIR="${DEPLOY_PATH:-/var/www/e-administration}"
-GIT_BRANCH="main"
+ARCHIVE_PATH="${ARCHIVE_PATH:-}"
 LOG_FILE="/var/log/e-administration-deploy.log"
 
 # ── Couleurs pour les logs ───────────────────────────────────
@@ -37,28 +37,62 @@ log "Vérification des prérequis..."
 
 command -v node  >/dev/null 2>&1 || fail "Node.js non trouvé"
 command -v npm   >/dev/null 2>&1 || fail "npm non trouvé"
-command -v git   >/dev/null 2>&1 || fail "Git non trouvé"
+command -v tar   >/dev/null 2>&1 || fail "tar non trouvé"
 command -v pm2   >/dev/null 2>&1 || fail "PM2 non trouvé (npm install -g pm2)"
 
 log "Node  : $(node -v)"
 log "npm   : $(npm -v)"
 log "PM2   : $(pm2 -v)"
 
-[ -d "$APP_DIR" ] || fail "Répertoire $APP_DIR introuvable — premier déploiement ? Clonez d'abord le repo."
-[ -d "$APP_DIR/.git" ] || fail "$APP_DIR n'est pas un dépôt git"
+# ── Création/Préparation du répertoire applicatif ───────────
+mkdir -p "$APP_DIR"
 
 # ── Déplacement dans le répertoire de l'app ──────────────────
 cd "$APP_DIR"
 
-# ── Récupération du code source ──────────────────────────────
-log "Récupération de la branche $GIT_BRANCH..."
+# ── Transfert/Extraction du code source ──────────────────────
+if [ -n "$ARCHIVE_PATH" ] && [ -f "$ARCHIVE_PATH" ]; then
+  log "Extraction des fichiers déployés depuis $ARCHIVE_PATH..."
+  tar -xzf "$ARCHIVE_PATH" -C "$APP_DIR"
+  rm -f "$ARCHIVE_PATH"
+  ok "Fichiers transférés et extraits dans $APP_DIR"
+else
+  fail "Archive de déploiement introuvable (ARCHIVE_PATH=$ARCHIVE_PATH)"
+fi
 
-git fetch origin "$GIT_BRANCH"
-git reset --hard "origin/$GIT_BRANCH"
-git clean -fd
+if [ -d "$APP_DIR/.git" ]; then
+  COMMIT=$(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || echo "n/a")
+else
+  COMMIT="archive"
+fi
 
-COMMIT=$(git rev-parse --short HEAD)
-ok "Code mis à jour — commit $COMMIT"
+# ── Création DB optionnelle (MariaDB/MySQL) ──────────────────
+if [ "${AUTO_CREATE_DB:-false}" = "true" ]; then
+  log "Création/validation de la base de données..."
+
+  command -v mysql >/dev/null 2>&1 || fail "mysql client non trouvé pour la création DB"
+  [ -n "${DB_NAME:-}" ] || fail "DB_NAME manquant"
+  [ -n "${DB_USER:-}" ] || fail "DB_USER manquant"
+  [ -n "${DB_PASSWORD:-}" ] || fail "DB_PASSWORD manquant"
+
+  MYSQL_BASE_CMD=(mysql -h "${DB_HOST:-127.0.0.1}" -P "${DB_PORT:-3306}" -u "${DB_ROOT_USER:-root}")
+  if [ -n "${DB_ROOT_PASSWORD:-}" ]; then
+    MYSQL_PWD="${DB_ROOT_PASSWORD}" "${MYSQL_BASE_CMD[@]}" <<SQL
+CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'%';
+FLUSH PRIVILEGES;
+SQL
+  else
+    "${MYSQL_BASE_CMD[@]}" <<SQL
+CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'%';
+FLUSH PRIVILEGES;
+SQL
+  fi
+  ok "Base de données prête"
+fi
 
 # ── Installation des dépendances ─────────────────────────────
 log "Installation des dépendances npm..."

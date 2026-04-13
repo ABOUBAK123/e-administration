@@ -11,6 +11,14 @@
 #  SERVER_USER         |     ✅      | root  (ou eadmin)
 #  SSH_PORT            |     ❌      | 22 (par défaut)
 #  DEPLOY_PATH         |     ❌      | /var/www/e-administration
+#  AUTO_CREATE_DB      |     ❌      | true
+#  DB_HOST             |     ❌      | 127.0.0.1
+#  DB_PORT             |     ❌      | 3306
+#  DB_NAME             |     ❌      | e_parapheur
+#  DB_USER             |     ❌      | eadmin_app
+#  DB_PASSWORD         |     ❌      | motdepasse_db_user
+#  DB_ROOT_USER        |     ❌      | root
+#  DB_ROOT_PASSWORD    |     ❌      | motdepasse_root_db
 #
 # ============================================================
 
@@ -53,7 +61,7 @@ deploy:production:
     - validate
   before_script:
     # Installation des outils SSH
-    - apk add --no-cache openssh-client bash
+    - apk add --no-cache openssh-client bash tar
 
     # Configuration de la clé SSH
     - eval $(ssh-agent -s)
@@ -64,13 +72,23 @@ deploy:production:
     - ssh-keyscan -p "${SSH_PORT:-22}" "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
   script:
+    - echo "==> Préparation de l'archive de déploiement..."
+    - |
+      tar \
+        --exclude-vcs \
+        --exclude='node_modules' \
+        --exclude='apps/backend/node_modules' \
+        --exclude='apps/frontend/node_modules' \
+        -czf e-administration-deploy.tar.gz .
+    - echo "==> Transfert des fichiers vers le serveur..."
+    - scp -P "${SSH_PORT:-22}" e-administration-deploy.tar.gz "${SERVER_USER}@${SERVER_HOST}:/tmp/e-administration-deploy.tar.gz"
     - echo "==> Connexion au serveur $SERVER_USER@$SERVER_HOST..."
     - |
       ssh -p "${SSH_PORT:-22}" \
           -o StrictHostKeyChecking=no \
           -o ConnectTimeout=30 \
           "${SERVER_USER}@${SERVER_HOST}" \
-          "export DEPLOY_PATH='${DEPLOY_PATH:-/var/www/e-administration}'; bash -s" \
+          "export DEPLOY_PATH='${DEPLOY_PATH:-/var/www/e-administration}' ARCHIVE_PATH='/tmp/e-administration-deploy.tar.gz' AUTO_CREATE_DB='${AUTO_CREATE_DB:-false}' DB_HOST='${DB_HOST:-127.0.0.1}' DB_PORT='${DB_PORT:-3306}' DB_NAME='${DB_NAME:-}' DB_USER='${DB_USER:-}' DB_PASSWORD='${DB_PASSWORD:-}' DB_ROOT_USER='${DB_ROOT_USER:-root}' DB_ROOT_PASSWORD='${DB_ROOT_PASSWORD:-}'; bash -s" \
           < scripts/server-deploy.sh
 
   environment:
