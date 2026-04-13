@@ -1,4 +1,14 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Res, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Res,
+  UploadedFiles,
+  UseInterceptors,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { DocumentsService } from './documents.service';
@@ -6,6 +16,7 @@ import { diskStorage } from 'multer';
 import { existsSync, mkdirSync } from 'fs';
 import { extname, join } from 'path';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { randomUUID } from 'crypto';
 
 @ApiTags('documents-public')
 @Controller('documents/public')
@@ -26,13 +37,25 @@ export class DocumentsPublicController {
     },
     filename: (_req, file, cb) => {
       const extension = extname(file.originalname || '').toLowerCase() || '.bin';
-      const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+      const unique = randomUUID();
       cb(null, `public-act-request-${unique}${extension}`);
     },
   });
 
   private static readonly allowedExtensions = new Set([
-    '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt',
+    '.pdf',
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.gif',
+    '.webp',
+    '.doc',
+    '.docx',
+    '.xls',
+    '.xlsx',
+    '.ppt',
+    '.pptx',
+    '.txt',
   ]);
 
   private static readonly allowedMimeTypes = new Set([
@@ -48,7 +71,6 @@ export class DocumentsPublicController {
     'application/vnd.ms-powerpoint',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'text/plain',
-    'application/octet-stream',
   ]);
 
   @Get('act-requests/emitters')
@@ -72,7 +94,9 @@ export class DocumentsPublicController {
       fileFilter: (_req, file, cb) => {
         const extension = extname(file.originalname || '').toLowerCase();
         const extAllowed = DocumentsPublicController.allowedExtensions.has(extension);
-        const mimeAllowed = DocumentsPublicController.allowedMimeTypes.has(String(file.mimetype || '').toLowerCase());
+        const mimeAllowed = DocumentsPublicController.allowedMimeTypes.has(
+          String(file.mimetype || '').toLowerCase()
+        );
 
         if (extAllowed && mimeAllowed) {
           cb(null, true);
@@ -81,10 +105,11 @@ export class DocumentsPublicController {
 
         (cb as any)(new BadRequestException('Type de fichier non autorise.'), false);
       },
-    }),
+    })
   )
   submitPublicActRequest(
-    @Body() body: {
+    @Body()
+    body: {
       emitterAdministrationId?: string;
       requestedActId?: string;
       applicantFullName?: string;
@@ -94,7 +119,7 @@ export class DocumentsPublicController {
       fileLabels?: string | string[];
       applicantFieldValues?: string;
     },
-    @UploadedFiles() files: Express.Multer.File[],
+    @UploadedFiles() files: Express.Multer.File[]
   ) {
     const rawFileLabels = body?.fileLabels;
     const fileLabels = Array.isArray(rawFileLabels)
@@ -109,12 +134,15 @@ export class DocumentsPublicController {
       try {
         const parsed = JSON.parse(rawApplicantFieldValues);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          applicantFieldValues = Object.entries(parsed).reduce((acc, [key, value]) => {
-            const normalizedKey = String(key || '').trim();
-            if (!normalizedKey) return acc;
-            acc[normalizedKey] = String(value || '').trim();
-            return acc;
-          }, {} as Record<string, string>);
+          applicantFieldValues = Object.entries(parsed).reduce(
+            (acc, [key, value]) => {
+              const normalizedKey = String(key || '').trim();
+              if (!normalizedKey) return acc;
+              acc[normalizedKey] = String(value || '').trim();
+              return acc;
+            },
+            {} as Record<string, string>
+          );
         }
       } catch {
         throw new BadRequestException('Le format des champs usager est invalide.');
@@ -137,7 +165,8 @@ export class DocumentsPublicController {
   @Get(':id/digital-version')
   @ApiOperation({ summary: 'Public access to the digital version of a signed document' })
   async getDigitalVersion(@Param('id') id: string, @Res() res: Response) {
-    const { absolutePath, fileName, mimeType } = await this.documentsService.resolveDigitalVersion(id);
+    const { absolutePath, fileName, mimeType } =
+      await this.documentsService.resolveDigitalVersion(id);
 
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);

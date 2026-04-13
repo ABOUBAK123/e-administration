@@ -9,7 +9,7 @@ const baseOptions: DataSourceOptions = {
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT || (dbType === 'mysql' ? 3306 : 5432)),
   username: process.env.DB_USER || (dbType === 'mysql' ? 'epadmin_app' : 'epAdmin'),
-  password: process.env.DB_PASSWORD || (dbType === 'mysql' ? 'epAdminDev2024!' : 'epPassword'),
+  password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'e_parapheur',
   entities: [join(process.cwd(), 'src/**/*.entity.ts')],
   migrations: [join(process.cwd(), 'src/database/migrations/*.ts')],

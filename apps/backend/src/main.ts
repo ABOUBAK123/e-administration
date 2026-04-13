@@ -4,27 +4,55 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { json, urlencoded } from 'express';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+
+  if (isProduction && !process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is required in production');
+  }
+
+  if (isProduction && !process.env.DB_PASSWORD) {
+    throw new Error('DB_PASSWORD is required in production');
+  }
+
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: false,
+      contentSecurityPolicy: false,
+    })
+  );
+
+  const corsFromEnv = String(process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
   const allowedOrigins = new Set([
     'http://localhost:5173',
     'http://localhost:5174',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:5174',
+    ...corsFromEnv,
   ]);
 
   // ── CORS headers FIRST — must run before any other middleware ──────────
   app.use((req: any, res: any, next: any) => {
     const origin = req.headers?.origin;
-    console.log(`[REQ] ${req.method} ${req.url} origin=${origin || 'none'}`);
+    if (!isProduction) {
+      console.log(`[REQ] ${req.method} ${req.url} origin=${origin || 'none'}`);
+    }
     if (origin && allowedOrigins.has(origin)) {
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Vary', 'Origin');
       res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, X-Requested-With, Origin');
+      res.header(
+        'Access-Control-Allow-Headers',
+        'Authorization, Content-Type, Accept, X-Requested-With, Origin'
+      );
       res.header('Access-Control-Allow-Methods', 'GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS');
       res.header('Access-Control-Expose-Headers', 'Content-Disposition');
     }
@@ -86,7 +114,7 @@ async function bootstrap() {
       transformOptions: {
         enableImplicitConversion: true,
       },
-    }),
+    })
   );
 
   // Swagger documentation

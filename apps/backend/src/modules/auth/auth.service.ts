@@ -1,6 +1,5 @@
 import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcryptjs';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from '../users/dto/user.dto';
@@ -15,7 +14,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly usersService: UsersService,
-    private readonly notificationsService: NotificationsService,
+    private readonly notificationsService: NotificationsService
   ) {}
 
   async register(createUserDto: any) {
@@ -135,8 +134,7 @@ export class AuthService {
 
     if (!user) {
       return {
-        message:
-          'Si cette adresse email existe, un lien de reinitialisation a ete envoye.',
+        message: 'Si cette adresse email existe, un lien de reinitialisation a ete envoye.',
       };
     }
 
@@ -148,7 +146,7 @@ export class AuthService {
       },
       {
         expiresIn: '30m',
-      },
+      }
     );
 
     const frontendBaseUrl =
@@ -167,8 +165,7 @@ export class AuthService {
     this.logger.log(`Password reset requested for email=${normalizedEmail}`);
 
     return {
-      message:
-        'Si cette adresse email existe, un lien de reinitialisation a ete envoye.',
+      message: 'Si cette adresse email existe, un lien de reinitialisation a ete envoye.',
     };
   }
 
@@ -189,7 +186,7 @@ export class AuthService {
     const user = await this.usersService.findEntityById(payload.sub);
     const isSamePassword = await this.usersService.validatePassword(user, newPassword);
     if (isSamePassword) {
-      throw new BadRequestException('Le nouveau mot de passe doit etre different de l\'ancien.');
+      throw new BadRequestException("Le nouveau mot de passe doit etre different de l'ancien.");
     }
 
     await this.usersService.updatePassword(user.id, newPassword);
@@ -199,11 +196,13 @@ export class AuthService {
 
   async debugPermissionsByIdentifier(identifier: string, key?: string) {
     const debugKey =
-      this.configService.get<string>('PERMISSIONS_DEBUG_KEY') ||
-      process.env.PERMISSIONS_DEBUG_KEY ||
-      'debug-permissions-local';
+      this.configService.get<string>('PERMISSIONS_DEBUG_KEY') || process.env.PERMISSIONS_DEBUG_KEY;
     const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
     const providedKey = (key || '').trim();
+
+    if (!debugKey) {
+      throw new UnauthorizedException('Debug endpoint disabled');
+    }
 
     if (isProduction && providedKey !== debugKey) {
       throw new UnauthorizedException('Invalid debug key');
