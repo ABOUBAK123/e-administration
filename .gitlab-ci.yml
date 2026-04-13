@@ -1,0 +1,81 @@
+# ============================================================
+#  E-Parapheur Connect & Sign — Pipeline GitLab CI/CD
+#  Déclencheur : push sur la branche `main`
+#
+#  Variables à configurer dans GitLab (Settings > CI/CD > Variables) :
+#
+#  Variable            | Obligatoire | Exemple
+#  ------------------- | ----------- | ---------------------------
+#  SSH_PRIVATE_KEY     |     ✅      | Contenu de votre clé privée
+#  SERVER_HOST         |     ✅      | 192.168.1.100
+#  SERVER_USER         |     ✅      | root  (ou eadmin)
+#  SSH_PORT            |     ❌      | 22 (par défaut)
+#  DEPLOY_PATH         |     ❌      | /var/www/e-administration
+#
+# ============================================================
+
+stages:
+  - validate
+  - deploy
+
+# ─────────────────────────────────────────────────────────────
+#  ÉTAPE 1 — Validation : compile backend + frontend
+#  Détecte les erreurs TypeScript AVANT de déployer
+# ─────────────────────────────────────────────────────────────
+validate:
+  stage: validate
+  image: node:18-alpine
+  cache:
+    key: npm-${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+      - apps/backend/node_modules/
+      - apps/frontend/node_modules/
+  script:
+    - echo "==> Installation des dépendances..."
+    - npm ci
+    - echo "==> Compilation backend (NestJS)..."
+    - npm run backend:build
+    - echo "==> Compilation frontend (Vite/React)..."
+    - npm run frontend:build
+    - echo "==> ✅ Validation réussie"
+  only:
+    - main
+
+# ─────────────────────────────────────────────────────────────
+#  ÉTAPE 2 — Déploiement production
+#  Se connecte au serveur par SSH et exécute le script de déploiement
+# ─────────────────────────────────────────────────────────────
+deploy:production:
+  stage: deploy
+  image: alpine:latest
+  needs:
+    - validate
+  before_script:
+    # Installation des outils SSH
+    - apk add --no-cache openssh-client bash
+
+    # Configuration de la clé SSH
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+
+    # Ajout de l'empreinte du serveur (évite le prompt interactif)
+    - ssh-keyscan -p "${SSH_PORT:-22}" "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+  script:
+    - echo "==> Connexion au serveur $SERVER_USER@$SERVER_HOST..."
+    - |
+      ssh -p "${SSH_PORT:-22}" \
+          -o StrictHostKeyChecking=no \
+          -o ConnectTimeout=30 \
+          "${SERVER_USER}@${SERVER_HOST}" \
+          "export DEPLOY_PATH='${DEPLOY_PATH:-/var/www/e-administration}'; bash -s" \
+          < scripts/server-deploy.sh
+
+  environment:
+    name: production
+    url: https://$SERVER_HOST
+
+  only:
+    - main
