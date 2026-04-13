@@ -4,9 +4,11 @@ import {
   Bell, Plus, LayoutDashboard, FileText, GitBranch, PenTool, Shield, QrCode, Inbox,
   Upload, FolderUp, FolderPlus, FilePlus2, FileSpreadsheet, Presentation, Files,
   FileType2, Layout as LayoutIcon, FileQuestion, ChevronDown, UserCircle, LogOut, ClipboardList,
+  Clock,
 } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
 import { tokenStore } from '../../services/tokenStore'
+import { useInactivityLogout } from '../../hooks/useInactivityLogout'
 import { getCurrentUserPermissions, type CurrentUserPermissionsResponse } from '../../services/auth'
 import { getCurrentUserTheme } from '../../services/auth'
 import { getPendingSignatures } from '../../services/signatures'
@@ -227,6 +229,20 @@ function Layout() {
   const handleLogout = () => {
     logout()
     navigate('/login')
+  }
+
+  const { showWarning, countdown, stayLoggedIn } = useInactivityLogout({
+    enabled: Boolean(user?.id),
+    onLogout: () => {
+      logout()
+      navigate('/login')
+    },
+  })
+
+  const formatCountdown = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0')
+    const s = (seconds % 60).toString().padStart(2, '0')
+    return `${m}:${s}`
   }
 
   useEffect(() => {
@@ -634,6 +650,55 @@ function Layout() {
 
       {/* Chat en temps réel */}
       <ChatPanel />
+
+      {/* Modal d'avertissement d'inactivité */}
+      {showWarning && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          {/* Overlay */}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+
+          {/* Carte */}
+          <div className="relative w-full max-w-sm mx-4 bg-white rounded-2xl shadow-2xl border border-orange-100 p-6 space-y-4 text-center">
+            {/* Icône */}
+            <div className="flex justify-center">
+              <div className="h-14 w-14 rounded-full bg-orange-50 flex items-center justify-center">
+                <Clock size={28} className="text-orange-500" />
+              </div>
+            </div>
+
+            {/* Titre */}
+            <div>
+              <h2 className="text-lg font-bold text-gray-800">Session sur le point d&apos;expirer</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Vous avez été inactif(ve). La session se fermera automatiquement dans&nbsp;:
+              </p>
+            </div>
+
+            {/* Compte à rebours */}
+            <div className="text-4xl font-mono font-bold text-orange-500">
+              {formatCountdown(countdown)}
+            </div>
+
+            {/* Boutons */}
+            <div className="flex flex-col gap-2 pt-1">
+              <button
+                type="button"
+                onClick={stayLoggedIn}
+                className="w-full py-2.5 rounded-xl bg-[#2453d6] hover:bg-[#1f47bb] text-white font-semibold transition text-sm"
+              >
+                Rester connecté
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium transition text-sm"
+              >
+                Se déconnecter maintenant
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
