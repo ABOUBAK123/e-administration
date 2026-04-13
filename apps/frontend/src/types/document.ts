@@ -3,6 +3,7 @@ export interface DocumentItem {
   title: string;
   description?: string;
   filePath?: string;
+  mimeType?: string;
   type?: string;
   ownerId: string;
   issuingAdministrationId?: string | null;

@@ -73,7 +73,7 @@ api.interceptors.request.use(async (config) => {
         const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
           refreshToken: storedRefresh,
         }, { withCredentials: true });
-        const { accessToken, refreshToken: newRefreshToken, user } = response.data;
+        const { accessToken, refreshToken: newRefreshToken } = response.data;
         tokenStore.setTokens({ accessToken, refreshToken: newRefreshToken });
         api.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
         processQueue(null, accessToken);
@@ -136,7 +136,7 @@ api.interceptors.response.use(
 
     try {
       const response = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken }, { withCredentials: true });
-      const { accessToken, refreshToken: newRefreshToken, user } = response.data;
+      const { accessToken, refreshToken: newRefreshToken } = response.data;
 
       tokenStore.setTokens({ accessToken, refreshToken: newRefreshToken });
 

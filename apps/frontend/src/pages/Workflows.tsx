@@ -1788,7 +1788,7 @@ function Workflows() {
               {shouldUseOnlyoffice ? (
                 <iframe
                   title="OnlyOffice PDF Viewer"
-                  src={onlyofficeViewerUrl}
+                  src={onlyofficeViewerUrl || undefined}
                   className="absolute inset-0 w-full h-full border-0"
                   onError={() => {
                     setForceNativeViewer(true)

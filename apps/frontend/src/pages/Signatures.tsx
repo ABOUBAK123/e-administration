@@ -50,19 +50,11 @@ function Signatures() {
   const [requestMessage, setRequestMessage] = useState('')
   const [signatureHash, setSignatureHash] = useState('')
   const [workflowsRows, setWorkflowsRows] = useState<SignatureWorkflowRow[]>([])
-  const localFiles = useSignatureFilesStore((s) => s.localFiles)
-  const setLocalFiles = useSignatureFilesStore((s) => s.setLocalFiles)
-  const selectedLocalKeys = useSignatureFilesStore((s) => s.selectedLocalKeys)
-  const setSelectedLocalKeys = useSignatureFilesStore((s) => s.setSelectedLocalKeys)
-  const [uploadingLoading, setUploadingLoading] = useState(false)
   const [pendingSelfDocs, setPendingSelfDocs] = useState<PendingSelfDoc[]>([])
-  const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([])
-  const [signingLoading, setSigningLoading] = useState(false)
-  const [signedSelfDocs, setSignedSelfDocs] = useState<SignedSelfDoc[]>([])
-  const uploadedFilesByDocId = useSignatureFilesStore((s) => s.uploadedFilesByDocId)
-  const setUploadedFilesByDocId = useSignatureFilesStore((s) => s.setUploadedFilesByDocId)
+  const [, setSelectedPendingIds] = useState<string[]>([])
+  const [, setSignedSelfDocs] = useState<SignedSelfDoc[]>([])
   const [workflowsLoading, setWorkflowsLoading] = useState(false)
-  const [signatureProviderReady, setSignatureProviderReady] = useState<boolean | null>(null)
+  const [, setSignatureProviderReady] = useState<boolean | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [onlyofficeBaseUrl, setOnlyofficeBaseUrl] = useState('')
   const [docViewer, setDocViewer] = useState<'onlyoffice' | 'native'>('onlyoffice')
@@ -70,7 +62,7 @@ function Signatures() {
   const [wfForceNativeViewer, setWfForceNativeViewer] = useState(false)
   const [positioningTargetKey, setPositioningTargetKey] = useState<string | null>(null)
   const [positioningTargetName, setPositioningTargetName] = useState('')
-  const [positioningDocumentId, setPositioningDocumentId] = useState<string | null>(null)
+  const [, setPositioningDocumentId] = useState<string | null>(null)
   const [positioningFileUrl, setPositioningFileUrl] = useState<string | null>(null)
   const [positioningIsObjectUrl, setPositioningIsObjectUrl] = useState(false)
   const zonesByFileKey = useSignatureFilesStore((s) => s.zonesByFileKey)
@@ -78,7 +70,6 @@ function Signatures() {
   const savedZoneByKey = useSignatureFilesStore((s) => s.savedZoneByKey)
   const setSavedZoneByKey = useSignatureFilesStore((s) => s.setSavedZoneByKey)
   const [dragAction, setDragAction] = useState<{ zoneId: string; mode: 'move' | 'resize'; startX: number; startY: number; origZone: SignatureZone } | null>(null)
-  const uploadInputRef = useRef<HTMLInputElement>(null)
   const wfDocsToSignRef = useRef<HTMLInputElement>(null)
   const wfAttachedDocsRef = useRef<HTMLInputElement>(null)
 
@@ -489,227 +480,6 @@ function Signatures() {
     } catch {
       setFeedback('Erreur lors de la validation depuis le workflow')
     }
-  }
-
-  // ── Stage 1: select local files (same principle as Documents tab) ───────
-  const handleUploadFilesSelection = async (files: FileList | null) => {
-    const incoming = files ? Array.from(files) : []
-    if (incoming.length === 0) return
-    setLocalFiles((prev) => {
-      const existingKeys = new Set(prev.map(getFileKey))
-      const toAdd = incoming.filter((f) => !existingKeys.has(getFileKey(f)))
-      return [...prev, ...toAdd]
-    })
-    setSelectedLocalKeys((prev) => {
-      const next = new Set(prev)
-      incoming.forEach((f) => next.add(getFileKey(f)))
-      return Array.from(next)
-    })
-  }
-
-  const openSystemFilePicker = () => {
-    uploadInputRef.current?.click()
-  }
-
-  const handleToggleLocalKey = (key: string) =>
-    setSelectedLocalKeys((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key])
-
-  const handleToggleAllLocal = () => {
-    setSelectedLocalKeys(selectedLocalKeys.length === localFiles.length ? [] : localFiles.map(getFileKey))
-  }
-
-  const handleRemoveLocalFile = (key: string) => {
-    setLocalFiles((prev) => prev.filter((f) => getFileKey(f) !== key))
-    setSelectedLocalKeys((prev) => prev.filter((k) => k !== key))
-  }
-
-  // ── Stage 2: upload + sign selected local files ──────────────────────────
-  const handleUploadLocalFiles = async () => {
-    if (!signatureProviderReady) {
-      setFeedback('API Signature non configurée ou inactive. Veuillez configurer le sous-onglet API Signature avant de signer.')
-      return
-    }
-
-    if (selectedLocalKeys.length === 0) {
-      setFeedback('Veuillez cocher au moins un fichier à téléverser')
-      return
-    }
-
-    const localKeysWithoutSavedZone = localFiles
-      .filter((file) => selectedLocalKeys.includes(getFileKey(file)))
-      .map((file) => getFileKey(file))
-      .filter((key) => !savedZoneByKey[key])
-
-    if (localKeysWithoutSavedZone.length > 0) {
-      setFeedback('Veuillez placer puis enregistrer une zone de signature pour chaque fichier coché avant de signer.')
-      return
-    }
-
-    setUploadingLoading(true)
-    try {
-      const filesToUpload = localFiles.filter((f) => selectedLocalKeys.includes(getFileKey(f)))
-      const uploaded: { file: File; doc: DocumentItem }[] = []
-      const failures: string[] = []
-      const failureReasons: string[] = []
-      let signedCount = 0
-
-      for (const file of filesToUpload) {
-        try {
-          const doc = await uploadDocumentFile(file)
-          uploaded.push({ file, doc })
-
-          const localKey = getFileKey(file)
-          const docKey = getDocumentZoneKey(doc.id)
-
-          setZonesByFileKey((prev) => {
-            const next = { ...prev }
-            if (next[localKey] && !next[docKey]) {
-              next[docKey] = next[localKey]
-            }
-            return next
-          })
-          setSavedZoneByKey((prev) => ({ ...prev, [docKey]: Boolean(prev[localKey]) }))
-
-          const generatedSignature = `sig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-          await signDocument(doc.id, { signatureHash: generatedSignature })
-          signedCount += 1
-        } catch (error: any) {
-          failures.push(file.name)
-          failureReasons.push(`${file.name}: ${getApiErrorMessage(error, 'Erreur de téléversement/signature')}`)
-        }
-      }
-
-      if (uploaded.length > 0) {
-        const uploadedKeys = new Set(uploaded.map(({ file }) => getFileKey(file)))
-
-        // Keep a session mapping docId -> File to preserve local zone placement on pending rows.
-        setUploadedFilesByDocId((prev) => {
-          const next = { ...prev }
-          uploaded.forEach(({ file, doc }) => {
-            next[doc.id] = file
-          })
-          return next
-        })
-
-        setZonesByFileKey((prev) => {
-          const next = { ...prev }
-          uploaded.forEach(({ file, doc }) => {
-            const localKey = getFileKey(file)
-            const docKey = getDocumentZoneKey(doc.id)
-            if (next[localKey] && !next[docKey]) {
-              next[docKey] = next[localKey]
-            }
-          })
-          return next
-        })
-
-        setLocalFiles((prev) => prev.filter((f) => !uploadedKeys.has(getFileKey(f))))
-        setSelectedLocalKeys((prev) => prev.filter((k) => !uploadedKeys.has(k)))
-        await reloadSelfSignatureLists()
-      }
-
-      if (signedCount > 0) {
-        const lastSignedDoc = uploaded[uploaded.length - 1]?.doc
-        if (lastSignedDoc) {
-          setSelectedDocumentId(lastSignedDoc.id)
-          const sigs = await fetchSignatures(lastSignedDoc.id)
-          setSignatures(sigs)
-        }
-      }
-
-      if (failures.length > 0) {
-        setFeedback(`${signedCount} document(s) signé(s). Échecs: ${failureReasons.join(' ; ')}`)
-      } else if (signedCount > 0) {
-        setFeedback(`${signedCount} document(s) téléversé(s) et signé(s) avec succès`)
-      }
-    } finally {
-      setUploadingLoading(false)
-    }
-  }
-
-  // ── Stage 3: sign pending docs → signed table ─────────────────────────────
-  const handleTogglePendingId = (id: string) =>
-    setSelectedPendingIds((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id])
-
-  const handleToggleAllPending = () => {
-    setSelectedPendingIds(selectedPendingIds.length === pendingSelfDocs.length ? [] : pendingSelfDocs.map((p) => p.doc.id))
-  }
-
-  const handleSignPendingDocs = async () => {
-    if (!signatureProviderReady) {
-      setFeedback('API Signature non configurée ou inactive. Veuillez configurer le sous-onglet API Signature avant de signer.')
-      return
-    }
-    if (selectedPendingIds.length === 0) {
-      setFeedback('Veuillez cocher au moins un document à signer')
-      return
-    }
-
-    const unsignedZones = pendingSelfDocs
-      .filter((entry) => selectedPendingIds.includes(entry.doc.id))
-      .filter((entry) => !savedZoneByKey[getDocumentZoneKey(entry.doc.id)])
-      .map((entry) => entry.doc.title)
-
-    if (unsignedZones.length > 0) {
-      setFeedback(`Veuillez enregistrer la zone de signature avant de signer: ${unsignedZones.join(', ')}`)
-      return
-    }
-
-    setSigningLoading(true)
-    const toSign = pendingSelfDocs.filter((p) => selectedPendingIds.includes(p.doc.id))
-    const signed: typeof toSign = []
-    const failureReasons: string[] = []
-
-    for (const entry of toSign) {
-      try {
-        const generatedSignature = `sig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-        await signDocument(entry.doc.id, { signatureHash: generatedSignature })
-        signed.push(entry)
-      } catch (error: any) {
-        failureReasons.push(`${entry.doc.title}: ${getApiErrorMessage(error, 'Erreur de signature')}`)
-      }
-    }
-
-    if (signed.length > 0) {
-      const lastSigned = signed[signed.length - 1]
-      setSelectedDocumentId(lastSigned.doc.id)
-      const sigs = await fetchSignatures(lastSigned.doc.id)
-      setSignatures(sigs)
-      setUploadedFilesByDocId((prev) => {
-        const next = { ...prev }
-        signed.forEach((entry) => {
-          delete next[entry.doc.id]
-        })
-        return next
-      })
-    }
-
-    await reloadSelfSignatureLists()
-
-    if (failureReasons.length > 0) {
-      setFeedback(`${signed.length} document(s) signé(s). Échecs: ${failureReasons.join(' ; ')}`)
-    } else {
-      setFeedback(`${signed.length} document(s) signé(s) avec succès`)
-    }
-    setSigningLoading(false)
-  }
-
-  const openPositioning = (file: File) => {
-    if (!file.type.includes('pdf')) {
-      setFeedback('Le positionnement est disponible uniquement pour les fichiers PDF')
-      return
-    }
-    if (positioningIsObjectUrl && positioningFileUrl) {
-      URL.revokeObjectURL(positioningFileUrl)
-    }
-    const localUrl = URL.createObjectURL(file)
-    setPositioningTargetKey(getFileKey(file))
-    setPositioningTargetName(file.name)
-    setPositioningDocumentId(null)
-    setPositioningFileUrl(localUrl)
-    setPositioningIsObjectUrl(true)
-    setForceNativeViewer(false)
-    setSavedZoneByKey((prev) => ({ ...prev, [getFileKey(file)]: Boolean((zonesByFileKey[getFileKey(file)] || []).length) }))
   }
 
   const openPositioningForDocument = async (documentId: string) => {
