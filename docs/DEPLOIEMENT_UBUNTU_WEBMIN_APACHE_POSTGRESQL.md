@@ -228,7 +228,7 @@ curl -I http://127.0.0.1:3000/api/v1
 
 ## 11. Configurer Apache VirtualHost
 
-Creer /etc/apache2/sites-available/e-administration.conf:
+Creer /etc/apache2/sites-available/e-administration.dyula.ci.conf:
 
 ```apache
 <VirtualHost *:80>
@@ -268,7 +268,7 @@ Activer le site:
 
 ```bash
 a2dissite 000-default.conf
-a2ensite e-administration.conf
+a2ensite e-administration.dyula.ci.conf
 apache2ctl configtest
 systemctl reload apache2
 ```
@@ -374,7 +374,7 @@ chmod +x /etc/cron.daily/backup-eadministration-db
 - Sauvegarder aussi:
   - /opt/e-administration/storage
   - /opt/e-administration/app/apps/backend/.env
-  - /etc/apache2/sites-available/e-administration.conf
+  - /etc/apache2/sites-available/e-administration.dyula.ci.conf
 
 ---
 

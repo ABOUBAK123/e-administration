@@ -25,7 +25,11 @@ export class QrcodeController {
   @UseGuards(AuthGuard('jwt'))
   @ApiOperation({ summary: 'Generate QR code for document' })
   generate(@Body() generateQrCodeDto: GenerateQrCodeDto, @Request() req) {
-    return this.qrcodeService.generate(generateQrCodeDto.documentId, req.user.id, generateQrCodeDto);
+    return this.qrcodeService.generate(
+      generateQrCodeDto.documentId,
+      req.user.id,
+      generateQrCodeDto
+    );
   }
 
   @Get('document/:documentId')
@@ -45,18 +49,16 @@ export class QrcodeController {
 
   @Get('scan/:verificationCode')
   @ApiOperation({ summary: 'Public QR scan endpoint that redirects to digital document version' })
-  async scanAndRedirect(
-    @Param('verificationCode') verificationCode: string,
-    @Res() res: Response,
-  ) {
-    const result = await this.qrcodeService.resolveDigitalVersionByVerificationCode(verificationCode);
+  async scanAndRedirect(@Param('verificationCode') verificationCode: string, @Res() res: Response) {
+    const result =
+      await this.qrcodeService.resolveDigitalVersionByVerificationCode(verificationCode);
     return res.redirect(302, result.verificationPageUrl || result.digitalVersionUrl);
   }
 
   @Delete(':qrcodeId')
   @UseGuards(AuthGuard('jwt'))
   @ApiOperation({ summary: 'Revoke QR code' })
-  revoke(@Param('qrcodeId') qrcodeId: string, @Request() req) {
+  revoke(@Param('qrcodeId') qrcodeId: string, @Request() _req) {
     return this.qrcodeService.revoke(qrcodeId);
   }
 

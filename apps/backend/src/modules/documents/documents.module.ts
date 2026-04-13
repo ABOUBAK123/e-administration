@@ -17,7 +17,22 @@ import { QrcodeModule } from '../qrcode/qrcode.module';
 import { DocumentUserPreference } from './document-user-preference.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Document, DocumentVersion, DocumentUserPreference, User, AdministrationUser, AdministrationProfile, RecipientAdministration, IssuingAdministration, RequestedAct, UserDirectionAssignment]), NotificationsModule, QrcodeModule],
+  imports: [
+    TypeOrmModule.forFeature([
+      Document,
+      DocumentVersion,
+      DocumentUserPreference,
+      User,
+      AdministrationUser,
+      AdministrationProfile,
+      RecipientAdministration,
+      IssuingAdministration,
+      RequestedAct,
+      UserDirectionAssignment,
+    ]),
+    NotificationsModule,
+    QrcodeModule,
+  ],
   providers: [DocumentsService],
   controllers: [DocumentsController, DocumentsPublicController],
   exports: [DocumentsService],

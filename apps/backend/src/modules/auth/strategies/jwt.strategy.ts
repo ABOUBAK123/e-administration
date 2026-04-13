@@ -8,12 +8,13 @@ import { AuthService } from '../auth.service';
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private readonly configService: ConfigService,
-    private readonly authService: AuthService,
+    private readonly authService: AuthService
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET') || 'your-secret-key-change-in-production',
+      secretOrKey:
+        configService.get<string>('JWT_SECRET') || 'your-secret-key-change-in-production',
     });
   }
 

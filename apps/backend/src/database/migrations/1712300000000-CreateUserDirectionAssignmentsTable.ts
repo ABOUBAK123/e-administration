@@ -22,29 +22,73 @@ export class CreateUserDirectionAssignmentsTable1712300000000 implements Migrati
         )
       `);
 
-      await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_user_direction_assignments_scopeType" ON "user_direction_assignments" ("directionScopeType")`);
-      await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_user_direction_assignments_scopeId" ON "user_direction_assignments" ("directionScopeId")`);
+      await queryRunner.query(
+        `CREATE INDEX IF NOT EXISTS "IDX_user_direction_assignments_scopeType" ON "user_direction_assignments" ("directionScopeType")`
+      );
+      await queryRunner.query(
+        `CREATE INDEX IF NOT EXISTS "IDX_user_direction_assignments_scopeId" ON "user_direction_assignments" ("directionScopeId")`
+      );
       return;
     }
 
-    await queryRunner.query(`
-      CREATE TABLE IF NOT EXISTS ` + '`user_direction_assignments`' + ` (
-        ` + '`id` CHAR(36) NOT NULL,' + `
-        ` + '`userId` CHAR(36) NOT NULL,' + `
-        ` + '`directionScopeType` VARCHAR(20) DEFAULT NULL,' + `
-        ` + '`directionScopeId` VARCHAR(120) DEFAULT NULL,' + `
-        ` + '`directionLabel` VARCHAR(255) NOT NULL,' + `
-        ` + '`createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,' + `
-        ` + '`updatedAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,' + `
-        PRIMARY KEY (` + '`id`' + `),
-        UNIQUE KEY ` + '`UQ_user_direction_assignments_userId`' + ` (` + '`userId`' + `),
-        KEY ` + '`IDX_user_direction_assignments_scopeType`' + ` (` + '`directionScopeType`' + `),
-        KEY ` + '`IDX_user_direction_assignments_scopeId`' + ` (` + '`directionScopeId`' + `),
-        CONSTRAINT ` + '`FK_user_direction_assignments_user`' + ` FOREIGN KEY (` + '`userId`' + `)
-          REFERENCES ` + '`users`' + `(` + '`id`' + `)
+    await queryRunner.query(
+      `
+      CREATE TABLE IF NOT EXISTS ` +
+        '`user_direction_assignments`' +
+        ` (
+        ` +
+        '`id` CHAR(36) NOT NULL,' +
+        `
+        ` +
+        '`userId` CHAR(36) NOT NULL,' +
+        `
+        ` +
+        '`directionScopeType` VARCHAR(20) DEFAULT NULL,' +
+        `
+        ` +
+        '`directionScopeId` VARCHAR(120) DEFAULT NULL,' +
+        `
+        ` +
+        '`directionLabel` VARCHAR(255) NOT NULL,' +
+        `
+        ` +
+        '`createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,' +
+        `
+        ` +
+        '`updatedAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,' +
+        `
+        PRIMARY KEY (` +
+        '`id`' +
+        `),
+        UNIQUE KEY ` +
+        '`UQ_user_direction_assignments_userId`' +
+        ` (` +
+        '`userId`' +
+        `),
+        KEY ` +
+        '`IDX_user_direction_assignments_scopeType`' +
+        ` (` +
+        '`directionScopeType`' +
+        `),
+        KEY ` +
+        '`IDX_user_direction_assignments_scopeId`' +
+        ` (` +
+        '`directionScopeId`' +
+        `),
+        CONSTRAINT ` +
+        '`FK_user_direction_assignments_user`' +
+        ` FOREIGN KEY (` +
+        '`userId`' +
+        `)
+          REFERENCES ` +
+        '`users`' +
+        `(` +
+        '`id`' +
+        `)
           ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
+    `
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

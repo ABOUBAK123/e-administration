@@ -11,15 +11,17 @@ import { RecipientAdministration } from '../administration/entities/recipient-ad
 import { UserDirectionAssignment } from './user-direction-assignment.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([
-    User,
-    AdministrationUser,
-    AdministrationProfile,
-    AppSetting,
-    IssuingAdministration,
-    RecipientAdministration,
-    UserDirectionAssignment,
-  ])],
+  imports: [
+    TypeOrmModule.forFeature([
+      User,
+      AdministrationUser,
+      AdministrationProfile,
+      AppSetting,
+      IssuingAdministration,
+      RecipientAdministration,
+      UserDirectionAssignment,
+    ]),
+  ],
   providers: [UsersService],
   controllers: [UsersController],
   exports: [UsersService],

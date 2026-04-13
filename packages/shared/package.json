@@ -6,6 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "lint": "echo \"No lint checks configured for @e-parapheur/shared\"",
     "format": "prettier --write \"src/**/*.ts\""
   },
   "dependencies": {

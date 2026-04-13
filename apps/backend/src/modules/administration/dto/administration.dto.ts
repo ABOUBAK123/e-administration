@@ -1,5 +1,15 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsEmail, IsInt, IsObject, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+} from 'class-validator';
 
 export class CreateTemplateDto {
   @ApiProperty({ example: 'Template Attestation' })
@@ -19,7 +29,10 @@ export class CreateTemplateDto {
   @IsString()
   storagePath?: string;
 
-  @ApiProperty({ required: false, description: 'Template body with placeholders like {{nom_usager}}' })
+  @ApiProperty({
+    required: false,
+    description: 'Template body with placeholders like {{nom_usager}}',
+  })
   @IsOptional()
   @IsString()
   content?: string;
@@ -236,7 +249,11 @@ export class CreateAdministrationUserDto {
   @IsString()
   username: string;
 
-  @ApiProperty({ required: false, enum: ['super_admin', 'admin', 'manager', 'user', 'signer'], default: 'user' })
+  @ApiProperty({
+    required: false,
+    enum: ['super_admin', 'admin', 'manager', 'user', 'signer'],
+    default: 'user',
+  })
   @IsOptional()
   @IsString()
   adminRole?: 'super_admin' | 'admin' | 'manager' | 'user' | 'signer';
@@ -386,7 +403,11 @@ export class UpdateRoutingRuleDto {
 }
 
 export class UpsertSignatureProviderConfigDto {
-  @ApiProperty({ required: false, example: 'uuid-admin-id', description: 'Administration ID for multi-tenant config' })
+  @ApiProperty({
+    required: false,
+    example: 'uuid-admin-id',
+    description: 'Administration ID for multi-tenant config',
+  })
   @IsOptional()
   @IsUUID()
   administrationId?: string;
@@ -421,7 +442,11 @@ export class UpsertSignatureProviderConfigDto {
   @IsString()
   signatureProfileId?: string;
 
-  @ApiProperty({ required: false, example: 'usr_xxx', description: 'User ID of the API token owner on the provider platform' })
+  @ApiProperty({
+    required: false,
+    example: 'usr_xxx',
+    description: 'User ID of the API token owner on the provider platform',
+  })
   @IsOptional()
   @IsString()
   providerOwnerUserId?: string;

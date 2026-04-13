@@ -39,7 +39,7 @@ export class SignaturesService {
     @InjectRepository(AppSetting)
     private appSettingRepository: Repository<AppSetting>,
     private notificationsService: NotificationsService,
-    private qrcodeService: QrcodeService,
+    private qrcodeService: QrcodeService
   ) {}
 
   private async resolveSignatureQrPosition(): Promise<{
@@ -97,7 +97,7 @@ export class SignaturesService {
     document: Document,
     userId: string,
     administrationId: string | null,
-    _signatureData: CreateSignatureDto,
+    _signatureData: CreateSignatureDto
   ): Promise<Record<string, any> | null> {
     let providerConfig: SignatureProviderConfig | null = null;
 
@@ -120,7 +120,7 @@ export class SignaturesService {
     // 3) Do not silently skip external call.
     if (!providerConfig) {
       throw new BadRequestException(
-        'Aucune configuration API Signature active trouvée (administration ou globale).',
+        'Aucune configuration API Signature active trouvée (administration ou globale).'
       );
     }
 
@@ -134,7 +134,7 @@ export class SignaturesService {
 
     if (!endpoint || !apiKey || !consentPageId || !signatureProfileId) {
       throw new BadRequestException(
-        'Signature API configuration is incomplete. Please set endpoint, API key, consent page ID and signature profile ID.',
+        'Signature API configuration is incomplete. Please set endpoint, API key, consent page ID and signature profile ID.'
       );
     }
 
@@ -152,7 +152,9 @@ export class SignaturesService {
         if (err?.name === 'AbortError') {
           throw new BadRequestException(`Signature provider timeout at: ${url}`);
         }
-        throw new BadRequestException(`Signature provider network error: ${err?.message || 'Unknown'}`);
+        throw new BadRequestException(
+          `Signature provider network error: ${err?.message || 'Unknown'}`
+        );
       } finally {
         clearTimeout(timer);
       }
@@ -175,20 +177,20 @@ export class SignaturesService {
     const signerEmail = signer?.email;
     if (!signerEmail) {
       throw new BadRequestException(
-        'Le signataire ne possède pas d\'adresse e-mail. Un e-mail est requis pour l\'intégration avec la plateforme de signature.',
+        "Le signataire ne possède pas d'adresse e-mail. Un e-mail est requis pour l'intégration avec la plateforme de signature."
       );
     }
 
     // ── Step 2: Look up signer's userId on provider platform ─────────────────
     const userSearch = await fetchStep(
       `${apiBase}/users?items.email=${encodeURIComponent(signerEmail)}`,
-      { headers: baseHeaders },
+      { headers: baseHeaders }
     );
     const providerSignerUserId: string | undefined =
       userSearch?.items?.[0]?.id ?? userSearch?.[0]?.id;
     if (!providerSignerUserId) {
       throw new BadRequestException(
-        `L'utilisateur ${signerEmail} n'est pas trouvé sur la plateforme de signature. Vérifiez que son compte existe sur la plateforme.`,
+        `L'utilisateur ${signerEmail} n'est pas trouvé sur la plateforme de signature. Vérifiez que son compte existe sur la plateforme.`
       );
     }
 
@@ -199,40 +201,37 @@ export class SignaturesService {
       ownerUserId = meBody?.id;
       if (!ownerUserId) {
         throw new BadRequestException(
-          'Impossible de déterminer l\'identifiant du propriétaire API. Veuillez le configurer dans les paramètres API Signature.',
+          "Impossible de déterminer l'identifiant du propriétaire API. Veuillez le configurer dans les paramètres API Signature."
         );
       }
     }
 
     // ── Step 4: Create workflow (parapheur) ────────────────────────────────
-    const workflowBody = await fetchStep(
-      `${apiBase}/users/${ownerUserId}/workflows`,
-      {
-        method: 'POST',
-        headers: { ...baseHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: document.title || 'Document',
-          steps: [
-            {
-              stepType: 'signature',
-              recipients: [
-                {
-                  consentPageId,
-                  userId: providerSignerUserId,
-                },
-              ],
-              sendDownloadLink: false,
-              hideWorkflowRecipients: true,
-            },
-          ],
-          notifiedEvents: [],
-        }),
-      },
-    );
+    const workflowBody = await fetchStep(`${apiBase}/users/${ownerUserId}/workflows`, {
+      method: 'POST',
+      headers: { ...baseHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: document.title || 'Document',
+        steps: [
+          {
+            stepType: 'signature',
+            recipients: [
+              {
+                consentPageId,
+                userId: providerSignerUserId,
+              },
+            ],
+            sendDownloadLink: false,
+            hideWorkflowRecipients: true,
+          },
+        ],
+        notifiedEvents: [],
+      }),
+    });
     const workflowId: string = workflowBody?.id;
     if (!workflowId) {
       throw new BadRequestException(
-        'La plateforme de signature n\'a pas retourné d\'identifiant de workflow.',
+        "La plateforme de signature n'a pas retourné d'identifiant de workflow."
       );
     }
 
@@ -248,9 +247,7 @@ export class SignaturesService {
 
     const fileBuffer = absolutePath ? await fsReadFile(absolutePath).catch(() => null) : null;
     if (!fileBuffer) {
-      throw new BadRequestException(
-        `Le fichier document est inaccessible : ${document.filePath}`,
-      );
+      throw new BadRequestException(`Le fichier document est inaccessible : ${document.filePath}`);
     }
     const fileHash = crypto.createHash('sha256').update(fileBuffer).digest('base64');
     const fileSize = fileBuffer.length;
@@ -312,7 +309,10 @@ export class SignaturesService {
     };
   }
 
-  private async resolveAdministrationIdForDocument(document: Document, fallbackUserId: string): Promise<string | null> {
+  private async resolveAdministrationIdForDocument(
+    document: Document,
+    fallbackUserId: string
+  ): Promise<string | null> {
     if (document.issuingAdministrationId) {
       return document.issuingAdministrationId;
     }
@@ -358,8 +358,11 @@ export class SignaturesService {
             ? metadata.sousTutelles
             : [];
 
-        const match = subEntities.find((item: any) =>
-          String(item?.code || '').trim().toUpperCase() === normalizedSubEntityCode,
+        const match = subEntities.find(
+          (item: any) =>
+            String(item?.code || '')
+              .trim()
+              .toUpperCase() === normalizedSubEntityCode
         );
 
         if (match) {
@@ -373,7 +376,7 @@ export class SignaturesService {
 
   private async generateNextDocumentNumber(
     manager: EntityManager,
-    administrationId: string,
+    administrationId: string
   ): Promise<string> {
     return this.generateNextDocumentNumberWithSubEntity(manager, administrationId, null);
   }
@@ -381,7 +384,7 @@ export class SignaturesService {
   private async generateNextDocumentNumberWithSubEntity(
     manager: EntityManager,
     administrationId: string,
-    subEntityCode: string | null,
+    subEntityCode: string | null
   ): Promise<string> {
     const updateResult = await manager
       .createQueryBuilder()
@@ -423,18 +426,22 @@ export class SignaturesService {
       throw new NotFoundException('Document not found');
     }
 
-    const resolvedAdministrationId = await this.resolveAdministrationIdForDocument(initialDocument, userId);
+    const resolvedAdministrationId = await this.resolveAdministrationIdForDocument(
+      initialDocument,
+      userId
+    );
 
     const externalSignatureResult = await this.callExternalSignatureProvider(
       initialDocument,
       userId,
       resolvedAdministrationId,
-      signatureData,
+      signatureData
     );
 
     let savedSignature: Signature | null = null;
     let assignedDocumentNumber = initialDocument.documentNumber || null;
-    let assignedAdministrationId = resolvedAdministrationId || initialDocument.issuingAdministrationId || null;
+    let assignedAdministrationId =
+      resolvedAdministrationId || initialDocument.issuingAdministrationId || null;
     let shouldGenerateQrCode = false;
 
     await this.documentRepository.manager.transaction(async (manager) => {
@@ -466,7 +473,7 @@ export class SignaturesService {
 
       if (!administrationId) {
         throw new BadRequestException(
-          'Impossible de codifier le numéro du document signé: aucune administration émettrice liée au signataire/direction.',
+          'Impossible de codifier le numéro du document signé: aucune administration émettrice liée au signataire/direction.'
         );
       }
 
@@ -474,7 +481,7 @@ export class SignaturesService {
         document.documentNumber = await this.generateNextDocumentNumberWithSubEntity(
           manager,
           administrationId,
-          document.subEntityCode ?? null,
+          document.subEntityCode ?? null
         );
         shouldGenerateQrCode = true;
       }
@@ -558,7 +565,9 @@ export class SignaturesService {
     }
 
     const requester = await this.userRepository.findOne({ where: { id: userId } });
-    const recipient = await this.userRepository.findOne({ where: { email: requestData.recipientEmail } });
+    const recipient = await this.userRepository.findOne({
+      where: { email: requestData.recipientEmail },
+    });
 
     if (!recipient) {
       throw new NotFoundException('Recipient user not found for this email');

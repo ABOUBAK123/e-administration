@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Request, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Request,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -24,7 +37,6 @@ import {
   UpdateTemplateDto,
   UpdateTemplateVariableDto,
   UpsertAppSettingDto,
-  CreateRequestedActDto,
   UpsertNotificationConfigDto,
   UpsertSignatureProviderConfigDto,
 } from './dto/administration.dto';
@@ -51,7 +63,11 @@ export class AdministrationController {
 
   @Put('requested-acts/:id')
   @ApiOperation({ summary: 'Update requested act configuration' })
-  updateRequestedAct(@Param('id') id: string, @Body() dto: Record<string, unknown>, @Request() req) {
+  updateRequestedAct(
+    @Param('id') id: string,
+    @Body() dto: Record<string, unknown>,
+    @Request() req
+  ) {
     return this.administrationService.updateRequestedAct(id, dto, req?.user?.id || null);
   }
 
@@ -105,7 +121,9 @@ export class AdministrationController {
 
   @Put('app-settings')
   @ApiOperation({ summary: 'Bulk upsert multiple global app settings' })
-  upsertAppSettings(@Body() body: { entries: Array<{ key: string; value: string | null; description?: string }> }) {
+  upsertAppSettings(
+    @Body() body: { entries: Array<{ key: string; value: string | null; description?: string }> }
+  ) {
     return this.administrationService.upsertAppSettings(body.entries || []);
   }
 
@@ -127,12 +145,15 @@ export class AdministrationController {
       fileFilter: (_req, file, cb) => {
         const allowed = /\.(png|jpg|jpeg|webp)$/i;
         if (!allowed.test(file.originalname)) {
-          return cb(new BadRequestException('Only image files are allowed (png, jpg, jpeg, webp)'), false);
+          return cb(
+            new BadRequestException('Only image files are allowed (png, jpg, jpeg, webp)'),
+            false
+          );
         }
         cb(null, true);
       },
       limits: { fileSize: 8 * 1024 * 1024 },
-    }),
+    })
   )
   uploadThemeBackground(@UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
@@ -177,19 +198,29 @@ export class AdministrationController {
 
   @Post('templates/:templateId/variables')
   @ApiOperation({ summary: 'Create dynamic variable and form field config' })
-  createTemplateVariable(@Param('templateId') templateId: string, @Body() dto: CreateTemplateVariableDto) {
+  createTemplateVariable(
+    @Param('templateId') templateId: string,
+    @Body() dto: CreateTemplateVariableDto
+  ) {
     return this.administrationService.createTemplateVariable(templateId, dto);
   }
 
   @Put('templates/:templateId/variables/:variableId')
   @ApiOperation({ summary: 'Update dynamic variable configuration' })
-  updateTemplateVariable(@Param('templateId') templateId: string, @Param('variableId') variableId: string, @Body() dto: UpdateTemplateVariableDto) {
+  updateTemplateVariable(
+    @Param('templateId') templateId: string,
+    @Param('variableId') variableId: string,
+    @Body() dto: UpdateTemplateVariableDto
+  ) {
     return this.administrationService.updateTemplateVariable(templateId, variableId, dto);
   }
 
   @Delete('templates/:templateId/variables/:variableId')
   @ApiOperation({ summary: 'Delete dynamic variable configuration' })
-  deleteTemplateVariable(@Param('templateId') templateId: string, @Param('variableId') variableId: string) {
+  deleteTemplateVariable(
+    @Param('templateId') templateId: string,
+    @Param('variableId') variableId: string
+  ) {
     return this.administrationService.deleteTemplateVariable(templateId, variableId);
   }
 
@@ -207,7 +238,10 @@ export class AdministrationController {
 
   @Put('emitters/:id')
   @ApiOperation({ summary: 'Update issuing administration' })
-  updateIssuingAdministration(@Param('id') id: string, @Body() dto: UpdateIssuingAdministrationDto) {
+  updateIssuingAdministration(
+    @Param('id') id: string,
+    @Body() dto: UpdateIssuingAdministrationDto
+  ) {
     return this.administrationService.updateIssuingAdministration(id, dto);
   }
 
@@ -235,16 +269,21 @@ export class AdministrationController {
       fileFilter: (_req, file, cb) => {
         const allowed = /\.(png|jpg|jpeg|jfif|svg|webp)$/i;
         if (!allowed.test(file.originalname)) {
-          return cb(new BadRequestException('Only image files are allowed (png, jpg, jpeg, jfif, svg, webp)'), false);
+          return cb(
+            new BadRequestException(
+              'Only image files are allowed (png, jpg, jpeg, jfif, svg, webp)'
+            ),
+            false
+          );
         }
         cb(null, true);
       },
       limits: { fileSize: 2 * 1024 * 1024 },
-    }),
+    })
   )
   async uploadAdministrationLogo(
     @Param('id') id: string,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: Express.Multer.File
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
     const logoPath = `/storage/logos/${file.filename}`;
@@ -253,7 +292,10 @@ export class AdministrationController {
 
   @Post('emitters/:administrationId/profiles')
   @ApiOperation({ summary: 'Create profile for issuing administration' })
-  createAdministrationProfile(@Param('administrationId') administrationId: string, @Body() dto: CreateAdministrationProfileDto) {
+  createAdministrationProfile(
+    @Param('administrationId') administrationId: string,
+    @Body() dto: CreateAdministrationProfileDto
+  ) {
     return this.administrationService.createAdministrationProfile(administrationId, dto);
   }
 
@@ -262,20 +304,26 @@ export class AdministrationController {
   updateAdministrationProfile(
     @Param('administrationId') administrationId: string,
     @Param('profileId') profileId: string,
-    @Body() dto: UpdateAdministrationProfileDto,
+    @Body() dto: UpdateAdministrationProfileDto
   ) {
     return this.administrationService.updateAdministrationProfile(administrationId, profileId, dto);
   }
 
   @Delete('emitters/:administrationId/profiles/:profileId')
   @ApiOperation({ summary: 'Delete profile for issuing administration' })
-  deleteAdministrationProfile(@Param('administrationId') administrationId: string, @Param('profileId') profileId: string) {
+  deleteAdministrationProfile(
+    @Param('administrationId') administrationId: string,
+    @Param('profileId') profileId: string
+  ) {
     return this.administrationService.deleteAdministrationProfile(administrationId, profileId);
   }
 
   @Post('emitters/:administrationId/users')
   @ApiOperation({ summary: 'Create user for issuing administration' })
-  createAdministrationUser(@Param('administrationId') administrationId: string, @Body() dto: CreateAdministrationUserDto) {
+  createAdministrationUser(
+    @Param('administrationId') administrationId: string,
+    @Body() dto: CreateAdministrationUserDto
+  ) {
     return this.administrationService.createAdministrationUser(administrationId, dto);
   }
 
@@ -284,14 +332,17 @@ export class AdministrationController {
   updateAdministrationUser(
     @Param('administrationId') administrationId: string,
     @Param('userId') userId: string,
-    @Body() dto: UpdateAdministrationUserDto,
+    @Body() dto: UpdateAdministrationUserDto
   ) {
     return this.administrationService.updateAdministrationUser(administrationId, userId, dto);
   }
 
   @Delete('emitters/:administrationId/users/:userId')
   @ApiOperation({ summary: 'Delete user for issuing administration' })
-  deleteAdministrationUser(@Param('administrationId') administrationId: string, @Param('userId') userId: string) {
+  deleteAdministrationUser(
+    @Param('administrationId') administrationId: string,
+    @Param('userId') userId: string
+  ) {
     return this.administrationService.deleteAdministrationUser(administrationId, userId);
   }
 
@@ -309,7 +360,10 @@ export class AdministrationController {
 
   @Put('recipients/:id')
   @ApiOperation({ summary: 'Update recipient administration' })
-  updateRecipientAdministration(@Param('id') id: string, @Body() dto: UpdateRecipientAdministrationDto) {
+  updateRecipientAdministration(
+    @Param('id') id: string,
+    @Body() dto: UpdateRecipientAdministrationDto
+  ) {
     return this.administrationService.updateRecipientAdministration(id, dto);
   }
 
@@ -331,16 +385,21 @@ export class AdministrationController {
       fileFilter: (_req, file, cb) => {
         const allowed = /\.(png|jpg|jpeg|jfif|svg|webp)$/i;
         if (!allowed.test(file.originalname)) {
-          return cb(new BadRequestException('Only image files are allowed (png, jpg, jpeg, jfif, svg, webp)'), false);
+          return cb(
+            new BadRequestException(
+              'Only image files are allowed (png, jpg, jpeg, jfif, svg, webp)'
+            ),
+            false
+          );
         }
         cb(null, true);
       },
       limits: { fileSize: 2 * 1024 * 1024 },
-    }),
+    })
   )
   async uploadRecipientAdministrationLogo(
     @Param('id') id: string,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: Express.Multer.File
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
     const logoPath = `/storage/logos/${file.filename}`;
@@ -378,7 +437,9 @@ export class AdministrationController {
   }
 
   @Get('signature-provider-config')
-  @ApiOperation({ summary: 'Get external signature API provider configuration (global or by administration)' })
+  @ApiOperation({
+    summary: 'Get external signature API provider configuration (global or by administration)',
+  })
   getSignatureProviderConfig(@Request() req) {
     const administrationId = req.query?.administrationId;
     return this.administrationService.getSignatureProviderConfig(administrationId);
@@ -406,7 +467,7 @@ export class AdministrationController {
   @ApiOperation({ summary: 'Update signature provider config for specific administration' })
   upsertAdministrationSignatureConfig(
     @Param('administrationId') administrationId: string,
-    @Body() dto: UpsertSignatureProviderConfigDto,
+    @Body() dto: UpsertSignatureProviderConfigDto
   ) {
     return this.administrationService.upsertSignatureProviderConfig({ ...dto, administrationId });
   }
@@ -421,9 +482,12 @@ export class AdministrationController {
   @ApiOperation({ summary: 'Update email notification config for specific administration' })
   upsertAdministrationNotificationConfig(
     @Param('administrationId') administrationId: string,
-    @Body() dto: UpsertNotificationConfigDto,
+    @Body() dto: UpsertNotificationConfigDto
   ) {
-    return this.administrationService.upsertNotificationConfigByAdministration(administrationId, dto);
+    return this.administrationService.upsertNotificationConfigByAdministration(
+      administrationId,
+      dto
+    );
   }
 
   @Get('emitters/:administrationId/admins')

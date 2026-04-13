@@ -1,0 +1,319 @@
+[
+  {
+    "file": "apps/backend/src/modules/administration/administration.controller.ts",
+    "count": 1,
+    "issues": [
+      {
+        "line": 40,
+        "column": 3,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'CreateRequestedActDto' is defined but never used.",
+        "severity": 2
+      }
+    ]
+  },
+  {
+    "file": "apps/backend/src/modules/administration/administration.service.ts",
+    "count": 1,
+    "issues": [
+      {
+        "line": 233,
+        "column": 11,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'normalizedFullName' is assigned a value but never used.",
+        "severity": 2
+      }
+    ]
+  },
+  {
+    "file": "apps/backend/src/modules/auth/auth.service.ts",
+    "count": 1,
+    "issues": [
+      {
+        "line": 3,
+        "column": 13,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'bcrypt' is defined but never used.",
+        "severity": 2
+      }
+    ]
+  },
+  {
+    "file": "apps/backend/src/modules/documents/documents.controller.ts",
+    "count": 2,
+    "issues": [
+      {
+        "line": 275,
+        "column": 92,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'req' is defined but never used. Allowed unused args must match /^_/u.",
+        "severity": 2
+      },
+      {
+        "line": 307,
+        "column": 46,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'req' is defined but never used. Allowed unused args must match /^_/u.",
+        "severity": 2
+      }
+    ]
+  },
+  {
+    "file": "apps/backend/src/modules/documents/documents.service.ts",
+    "count": 1,
+    "issues": [
+      {
+        "line": 1460,
+        "column": 11,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'document' is assigned a value but never used.",
+        "severity": 2
+      }
+    ]
+  },
+  {
+    "file": "apps/backend/src/modules/qrcode/qrcode.controller.ts",
+    "count": 1,
+    "issues": [
+      {
+        "line": 61,
+        "column": 58,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'req' is defined but never used. Allowed unused args must match /^_/u.",
+        "severity": 2
+      }
+    ]
+  },
+  {
+    "file": "apps/backend/src/modules/signatures/dto/signature.dto.ts",
+    "count": 1,
+    "issues": [
+      {
+        "line": 1,
+        "column": 32,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'IsUUID' is defined but never used.",
+        "severity": 2
+      }
+    ]
+  },
+  {
+    "file": "apps/backend/src/modules/users/users.service.ts",
+    "count": 5,
+    "issues": [
+      {
+        "line": 653,
+        "column": 13,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'passwordHash' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 810,
+        "column": 27,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'_ph' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 859,
+        "column": 13,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'passwordHash' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 872,
+        "column": 13,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'passwordHash' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 984,
+        "column": 19,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'total' is assigned a value but never used.",
+        "severity": 2
+      }
+    ]
+  },
+  {
+    "file": "apps/backend/src/modules/workflows/workflows.controller.ts",
+    "count": 4,
+    "issues": [
+      {
+        "line": 81,
+        "column": 16,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'req' is defined but never used. Allowed unused args must match /^_/u.",
+        "severity": 2
+      },
+      {
+        "line": 94,
+        "column": 16,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'req' is defined but never used. Allowed unused args must match /^_/u.",
+        "severity": 2
+      },
+      {
+        "line": 101,
+        "column": 92,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'req' is defined but never used. Allowed unused args must match /^_/u.",
+        "severity": 2
+      },
+      {
+        "line": 107,
+        "column": 46,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'req' is defined but never used. Allowed unused args must match /^_/u.",
+        "severity": 2
+      }
+    ]
+  },
+  {
+    "file": "apps/frontend/src/pages/Settings.tsx",
+    "count": 1,
+    "issues": [
+      {
+        "line": 1137,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'getAllChildIds' is assigned a value but never used.",
+        "severity": 2
+      }
+    ]
+  },
+  {
+    "file": "apps/frontend/src/pages/Signatures.tsx",
+    "count": 15,
+    "issues": [
+      {
+        "line": 57,
+        "column": 10,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'uploadingLoading' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 60,
+        "column": 10,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'signingLoading' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 61,
+        "column": 10,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'signedSelfDocs' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 62,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'uploadedFilesByDocId' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 73,
+        "column": 10,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'positioningDocumentId' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 495,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'handleUploadFilesSelection' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 510,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'openSystemFilePicker' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 514,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'handleToggleLocalKey' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 517,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'handleToggleAllLocal' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 521,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'handleRemoveLocalFile' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 527,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'handleUploadLocalFiles' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 631,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'handleTogglePendingId' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 634,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'handleToggleAllPending' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 638,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'handleSignPendingDocs' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 697,
+        "column": 9,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'openPositioning' is assigned a value but never used.",
+        "severity": 2
+      }
+    ]
+  },
+  {
+    "file": "apps/frontend/src/services/api.ts",
+    "count": 2,
+    "issues": [
+      {
+        "line": 76,
+        "column": 61,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'user' is assigned a value but never used.",
+        "severity": 2
+      },
+      {
+        "line": 139,
+        "column": 59,
+        "ruleId": "@typescript-eslint/no-unused-vars",
+        "message": "'user' is assigned a value but never used.",
+        "severity": 2
+      }
+    ]
+  }
+]

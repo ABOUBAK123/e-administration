@@ -72,7 +72,7 @@ npm run frontend:dev   # Terminal 2
 ## Default Credentials
 
 For development:
-- **Username:** `admin@example.com`
+- **Username:** `admin@e-administration.dyula.ci`
 - **Password:** `changeme123`
 
 ⚠️ **Important:** Change default credentials in production!

@@ -21,7 +21,7 @@ export class QrcodeService {
     @InjectRepository(IssuingAdministration)
     private administrationRepository: Repository<IssuingAdministration>,
     @InjectRepository(Signature)
-    private signatureRepository: Repository<Signature>,
+    private signatureRepository: Repository<Signature>
   ) {}
 
   private getApiBaseUrl(): string {
@@ -30,7 +30,8 @@ export class QrcodeService {
   }
 
   private getFrontendBaseUrl(): string {
-    const configuredUrl = this.configService.get<string>('app.frontendUrl') || 'http://localhost:5173';
+    const configuredUrl =
+      this.configService.get<string>('app.frontendUrl') || 'http://localhost:5173';
     return configuredUrl.replace(/\/$/, '');
   }
 

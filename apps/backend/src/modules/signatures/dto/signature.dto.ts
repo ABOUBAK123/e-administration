@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsUUID, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsDateString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateSignatureDto {

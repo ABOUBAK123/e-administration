@@ -1,4 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, OneToMany, Index } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  OneToMany,
+  Index,
+} from 'typeorm';
 import { IssuingAdministration } from './issuing-administration.entity';
 import { TemplateVariable } from './template-variable.entity';
 import { RoutingRule } from './routing-rule.entity';
@@ -32,7 +41,10 @@ export class DocumentTemplate {
   @Column({ type: 'uuid', nullable: true })
   createdBy!: string;
 
-  @ManyToOne(() => IssuingAdministration, (administration) => administration.templates, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => IssuingAdministration, (administration) => administration.templates, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   administration!: IssuingAdministration;
 
   @OneToMany(() => TemplateVariable, (variable) => variable.template, { cascade: true })

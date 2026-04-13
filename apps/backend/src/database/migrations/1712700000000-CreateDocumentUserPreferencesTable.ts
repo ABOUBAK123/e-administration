@@ -22,8 +22,12 @@ export class CreateDocumentUserPreferencesTable1712700000000 implements Migratio
           CONSTRAINT "FK_document_user_preferences_documentId" FOREIGN KEY ("documentId") REFERENCES "documents"("id") ON DELETE CASCADE
         )
       `);
-      await queryRunner.query('CREATE INDEX IF NOT EXISTS "IDX_document_user_preferences_userId" ON "document_user_preferences" ("userId")');
-      await queryRunner.query('CREATE INDEX IF NOT EXISTS "IDX_document_user_preferences_documentId" ON "document_user_preferences" ("documentId")');
+      await queryRunner.query(
+        'CREATE INDEX IF NOT EXISTS "IDX_document_user_preferences_userId" ON "document_user_preferences" ("userId")'
+      );
+      await queryRunner.query(
+        'CREATE INDEX IF NOT EXISTS "IDX_document_user_preferences_documentId" ON "document_user_preferences" ("documentId")'
+      );
       return;
     }
 

@@ -33,7 +33,10 @@ export class AuthController {
 
   @Post('register')
   @ApiOperation({ summary: 'User registration' })
-  async register(@Body() createUserDto: CreateUserDto, @Response({ passthrough: true }) res: ExpressResponse) {
+  async register(
+    @Body() createUserDto: CreateUserDto,
+    @Response({ passthrough: true }) res: ExpressResponse
+  ) {
     const authResult = await this.authService.register(createUserDto);
     this.setRefreshCookie(res, authResult.refreshToken);
     return authResult;
@@ -55,7 +58,11 @@ export class AuthController {
 
   @Post('refresh')
   @ApiOperation({ summary: 'Refresh access token' })
-  async refresh(@Request() req, @Body() body: { refreshToken?: string }, @Response({ passthrough: true }) res: ExpressResponse) {
+  async refresh(
+    @Request() req,
+    @Body() body: { refreshToken?: string },
+    @Response({ passthrough: true }) res: ExpressResponse
+  ) {
     const fromBody = body?.refreshToken?.trim() || null;
     const fromCookie = this.extractRefreshTokenFromCookie(req);
     const token = fromBody || fromCookie;
@@ -92,11 +99,10 @@ export class AuthController {
   }
 
   @Get('debug/permissions')
-  @ApiOperation({ summary: 'Temporary debug endpoint for effective menu permissions by identifier' })
-  async debugPermissions(
-    @Query('identifier') identifier: string,
-    @Query('key') key?: string,
-  ) {
+  @ApiOperation({
+    summary: 'Temporary debug endpoint for effective menu permissions by identifier',
+  })
+  async debugPermissions(@Query('identifier') identifier: string, @Query('key') key?: string) {
     return this.authService.debugPermissionsByIdentifier(identifier, key);
   }
 }

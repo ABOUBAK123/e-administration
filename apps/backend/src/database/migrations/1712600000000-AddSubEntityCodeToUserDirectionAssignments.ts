@@ -8,10 +8,10 @@ export class AddSubEntityCodeToUserDirectionAssignments1712600000000 implements 
 
     if (dbType === 'postgres') {
       await queryRunner.query(
-        'ALTER TABLE "user_direction_assignments" ADD COLUMN IF NOT EXISTS "subEntityCode" varchar(120)',
+        'ALTER TABLE "user_direction_assignments" ADD COLUMN IF NOT EXISTS "subEntityCode" varchar(120)'
       );
       await queryRunner.query(
-        'CREATE INDEX IF NOT EXISTS "IDX_user_direction_assignments_subEntityCode" ON "user_direction_assignments" ("subEntityCode")',
+        'CREATE INDEX IF NOT EXISTS "IDX_user_direction_assignments_subEntityCode" ON "user_direction_assignments" ("subEntityCode")'
       );
       return;
     }
@@ -27,7 +27,7 @@ export class AddSubEntityCodeToUserDirectionAssignments1712600000000 implements 
 
     if (!hasColumn) {
       await queryRunner.query(
-        'ALTER TABLE `user_direction_assignments` ADD COLUMN `subEntityCode` VARCHAR(120) NULL AFTER `directionScopeId`',
+        'ALTER TABLE `user_direction_assignments` ADD COLUMN `subEntityCode` VARCHAR(120) NULL AFTER `directionScopeId`'
       );
     }
 
@@ -41,7 +41,7 @@ export class AddSubEntityCodeToUserDirectionAssignments1712600000000 implements 
     const hasIndex = Number(indexExistsResult?.[0]?.count || 0) > 0;
     if (!hasIndex) {
       await queryRunner.query(
-        'CREATE INDEX `IDX_user_direction_assignments_subEntityCode` ON `user_direction_assignments` (`subEntityCode`)',
+        'CREATE INDEX `IDX_user_direction_assignments_subEntityCode` ON `user_direction_assignments` (`subEntityCode`)'
       );
     }
   }
@@ -50,8 +50,12 @@ export class AddSubEntityCodeToUserDirectionAssignments1712600000000 implements 
     const dbType = queryRunner.connection.options.type;
 
     if (dbType === 'postgres') {
-      await queryRunner.query('DROP INDEX IF EXISTS "IDX_user_direction_assignments_subEntityCode"');
-      await queryRunner.query('ALTER TABLE "user_direction_assignments" DROP COLUMN IF EXISTS "subEntityCode"');
+      await queryRunner.query(
+        'DROP INDEX IF EXISTS "IDX_user_direction_assignments_subEntityCode"'
+      );
+      await queryRunner.query(
+        'ALTER TABLE "user_direction_assignments" DROP COLUMN IF EXISTS "subEntityCode"'
+      );
       return;
     }
 
@@ -64,7 +68,9 @@ export class AddSubEntityCodeToUserDirectionAssignments1712600000000 implements 
     `);
     const hasIndex = Number(indexExistsResult?.[0]?.count || 0) > 0;
     if (hasIndex) {
-      await queryRunner.query('ALTER TABLE `user_direction_assignments` DROP INDEX `IDX_user_direction_assignments_subEntityCode`');
+      await queryRunner.query(
+        'ALTER TABLE `user_direction_assignments` DROP INDEX `IDX_user_direction_assignments_subEntityCode`'
+      );
     }
 
     const columnExistsResult = await queryRunner.query(`
@@ -76,7 +82,9 @@ export class AddSubEntityCodeToUserDirectionAssignments1712600000000 implements 
     `);
     const hasColumn = Number(columnExistsResult?.[0]?.count || 0) > 0;
     if (hasColumn) {
-      await queryRunner.query('ALTER TABLE `user_direction_assignments` DROP COLUMN `subEntityCode`');
+      await queryRunner.query(
+        'ALTER TABLE `user_direction_assignments` DROP COLUMN `subEntityCode`'
+      );
     }
   }
 }

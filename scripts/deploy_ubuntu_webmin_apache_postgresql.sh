@@ -6,7 +6,7 @@ set -euo pipefail
 # Project: E-administration
 #
 # Usage:
-#   sudo REPO_URL="https://...git" DOMAIN="example.com" ADMIN_EMAIL="admin@example.com" \
+#   sudo REPO_URL="https://...git" DOMAIN="example.com" ADMIN_EMAIL="admin@e-administration.dyula.ci" \
 #        DB_PASSWORD="StrongPassword" JWT_SECRET="VeryLongSecret" \
 #        bash scripts/deploy_ubuntu_webmin_apache_postgresql.sh
 #

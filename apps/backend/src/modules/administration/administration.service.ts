@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
 import {
@@ -79,7 +84,7 @@ export class AdministrationService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
     @InjectRepository(UserDirectionAssignment)
-    private userDirectionAssignmentRepository: Repository<UserDirectionAssignment>,
+    private userDirectionAssignmentRepository: Repository<UserDirectionAssignment>
   ) {}
 
   private isDuplicateEntryError(error: unknown): boolean {
@@ -87,7 +92,11 @@ export class AdministrationService {
     const driverError = (error as any).driverError || {};
     const code = String(driverError.code || '').toUpperCase();
     const message = String(driverError.sqlMessage || driverError.message || '').toLowerCase();
-    return code === 'ER_DUP_ENTRY' || message.includes('duplicate entry') || message.includes('unique constraint');
+    return (
+      code === 'ER_DUP_ENTRY' ||
+      message.includes('duplicate entry') ||
+      message.includes('unique constraint')
+    );
   }
 
   private isMissingDirectionAssignmentStorage(error: unknown): boolean {
@@ -96,20 +105,24 @@ export class AdministrationService {
     const code = String(driverError.code || '').toUpperCase();
     const message = String(driverError.sqlMessage || driverError.message || '').toLowerCase();
     return (
-      code === 'ER_NO_SUCH_TABLE'
-      || code === 'ER_BAD_FIELD_ERROR'
-      || message.includes("doesn't exist")
-      || message.includes('no such table')
-      || message.includes('unknown column')
-      || (message.includes('relation') && message.includes('does not exist'))
+      code === 'ER_NO_SUCH_TABLE' ||
+      code === 'ER_BAD_FIELD_ERROR' ||
+      message.includes("doesn't exist") ||
+      message.includes('no such table') ||
+      message.includes('unknown column') ||
+      (message.includes('relation') && message.includes('does not exist'))
     );
   }
 
   private normalizeSubEntityCode(value?: string | null): string {
-    return String(value || '').trim().toUpperCase();
+    return String(value || '')
+      .trim()
+      .toUpperCase();
   }
 
-  private normalizeSubEntities(raw: unknown): Array<{ code: string; managerEmail?: string; managerName?: string }> {
+  private normalizeSubEntities(
+    raw: unknown
+  ): Array<{ code: string; managerEmail?: string; managerName?: string }> {
     if (!Array.isArray(raw)) return [];
 
     return raw
@@ -119,8 +132,14 @@ export class AdministrationService {
         if (!code) return null;
         return {
           code,
-          managerEmail: String(data.managerEmail || data.responsableEmail || '').trim().toLowerCase() || undefined,
-          managerName: String(data.managerName || data.responsableName || '').trim().toLowerCase() || undefined,
+          managerEmail:
+            String(data.managerEmail || data.responsableEmail || '')
+              .trim()
+              .toLowerCase() || undefined,
+          managerName:
+            String(data.managerName || data.responsableName || '')
+              .trim()
+              .toLowerCase() || undefined,
         };
       })
       .filter(Boolean) as Array<{ code: string; managerEmail?: string; managerName?: string }>;
@@ -141,12 +160,14 @@ export class AdministrationService {
       return [];
     };
 
-    return Array.from(new Set([
-      ...collect(source.subEntityCode),
-      ...collect(source.subEntityCodes),
-      ...collect((source as any).entityCode),
-      ...collect((source as any).entityCodes),
-    ]));
+    return Array.from(
+      new Set([
+        ...collect(source.subEntityCode),
+        ...collect(source.subEntityCodes),
+        ...collect((source as any).entityCode),
+        ...collect((source as any).entityCodes),
+      ])
+    );
   }
 
   private normalizeApplicantFields(raw: unknown): Array<{
@@ -162,7 +183,9 @@ export class AdministrationService {
       .map((item) => {
         const data = item as Record<string, unknown>;
         const label = String(data?.label || '').trim();
-        const inputType = String(data?.inputType || 'text').trim().toLowerCase();
+        const inputType = String(data?.inputType || 'text')
+          .trim()
+          .toLowerCase();
         if (!label || !allowedTypes.has(inputType)) return null;
         const key = `${label.toLowerCase()}::${inputType}`;
         if (seen.has(key)) return null;
@@ -193,14 +216,20 @@ export class AdministrationService {
       throw new NotFoundException('Utilisateur introuvable.');
     }
 
-    const normalizedUserRole = String(user.role || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
-    if (normalizedUserRole === 'admin' || normalizedUserRole === 'super_admin' || normalizedUserRole === 'superadmin') {
+    const normalizedUserRole = String(user.role || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[-\s]+/g, '_');
+    if (
+      normalizedUserRole === 'admin' ||
+      normalizedUserRole === 'super_admin' ||
+      normalizedUserRole === 'superadmin'
+    ) {
       return { isElevated: true, administrationId: null, allowedSubEntityCodes: [] };
     }
 
     const normalizedEmail = (user.email || '').trim().toLowerCase();
     const normalizedUsername = (user.username || '').trim().toLowerCase();
-    const normalizedFullName = (user.fullName || '').trim().toLowerCase();
 
     const administrationUser = await this.administrationUserRepository
       .createQueryBuilder('administrationUser')
@@ -217,14 +246,18 @@ export class AdministrationService {
       });
     } catch (error) {
       if (this.isMissingDirectionAssignmentStorage(error)) {
-        throw new ForbiddenException('Affectation stricte indisponible: veuillez appliquer les migrations de la base de données.');
+        throw new ForbiddenException(
+          'Affectation stricte indisponible: veuillez appliquer les migrations de la base de données.'
+        );
       }
       throw error;
     }
 
     let administrationId = String(administrationUser?.administrationId || '').trim();
 
-    const assignmentScopeType = String(directionAssignment?.directionScopeType || '').trim().toLowerCase();
+    const assignmentScopeType = String(directionAssignment?.directionScopeType || '')
+      .trim()
+      .toLowerCase();
     const assignmentScopeId = String(directionAssignment?.directionScopeId || '').trim();
     if (!administrationId && assignmentScopeType === 'emitter' && assignmentScopeId) {
       administrationId = assignmentScopeId;
@@ -234,10 +267,12 @@ export class AdministrationService {
       throw new ForbiddenException('Aucune administration liée à cet utilisateur.');
     }
 
-    const assignedSubEntityCode = this.normalizeSubEntityCode((directionAssignment as any)?.subEntityCode || null);
+    const assignedSubEntityCode = this.normalizeSubEntityCode(
+      (directionAssignment as any)?.subEntityCode || null
+    );
 
-    const assignmentMatchesAdministration = assignmentScopeType === 'emitter'
-      && assignmentScopeId === administrationId;
+    const assignmentMatchesAdministration =
+      assignmentScopeType === 'emitter' && assignmentScopeId === administrationId;
 
     if (assignmentMatchesAdministration && assignedSubEntityCode) {
       return {
@@ -261,7 +296,7 @@ export class AdministrationService {
 
   private isRequestedActDirectionAllowed(
     access: { isElevated: boolean; allowedSubEntityCodes: string[] },
-    directionCode: string,
+    directionCode: string
   ): boolean {
     if (access.isElevated) return true;
     if (access.allowedSubEntityCodes.length === 0) return true;
@@ -281,16 +316,17 @@ export class AdministrationService {
       return [];
     }
 
-    const where = access.allowedSubEntityCodes.length > 0
-      ? {
-        administrationScopeType: 'emitter' as const,
-        administrationScopeId: access.administrationId,
-        directionCode: In(access.allowedSubEntityCodes),
-      }
-      : {
-        administrationScopeType: 'emitter' as const,
-        administrationScopeId: access.administrationId,
-      };
+    const where =
+      access.allowedSubEntityCodes.length > 0
+        ? {
+            administrationScopeType: 'emitter' as const,
+            administrationScopeId: access.administrationId,
+            directionCode: In(access.allowedSubEntityCodes),
+          }
+        : {
+            administrationScopeType: 'emitter' as const,
+            administrationScopeId: access.administrationId,
+          };
 
     return this.requestedActRepository.find({
       where,
@@ -298,10 +334,15 @@ export class AdministrationService {
     });
   }
 
-  async createRequestedAct(dto: CreateRequestedActDto | Record<string, unknown>, userId?: string | null) {
+  async createRequestedAct(
+    dto: CreateRequestedActDto | Record<string, unknown>,
+    userId?: string | null
+  ) {
     const payload = dto as Record<string, unknown>;
 
-    const scopeType = String(payload.administrationScopeType || '').trim().toLowerCase();
+    const scopeType = String(payload.administrationScopeType || '')
+      .trim()
+      .toLowerCase();
     if (scopeType !== 'emitter' && scopeType !== 'recipient') {
       throw new BadRequestException('administrationScopeType must be emitter or recipient');
     }
@@ -312,12 +353,16 @@ export class AdministrationService {
     }
 
     if (scopeType === 'emitter') {
-      const found = await this.issuingAdministrationRepository.findOne({ where: { id: administrationScopeId } });
+      const found = await this.issuingAdministrationRepository.findOne({
+        where: { id: administrationScopeId },
+      });
       if (!found) {
         throw new NotFoundException('Issuing administration not found');
       }
     } else {
-      const found = await this.recipientAdministrationRepository.findOne({ where: { id: administrationScopeId } });
+      const found = await this.recipientAdministrationRepository.findOne({
+        where: { id: administrationScopeId },
+      });
       if (!found) {
         throw new NotFoundException('Recipient administration not found');
       }
@@ -327,8 +372,8 @@ export class AdministrationService {
       new Set(
         (Array.isArray(payload.requiredDocuments) ? payload.requiredDocuments : [])
           .map((item) => String(item || '').trim())
-          .filter(Boolean),
-      ),
+          .filter(Boolean)
+      )
     );
 
     if (requiredDocuments.length === 0) {
@@ -338,14 +383,24 @@ export class AdministrationService {
     const applicantFields = this.normalizeApplicantFields(payload.applicantFields);
 
     const access = await this.resolveRequestedActAccessContext(userId);
-    const normalizedDirectionCode = this.normalizeSubEntityCode(String(payload.directionCode || ''));
+    const normalizedDirectionCode = this.normalizeSubEntityCode(
+      String(payload.directionCode || '')
+    );
     if (!access.isElevated) {
-      if (!access.administrationId || administrationScopeId !== access.administrationId || scopeType !== 'emitter') {
-        throw new ForbiddenException('Vous ne pouvez configurer des actes demandés que pour votre administration émettrice.');
+      if (
+        !access.administrationId ||
+        administrationScopeId !== access.administrationId ||
+        scopeType !== 'emitter'
+      ) {
+        throw new ForbiddenException(
+          'Vous ne pouvez configurer des actes demandés que pour votre administration émettrice.'
+        );
       }
 
       if (!this.isRequestedActDirectionAllowed(access, normalizedDirectionCode)) {
-        throw new ForbiddenException('Vous ne pouvez configurer que les actes liés à vos entités sous tutelle gérées.');
+        throw new ForbiddenException(
+          'Vous ne pouvez configurer que les actes liés à vos entités sous tutelle gérées.'
+        );
       }
     }
 
@@ -361,14 +416,23 @@ export class AdministrationService {
       createdBy: userId || null,
     });
 
-    if (!entity.directionCode || !entity.documentName || !entity.administrationLabel || !entity.directionLabel) {
+    if (
+      !entity.directionCode ||
+      !entity.documentName ||
+      !entity.administrationLabel ||
+      !entity.directionLabel
+    ) {
       throw new BadRequestException('Missing required fields for requested act');
     }
 
     return this.requestedActRepository.save(entity);
   }
 
-  async updateRequestedAct(id: string, dto: UpdateRequestedActDto | Record<string, unknown>, userId?: string | null) {
+  async updateRequestedAct(
+    id: string,
+    dto: UpdateRequestedActDto | Record<string, unknown>,
+    userId?: string | null
+  ) {
     const existing = await this.requestedActRepository.findOne({ where: { id } });
     if (!existing) {
       throw new NotFoundException('Requested act not found');
@@ -376,23 +440,33 @@ export class AdministrationService {
 
     const payload = dto as Record<string, unknown>;
 
-    const scopeType = String(payload.administrationScopeType || existing.administrationScopeType || '').trim().toLowerCase();
+    const scopeType = String(
+      payload.administrationScopeType || existing.administrationScopeType || ''
+    )
+      .trim()
+      .toLowerCase();
     if (scopeType !== 'emitter' && scopeType !== 'recipient') {
       throw new BadRequestException('administrationScopeType must be emitter or recipient');
     }
 
-    const administrationScopeId = String(payload.administrationScopeId || existing.administrationScopeId || '').trim();
+    const administrationScopeId = String(
+      payload.administrationScopeId || existing.administrationScopeId || ''
+    ).trim();
     if (!administrationScopeId) {
       throw new BadRequestException('administrationScopeId is required');
     }
 
     if (scopeType === 'emitter') {
-      const found = await this.issuingAdministrationRepository.findOne({ where: { id: administrationScopeId } });
+      const found = await this.issuingAdministrationRepository.findOne({
+        where: { id: administrationScopeId },
+      });
       if (!found) {
         throw new NotFoundException('Issuing administration not found');
       }
     } else {
-      const found = await this.recipientAdministrationRepository.findOne({ where: { id: administrationScopeId } });
+      const found = await this.recipientAdministrationRepository.findOne({
+        where: { id: administrationScopeId },
+      });
       if (!found) {
         throw new NotFoundException('Recipient administration not found');
       }
@@ -400,44 +474,70 @@ export class AdministrationService {
 
     const requiredDocuments = Array.from(
       new Set(
-        (((Array.isArray(payload.requiredDocuments) && payload.requiredDocuments.length > 0)
-          ? payload.requiredDocuments
-          : (existing.requiredDocuments || [])) as unknown[])
+        (
+          (Array.isArray(payload.requiredDocuments) && payload.requiredDocuments.length > 0
+            ? payload.requiredDocuments
+            : existing.requiredDocuments || []) as unknown[]
+        )
           .map((item) => String(item || '').trim())
-          .filter(Boolean),
-      ),
+          .filter(Boolean)
+      )
     );
 
-    const safeRequiredDocuments = requiredDocuments.length > 0
-      ? requiredDocuments
-      : (Array.isArray(existing.requiredDocuments) ? existing.requiredDocuments : []);
+    const safeRequiredDocuments =
+      requiredDocuments.length > 0
+        ? requiredDocuments
+        : Array.isArray(existing.requiredDocuments)
+          ? existing.requiredDocuments
+          : [];
 
     const applicantFields = Object.prototype.hasOwnProperty.call(payload, 'applicantFields')
       ? this.normalizeApplicantFields(payload.applicantFields)
-      : (Array.isArray(existing.applicantFields) ? existing.applicantFields : []);
+      : Array.isArray(existing.applicantFields)
+        ? existing.applicantFields
+        : [];
 
     const access = await this.resolveRequestedActAccessContext(userId);
-    const normalizedDirectionCode = this.normalizeSubEntityCode(String(payload.directionCode || existing.directionCode || ''));
+    const normalizedDirectionCode = this.normalizeSubEntityCode(
+      String(payload.directionCode || existing.directionCode || '')
+    );
     if (!access.isElevated) {
-      if (!access.administrationId || administrationScopeId !== access.administrationId || scopeType !== 'emitter') {
-        throw new ForbiddenException('Vous ne pouvez modifier que les actes demandés de votre administration émettrice.');
+      if (
+        !access.administrationId ||
+        administrationScopeId !== access.administrationId ||
+        scopeType !== 'emitter'
+      ) {
+        throw new ForbiddenException(
+          'Vous ne pouvez modifier que les actes demandés de votre administration émettrice.'
+        );
       }
 
       if (!this.isRequestedActDirectionAllowed(access, normalizedDirectionCode)) {
-        throw new ForbiddenException('Vous ne pouvez modifier que les actes liés à vos entités sous tutelle gérées.');
+        throw new ForbiddenException(
+          'Vous ne pouvez modifier que les actes liés à vos entités sous tutelle gérées.'
+        );
       }
     }
 
     existing.administrationScopeType = scopeType as 'emitter' | 'recipient';
     existing.administrationScopeId = administrationScopeId;
-    existing.administrationLabel = String(payload.administrationLabel || existing.administrationLabel || '').trim();
+    existing.administrationLabel = String(
+      payload.administrationLabel || existing.administrationLabel || ''
+    ).trim();
     existing.directionCode = normalizedDirectionCode;
-    existing.directionLabel = String(payload.directionLabel || existing.directionLabel || '').trim();
+    existing.directionLabel = String(
+      payload.directionLabel || existing.directionLabel || ''
+    ).trim();
     existing.documentName = String(payload.documentName || existing.documentName || '').trim();
     existing.requiredDocuments = safeRequiredDocuments;
     existing.applicantFields = applicantFields;
 
-    if (!existing.directionCode || !existing.documentName || !existing.administrationLabel || !existing.directionLabel) {
+    if (
+      !existing.directionCode ||
+      !existing.documentName ||
+      !existing.administrationLabel ||
+      !existing.directionLabel
+    ) {
       throw new BadRequestException('Missing required fields for requested act');
     }
 
@@ -452,11 +552,14 @@ export class AdministrationService {
 
     const access = await this.resolveRequestedActAccessContext(userId);
     if (!access.isElevated) {
-      const sameAdministration = found.administrationScopeType === 'emitter'
-        && found.administrationScopeId === access.administrationId;
+      const sameAdministration =
+        found.administrationScopeType === 'emitter' &&
+        found.administrationScopeId === access.administrationId;
       const directionAllowed = this.isRequestedActDirectionAllowed(access, found.directionCode);
       if (!sameAdministration || !directionAllowed) {
-        throw new ForbiddenException('Vous ne pouvez supprimer que les actes de vos entités sous tutelle gérées.');
+        throw new ForbiddenException(
+          'Vous ne pouvez supprimer que les actes de vos entités sous tutelle gérées.'
+        );
       }
     }
 
@@ -471,7 +574,7 @@ export class AdministrationService {
     }
 
     const defaults = DEFAULT_DIRECTION_TYPES.map((name) =>
-      this.directionTypeRepository.create({ name, description: null }),
+      this.directionTypeRepository.create({ name, description: null })
     );
     await this.directionTypeRepository.save(defaults);
   }
@@ -566,10 +669,15 @@ export class AdministrationService {
     return this.appSettingRepository.save(setting);
   }
 
-  async upsertAppSettings(entries: Array<{ key: string; value: string | null; description?: string }>): Promise<AppSetting[]> {
+  async upsertAppSettings(
+    entries: Array<{ key: string; value: string | null; description?: string }>
+  ): Promise<AppSetting[]> {
     const results: AppSetting[] = [];
     for (const entry of entries) {
-      const saved = await this.upsertAppSetting(entry.key, { value: entry.value ?? undefined, description: entry.description });
+      const saved = await this.upsertAppSetting(entry.key, {
+        value: entry.value ?? undefined,
+        description: entry.description,
+      });
       results.push(saved);
     }
     return results;
@@ -689,7 +797,7 @@ export class AdministrationService {
 
   async upsertNotificationConfigByAdministration(
     administrationId: string,
-    dto: UpsertNotificationConfigDto,
+    dto: UpsertNotificationConfigDto
   ) {
     const config = await this.getNotificationConfigByAdministration(administrationId);
 
@@ -758,7 +866,9 @@ export class AdministrationService {
     // Regex élargie pour capturer tout contenu entre {{ }} (espaces, accents, apostrophes, etc.)
     const placeholderRegex = /\{\{\s*([^}]+?)\s*\}\}/g;
 
-    const placeholders = Array.from(templateContent.matchAll(placeholderRegex)).map((match) => match[1]);
+    const placeholders = Array.from(templateContent.matchAll(placeholderRegex)).map(
+      (match) => match[1]
+    );
     const uniquePlaceholders = Array.from(new Set(placeholders));
 
     // Fonction de normalisation : "Nom et Prénoms du Responsable" → "nom_et_prenoms_du_responsable"
@@ -802,18 +912,21 @@ export class AdministrationService {
       }
     }
 
-    const generatedContent = templateContent.replace(placeholderRegex, (_match, placeholder: string) => {
-      const key = resolveKey(placeholder);
-      const inputValue = values[key];
-      if (typeof inputValue === 'string' && inputValue.length > 0) {
-        return inputValue;
+    const generatedContent = templateContent.replace(
+      placeholderRegex,
+      (_match, placeholder: string) => {
+        const key = resolveKey(placeholder);
+        const inputValue = values[key];
+        if (typeof inputValue === 'string' && inputValue.length > 0) {
+          return inputValue;
+        }
+        const config = variableConfig.get(key);
+        if (config?.defaultValue) {
+          return config.defaultValue;
+        }
+        return '';
       }
-      const config = variableConfig.get(key);
-      if (config?.defaultValue) {
-        return config.defaultValue;
-      }
-      return '';
-    });
+    );
 
     const baseName = (template.fileName || template.name || 'document').replace(/\.[^.]+$/, '');
     const fileName = dto.outputFileName || `${baseName}-genere.txt`;
@@ -842,7 +955,11 @@ export class AdministrationService {
     return this.templateVariableRepository.save(variable);
   }
 
-  async updateTemplateVariable(templateId: string, variableId: string, dto: UpdateTemplateVariableDto) {
+  async updateTemplateVariable(
+    templateId: string,
+    variableId: string,
+    dto: UpdateTemplateVariableDto
+  ) {
     const variable = await this.templateVariableRepository.findOne({
       where: { id: variableId, templateId },
     });
@@ -921,7 +1038,11 @@ export class AdministrationService {
     return this.administrationProfileRepository.save(profile);
   }
 
-  async updateAdministrationProfile(administrationId: string, profileId: string, dto: UpdateAdministrationProfileDto) {
+  async updateAdministrationProfile(
+    administrationId: string,
+    profileId: string,
+    dto: UpdateAdministrationProfileDto
+  ) {
     const profile = await this.administrationProfileRepository.findOne({
       where: { id: profileId, administrationId },
     });
@@ -954,7 +1075,11 @@ export class AdministrationService {
     return this.administrationUserRepository.save(user);
   }
 
-  async updateAdministrationUser(administrationId: string, userId: string, dto: UpdateAdministrationUserDto) {
+  async updateAdministrationUser(
+    administrationId: string,
+    userId: string,
+    dto: UpdateAdministrationUserDto
+  ) {
     const user = await this.administrationUserRepository.findOne({
       where: { id: userId, administrationId },
     });
@@ -1049,7 +1174,7 @@ export class AdministrationService {
       throw new NotFoundException('Recipient administration not found');
     }
 
-    const metadata = ((administration.metadata || {}) as Record<string, any>);
+    const metadata = (administration.metadata || {}) as Record<string, any>;
     administration.metadata = {
       ...metadata,
       logo: logoPath,

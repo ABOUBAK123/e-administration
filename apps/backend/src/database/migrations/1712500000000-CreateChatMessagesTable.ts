@@ -20,26 +20,58 @@ export class CreateChatMessagesTable1712500000000 implements MigrationInterface 
         )
       `);
 
-      await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_chat_messages_room" ON "chat_messages" ("room")`);
-      await queryRunner.query(`CREATE INDEX IF NOT EXISTS "IDX_chat_messages_createdAt" ON "chat_messages" ("createdAt")`);
+      await queryRunner.query(
+        `CREATE INDEX IF NOT EXISTS "IDX_chat_messages_room" ON "chat_messages" ("room")`
+      );
+      await queryRunner.query(
+        `CREATE INDEX IF NOT EXISTS "IDX_chat_messages_createdAt" ON "chat_messages" ("createdAt")`
+      );
       return;
     }
 
     // MySQL/MariaDB
-    await queryRunner.query(`
-      CREATE TABLE IF NOT EXISTS ` + '`chat_messages`' + ` (
-        ` + '`id` CHAR(36) NOT NULL,' + `
-        ` + '`senderId` VARCHAR(128) NOT NULL,' + `
-        ` + '`senderName` VARCHAR(255) NOT NULL,' + `
-        ` + '`senderInitials` VARCHAR(8) NOT NULL,' + `
-        ` + '`text` TEXT NOT NULL,' + `
-        ` + '`room` VARCHAR(255) NOT NULL,' + `
-        ` + '`createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,' + `
-        PRIMARY KEY (` + '`id`' + `),
-        KEY ` + '`IDX_chat_messages_room`' + ` (` + '`room`' + `),
-        KEY ` + '`IDX_chat_messages_createdAt`' + ` (` + '`createdAt`' + `)
+    await queryRunner.query(
+      `
+      CREATE TABLE IF NOT EXISTS ` +
+        '`chat_messages`' +
+        ` (
+        ` +
+        '`id` CHAR(36) NOT NULL,' +
+        `
+        ` +
+        '`senderId` VARCHAR(128) NOT NULL,' +
+        `
+        ` +
+        '`senderName` VARCHAR(255) NOT NULL,' +
+        `
+        ` +
+        '`senderInitials` VARCHAR(8) NOT NULL,' +
+        `
+        ` +
+        '`text` TEXT NOT NULL,' +
+        `
+        ` +
+        '`room` VARCHAR(255) NOT NULL,' +
+        `
+        ` +
+        '`createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,' +
+        `
+        PRIMARY KEY (` +
+        '`id`' +
+        `),
+        KEY ` +
+        '`IDX_chat_messages_room`' +
+        ` (` +
+        '`room`' +
+        `),
+        KEY ` +
+        '`IDX_chat_messages_createdAt`' +
+        ` (` +
+        '`createdAt`' +
+        `)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
+    `
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

@@ -7,7 +7,11 @@ import { Workflow } from './workflow.entity';
 import { WorkflowStep } from './workflow-step.entity';
 import { WorkflowExecution } from './workflow-execution.entity';
 import { Document } from '../documents/document.entity';
-import { CreateWorkflowDto, CreateWorkflowTemplateDto, UpdateWorkflowDto } from './dto/workflow.dto';
+import {
+  CreateWorkflowDto,
+  CreateWorkflowTemplateDto,
+  UpdateWorkflowDto,
+} from './dto/workflow.dto';
 import { WorkflowTemplate } from './workflow-template.entity';
 import { User } from '../users/user.entity';
 import { AdministrationUser } from '../administration/entities/administration-user.entity';
@@ -34,7 +38,7 @@ export class WorkflowsService {
     private administrationUserRepository: Repository<AdministrationUser>,
     private readonly notificationsService: NotificationsService,
     private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
+    private readonly configService: ConfigService
   ) {}
 
   private async resolveUserAdministrationId(userId: string): Promise<string | null> {
@@ -44,10 +48,7 @@ export class WorkflowsService {
     }
 
     const administrationUser = await this.administrationUserRepository.findOne({
-      where: [
-        { email: user.email },
-        { username: user.username },
-      ],
+      where: [{ email: user.email }, { username: user.username }],
     });
 
     return administrationUser?.administrationId || null;
@@ -57,9 +58,9 @@ export class WorkflowsService {
     const all = await this.workflowRepository.find({
       relations: ['steps', 'creator', 'executions'],
     });
-    return all.filter(wf => {
+    return all.filter((wf) => {
       if (wf.createdBy === userId) return true;
-      if (wf.steps?.some(s => s.assigneeId === userId)) return true;
+      if (wf.steps?.some((s) => s.assigneeId === userId)) return true;
       return false;
     });
   }
@@ -93,7 +94,9 @@ export class WorkflowsService {
       throw new BadRequestException('Administration introuvable pour cet utilisateur');
     }
 
-    const hasValidator = (templateData.validationSteps || []).some((step) => !!step.approverId?.trim());
+    const hasValidator = (templateData.validationSteps || []).some(
+      (step) => !!step.approverId?.trim()
+    );
     if (!hasValidator) {
       throw new BadRequestException('Au moins un validateur est requis');
     }
@@ -102,7 +105,9 @@ export class WorkflowsService {
       administrationId,
       name: templateData.name.trim(),
       description: templateData.description?.trim() || null,
-      validationSteps: (templateData.validationSteps || []).filter((step) => !!step.approverId?.trim()),
+      validationSteps: (templateData.validationSteps || []).filter(
+        (step) => !!step.approverId?.trim()
+      ),
       signatureSteps: (templateData.signatureSteps || []).filter((step) => !!step.signerId?.trim()),
       notificationConfig: templateData.notificationConfig || null,
       status: 'active',
@@ -147,7 +152,7 @@ export class WorkflowsService {
           assigneeId: step.approverId,
           description: step.name,
           requiresSignature: true,
-        }),
+        })
       );
       await this.workflowStepRepository.save(steps);
     }
@@ -186,7 +191,7 @@ export class WorkflowsService {
           assigneeId: step.approverId,
           description: step.name,
           requiresSignature: true,
-        }),
+        })
       );
       await this.workflowStepRepository.save(steps);
     }
@@ -250,7 +255,8 @@ export class WorkflowsService {
   }
 
   private generateInviteToken(userId: string, workflowId: string, executionId: string): string {
-    const secret = this.configService.get<string>('JWT_SECRET') || 'your-secret-key-change-in-production';
+    const secret =
+      this.configService.get<string>('JWT_SECRET') || 'your-secret-key-change-in-production';
     return this.jwtService.sign(
       {
         aud: 'invite',
@@ -258,14 +264,14 @@ export class WorkflowsService {
         workflowId,
         executionId,
       },
-      { secret, expiresIn: '30d' },
+      { secret, expiresIn: '30d' }
     );
   }
 
   private async sendWorkflowStartNotifications(
     workflow: Workflow,
     execution: WorkflowExecution,
-    initiatorUserId?: string,
+    initiatorUserId?: string
   ) {
     // Resolve the initiator's name
     let initiatorName = 'un utilisateur';
@@ -282,11 +288,9 @@ export class WorkflowsService {
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
 
     // Get all unique assignee IDs from workflow steps
-    const assigneeIds = [...new Set(
-      workflow.steps
-        .filter((step) => step.assigneeId)
-        .map((step) => step.assigneeId),
-    )];
+    const assigneeIds = [
+      ...new Set(workflow.steps.filter((step) => step.assigneeId).map((step) => step.assigneeId)),
+    ];
 
     if (assigneeIds.length === 0) return;
 
@@ -298,7 +302,9 @@ export class WorkflowsService {
 
     for (const assignee of assignees) {
       const stepForUser = workflow.steps.find((s) => s.assigneeId === assignee.id);
-      const isSignatureStep = stepForUser?.requiresSignature || stepForUser?.description?.toLowerCase().includes('signature');
+      const isSignatureStep =
+        stepForUser?.requiresSignature ||
+        stepForUser?.description?.toLowerCase().includes('signature');
       const actionType = isSignatureStep ? 'signature' : 'validation';
       const actionLabel = isSignatureStep ? 'signature' : 'validation';
 

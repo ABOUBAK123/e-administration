@@ -10,12 +10,12 @@
   ],
   "scripts": {
     "bootstrap": "npm install",
-    "backend:install": "cd apps/backend && npm install",
+    "backend:install": "npm install --workspace apps/backend",
     "backend:dev": "cd apps/backend && npm run start:dev",
     "backend:dev:ensure": "node scripts/ensure-backend-dev.js",
     "backend:build": "cd apps/backend && npm run build",
     "backend:test": "cd apps/backend && npm test",
-    "frontend:install": "cd apps/frontend && npm install",
+    "frontend:install": "npm install --workspace apps/frontend",
     "frontend:dev": "cd apps/frontend && npm run dev",
     "frontend:build": "cd apps/frontend && npm run build",
     "frontend:test": "cd apps/frontend && npm test",
@@ -37,7 +37,30 @@
     "build": "npm run backend:build && npm run frontend:build"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "eslint-plugin-react": "^7.37.5"
+  },
+  "overrides": {
+    "@nestjs/common": "11.1.19",
+    "@nestjs/core": "11.1.19",
+    "@nestjs/platform-express": "11.1.19",
+    "@nestjs/platform-socket.io": "11.1.19",
+    "@nestjs/websockets": "11.1.19",
+    "@nestjs/config": {
+      "@nestjs/common": "11.1.19"
+    },
+    "@nestjs/jwt": {
+      "@nestjs/common": "11.1.19"
+    },
+    "@nestjs/passport": {
+      "@nestjs/common": "11.1.19"
+    },
+    "@nestjs/typeorm": {
+      "@nestjs/common": "11.1.19",
+      "@nestjs/core": "11.1.19"
+    }
   },
   "keywords": [
     "document-management",

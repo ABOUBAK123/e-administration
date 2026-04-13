@@ -1,4 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, Index, OneToMany } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+  OneToMany,
+} from 'typeorm';
 import { IssuingAdministration } from './issuing-administration.entity';
 import { AdministrationUser } from './administration-user.entity';
 
@@ -18,7 +27,9 @@ export class AdministrationProfile {
   @Column({ type: 'json', nullable: true })
   permissions!: Record<string, any>;
 
-  @ManyToOne(() => IssuingAdministration, (administration) => administration.profiles, { onDelete: 'CASCADE' })
+  @ManyToOne(() => IssuingAdministration, (administration) => administration.profiles, {
+    onDelete: 'CASCADE',
+  })
   administration!: IssuingAdministration;
 
   @OneToMany(() => AdministrationUser, (user) => user.profile)

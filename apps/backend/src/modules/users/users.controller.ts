@@ -76,33 +76,37 @@ export class UsersController {
   @Put('profile/avatar')
   @ApiOperation({ summary: 'Upload current user avatar' })
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'file', maxCount: 1 },
-      { name: 'avatar', maxCount: 1 },
-    ], {
-      storage: diskStorage({
-        destination: () => UsersController.ensureAvatarUploadDir(),
-        filename: (_, file, cb) => {
-          const extension = extname(file.originalname || '').toLowerCase();
-          const safeExt = extension && ['.png', '.jpg', '.jpeg', '.webp'].includes(extension)
-            ? extension
-            : '.png';
-          cb(null, `avatar_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${safeExt}`);
+    FileFieldsInterceptor(
+      [
+        { name: 'file', maxCount: 1 },
+        { name: 'avatar', maxCount: 1 },
+      ],
+      {
+        storage: diskStorage({
+          destination: () => UsersController.ensureAvatarUploadDir(),
+          filename: (_, file, cb) => {
+            const extension = extname(file.originalname || '').toLowerCase();
+            const safeExt =
+              extension && ['.png', '.jpg', '.jpeg', '.webp'].includes(extension)
+                ? extension
+                : '.png';
+            cb(null, `avatar_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${safeExt}`);
+          },
+        }),
+        limits: { fileSize: 5 * 1024 * 1024 },
+        fileFilter: (_, file, cb) => {
+          if (!file.mimetype?.startsWith('image/')) {
+            cb(new BadRequestException('Only image files are allowed'), false);
+            return;
+          }
+          cb(null, true);
         },
-      }),
-      limits: { fileSize: 5 * 1024 * 1024 },
-      fileFilter: (_, file, cb) => {
-        if (!file.mimetype?.startsWith('image/')) {
-          cb(new BadRequestException('Only image files are allowed'), false);
-          return;
-        }
-        cb(null, true);
-      },
-    }),
+      }
+    )
   )
   uploadAvatar(
     @Request() req,
-    @UploadedFiles() files: { file?: Express.Multer.File[]; avatar?: Express.Multer.File[] },
+    @UploadedFiles() files: { file?: Express.Multer.File[]; avatar?: Express.Multer.File[] }
   ) {
     const file = files?.file?.[0] || files?.avatar?.[0];
     if (!file) {
@@ -115,33 +119,37 @@ export class UsersController {
   @Put(':id/avatar')
   @ApiOperation({ summary: 'Upload avatar for a specific user' })
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'file', maxCount: 1 },
-      { name: 'avatar', maxCount: 1 },
-    ], {
-      storage: diskStorage({
-        destination: () => UsersController.ensureAvatarUploadDir(),
-        filename: (_, file, cb) => {
-          const extension = extname(file.originalname || '').toLowerCase();
-          const safeExt = extension && ['.png', '.jpg', '.jpeg', '.webp'].includes(extension)
-            ? extension
-            : '.png';
-          cb(null, `avatar_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${safeExt}`);
+    FileFieldsInterceptor(
+      [
+        { name: 'file', maxCount: 1 },
+        { name: 'avatar', maxCount: 1 },
+      ],
+      {
+        storage: diskStorage({
+          destination: () => UsersController.ensureAvatarUploadDir(),
+          filename: (_, file, cb) => {
+            const extension = extname(file.originalname || '').toLowerCase();
+            const safeExt =
+              extension && ['.png', '.jpg', '.jpeg', '.webp'].includes(extension)
+                ? extension
+                : '.png';
+            cb(null, `avatar_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${safeExt}`);
+          },
+        }),
+        limits: { fileSize: 5 * 1024 * 1024 },
+        fileFilter: (_, file, cb) => {
+          if (!file.mimetype?.startsWith('image/')) {
+            cb(new BadRequestException('Only image files are allowed'), false);
+            return;
+          }
+          cb(null, true);
         },
-      }),
-      limits: { fileSize: 5 * 1024 * 1024 },
-      fileFilter: (_, file, cb) => {
-        if (!file.mimetype?.startsWith('image/')) {
-          cb(new BadRequestException('Only image files are allowed'), false);
-          return;
-        }
-        cb(null, true);
-      },
-    }),
+      }
+    )
   )
   uploadUserAvatar(
     @Param('id') id: string,
-    @UploadedFiles() files: { file?: Express.Multer.File[]; avatar?: Express.Multer.File[] },
+    @UploadedFiles() files: { file?: Express.Multer.File[]; avatar?: Express.Multer.File[] }
   ) {
     const file = files?.file?.[0] || files?.avatar?.[0];
     if (!file) {

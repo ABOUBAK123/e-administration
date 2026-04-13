@@ -53,7 +53,7 @@ export class UploadedSignatureFileDto {
 }
 
 export class CreateWorkflowDto {
-  @ApiProperty({ example: 'Workflow d\'approbation' })
+  @ApiProperty({ example: "Workflow d'approbation" })
   @IsString()
   name: string;
 
@@ -93,7 +93,7 @@ export class ExecuteWorkflowDto {
 }
 
 export class UpdateWorkflowDto {
-  @ApiProperty({ example: 'Workflow d\'approbation modifié' })
+  @ApiProperty({ example: "Workflow d'approbation modifié" })
   @IsOptional()
   @IsString()
   name?: string;
@@ -192,7 +192,19 @@ export class CreateWorkflowTemplateDto {
 
   @ApiProperty({
     required: false,
-    example: { notifyEmail: true, emails: 'user@gov.ma', cc: '', stages: { onValidationStep: true, onSignatureStep: true, onApproved: true, onRejected: false, onCompleted: true }, sendDownloadLink: true },
+    example: {
+      notifyEmail: true,
+      emails: 'user@gov.ma',
+      cc: '',
+      stages: {
+        onValidationStep: true,
+        onSignatureStep: true,
+        onApproved: true,
+        onRejected: false,
+        onCompleted: true,
+      },
+      sendDownloadLink: true,
+    },
   })
   @IsOptional()
   notificationConfig?: {

@@ -95,7 +95,9 @@ export class DocumentsController {
     fileFilter: (_, file, cb) => {
       const extension = extname(file.originalname || '').toLowerCase();
       const extAllowed = DocumentsController.allowedExtensions.has(extension);
-      const mimeAllowed = DocumentsController.allowedMimeTypes.has(String(file.mimetype || '').toLowerCase());
+      const mimeAllowed = DocumentsController.allowedMimeTypes.has(
+        String(file.mimetype || '').toLowerCase()
+      );
 
       if (extAllowed && mimeAllowed) {
         cb(null, true);
@@ -112,7 +114,7 @@ export class DocumentsController {
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('search') search?: string,
-    @Request() req?,
+    @Request() req?
   ) {
     return this.documentsService.findAll(page, limit, search, req?.user?.id);
   }
@@ -135,7 +137,7 @@ export class DocumentsController {
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('search') search?: string,
-    @Request() req?,
+    @Request() req?
   ) {
     return this.documentsService.getReceptionDocuments(req?.user?.id, page, limit, search);
   }
@@ -147,12 +149,14 @@ export class DocumentsController {
   }
 
   @Get('act-requests')
-  @ApiOperation({ summary: 'Get act requests filtered by recipient administration and user sub-entity' })
+  @ApiOperation({
+    summary: 'Get act requests filtered by recipient administration and user sub-entity',
+  })
   getActRequests(
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('search') search?: string,
-    @Request() req?,
+    @Request() req?
   ) {
     return this.documentsService.getActRequests(req?.user?.id, page, limit, search);
   }
@@ -229,7 +233,8 @@ export class DocumentsController {
     }
     const body = req?.body || {};
     return this.documentsService.upload(req.user.id, file, {
-      generatedFromSharedTemplate: String(body.generatedFromSharedTemplate || '').toLowerCase() === 'true',
+      generatedFromSharedTemplate:
+        String(body.generatedFromSharedTemplate || '').toLowerCase() === 'true',
       subEntityCode: body.subEntityCode,
       title: body.title,
     });
@@ -244,7 +249,8 @@ export class DocumentsController {
     }
     const body = req?.body || {};
     return this.documentsService.upload(req.user.id, file, {
-      generatedFromSharedTemplate: String(body.generatedFromSharedTemplate || '').toLowerCase() === 'true',
+      generatedFromSharedTemplate:
+        String(body.generatedFromSharedTemplate || '').toLowerCase() === 'true',
       subEntityCode: body.subEntityCode,
       title: body.title,
     });
@@ -256,7 +262,7 @@ export class DocumentsController {
   createNewVersion(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
-    @Request() req,
+    @Request() req
   ) {
     if (!file) {
       throw new BadRequestException('No file provided');
@@ -266,7 +272,11 @@ export class DocumentsController {
 
   @Put(':id')
   @ApiOperation({ summary: 'Update document' })
-  update(@Param('id') id: string, @Body() updateDocumentDto: UpdateDocumentDto, @Request() req) {
+  update(
+    @Param('id') id: string,
+    @Body() updateDocumentDto: UpdateDocumentDto,
+    @Request() _req
+  ) {
     return this.documentsService.update(id, updateDocumentDto);
   }
 
@@ -281,7 +291,7 @@ export class DocumentsController {
   updateFavorite(
     @Param('id') id: string,
     @Body() favoriteDto: UpdateDocumentFavoriteDto,
-    @Request() req,
+    @Request() req
   ) {
     return this.documentsService.updateDocumentFavorite(req.user.id, id, favoriteDto.isFavorite);
   }
@@ -291,14 +301,14 @@ export class DocumentsController {
   updateLabelCodes(
     @Param('id') id: string,
     @Body() labelCodesDto: UpdateDocumentLabelCodesDto,
-    @Request() req,
+    @Request() req
   ) {
     return this.documentsService.updateDocumentLabelCodes(req.user.id, id, labelCodesDto.codes);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete document' })
-  delete(@Param('id') id: string, @Request() req) {
+  delete(@Param('id') id: string, @Request() _req) {
     return this.documentsService.delete(id);
   }
 }

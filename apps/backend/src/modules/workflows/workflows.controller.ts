@@ -12,7 +12,11 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { WorkflowsService } from './workflows.service';
-import { CreateWorkflowDto, CreateWorkflowTemplateDto, UpdateWorkflowDto } from './dto/workflow.dto';
+import {
+  CreateWorkflowDto,
+  CreateWorkflowTemplateDto,
+  UpdateWorkflowDto,
+} from './dto/workflow.dto';
 
 @ApiTags('workflows')
 @ApiBearerAuth()
@@ -65,11 +69,7 @@ export class WorkflowsController {
 
   @Post(':id/execute')
   @ApiOperation({ summary: 'Execute workflow' })
-  executeWorkflow(
-    @Param('id') id: string,
-    @Body() body: { documentId: string },
-    @Request() req,
-  ) {
+  executeWorkflow(@Param('id') id: string, @Body() body: { documentId: string }, @Request() req) {
     return this.workflowsService.executeWorkflow(body.documentId, id, req.user.id);
   }
 
@@ -78,7 +78,7 @@ export class WorkflowsController {
   advanceWorkflowStep(
     @Param('executionId') executionId: string,
     @Body() body: { stepIndex: number; decision?: string },
-    @Request() req,
+    @Request() _req
   ) {
     return this.workflowsService.advanceWorkflowStep(executionId, {
       stepIndex: body.stepIndex,
@@ -91,20 +91,24 @@ export class WorkflowsController {
   rejectWorkflow(
     @Param('executionId') executionId: string,
     @Body() body: { reason?: string },
-    @Request() req,
+    @Request() _req
   ) {
     return this.workflowsService.rejectWorkflow(executionId, body.reason);
   }
 
   @Put(':id')
   @ApiOperation({ summary: 'Update workflow' })
-  update(@Param('id') id: string, @Body() updateWorkflowDto: UpdateWorkflowDto, @Request() req) {
+  update(
+    @Param('id') id: string,
+    @Body() updateWorkflowDto: UpdateWorkflowDto,
+    @Request() _req
+  ) {
     return this.workflowsService.update(id, updateWorkflowDto);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete workflow' })
-  delete(@Param('id') id: string, @Request() req) {
+  delete(@Param('id') id: string, @Request() _req) {
     return this.workflowsService.delete(id);
   }
 }

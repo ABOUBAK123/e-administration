@@ -1,4 +1,12 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn, ManyToOne } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+  ManyToOne,
+} from 'typeorm';
 import { IssuingAdministration } from './issuing-administration.entity';
 
 @Entity('signature_provider_configs')

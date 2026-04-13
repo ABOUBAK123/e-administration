@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -66,13 +71,16 @@ export class UsersService {
     @InjectRepository(RecipientAdministration)
     private recipientAdministrationRepository: Repository<RecipientAdministration>,
     @InjectRepository(UserDirectionAssignment)
-    private userDirectionAssignmentRepository: Repository<UserDirectionAssignment>,
+    private userDirectionAssignmentRepository: Repository<UserDirectionAssignment>
   ) {}
 
   private readonly saltRounds = Number.parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10);
 
   private normalizeRoleToken(value?: string | null): string {
-    return String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[-\s]+/g, '_');
   }
 
   private isSuperAdminRole(value?: string | null): boolean {
@@ -98,17 +106,24 @@ export class UsersService {
     return Array.from(new Set(normalized));
   }
 
-  private async resolveUserScopeByIdentity(identity: { email?: string | null; username?: string | null }) {
-    const normalizedEmail = String(identity.email || '').trim().toLowerCase();
-    const normalizedUsername = String(identity.username || '').trim().toLowerCase();
+  private async resolveUserScopeByIdentity(identity: {
+    email?: string | null;
+    username?: string | null;
+  }) {
+    const normalizedEmail = String(identity.email || '')
+      .trim()
+      .toLowerCase();
+    const normalizedUsername = String(identity.username || '')
+      .trim()
+      .toLowerCase();
 
     const directionAssignment = normalizedEmail
       ? await this.userDirectionAssignmentRepository
-        .createQueryBuilder('assignment')
-        .leftJoin(User, 'user', 'user.id = assignment.userId')
-        .where('LOWER(user.email) = :email', { email: normalizedEmail })
-        .orderBy('assignment.updatedAt', 'DESC')
-        .getOne()
+          .createQueryBuilder('assignment')
+          .leftJoin(User, 'user', 'user.id = assignment.userId')
+          .where('LOWER(user.email) = :email', { email: normalizedEmail })
+          .orderBy('assignment.updatedAt', 'DESC')
+          .getOne()
       : null;
 
     if (directionAssignment?.directionScopeType && directionAssignment?.directionScopeId) {
@@ -135,7 +150,11 @@ export class UsersService {
     return null;
   }
 
-  private resolvePayloadScope(payload: { administrationId?: string; directionScopeType?: string; directionScopeId?: string }) {
+  private resolvePayloadScope(payload: {
+    administrationId?: string;
+    directionScopeType?: string;
+    directionScopeId?: string;
+  }) {
     const normalizedScopeType = this.normalizeDirectionScopeType(payload.directionScopeType);
     const normalizedScopeId = String(payload.directionScopeId || '').trim();
     const normalizedAdministrationId = String(payload.administrationId || '').trim();
@@ -157,20 +176,32 @@ export class UsersService {
     return null;
   }
 
-  private ensureAdministrationIsMandatory(payload: { administrationId?: string; directionScopeType?: string; directionScopeId?: string }) {
+  private ensureAdministrationIsMandatory(payload: {
+    administrationId?: string;
+    directionScopeType?: string;
+    directionScopeId?: string;
+  }) {
     const scope = this.resolvePayloadScope(payload);
     if (!scope) {
-      throw new BadRequestException('L\'administration est obligatoire pour ce compte');
+      throw new BadRequestException("L'administration est obligatoire pour ce compte");
     }
     return scope;
   }
 
-  private ensureSameScope(actorScope: { scopeType: 'emitter' | 'recipient'; scopeId: string } | null, targetScope: { scopeType: 'emitter' | 'recipient'; scopeId: string }) {
+  private ensureSameScope(
+    actorScope: { scopeType: 'emitter' | 'recipient'; scopeId: string } | null,
+    targetScope: { scopeType: 'emitter' | 'recipient'; scopeId: string }
+  ) {
     if (!actorScope) {
-      throw new BadRequestException('Votre compte n\'est lié à aucune administration');
+      throw new BadRequestException("Votre compte n'est lié à aucune administration");
     }
-    if (actorScope.scopeType !== targetScope.scopeType || actorScope.scopeId !== targetScope.scopeId) {
-      throw new BadRequestException('Vous ne pouvez gérer que les utilisateurs de votre administration');
+    if (
+      actorScope.scopeType !== targetScope.scopeType ||
+      actorScope.scopeId !== targetScope.scopeId
+    ) {
+      throw new BadRequestException(
+        'Vous ne pouvez gérer que les utilisateurs de votre administration'
+      );
     }
   }
 
@@ -179,7 +210,11 @@ export class UsersService {
     const driverError = (error as any).driverError || {};
     const code = String(driverError.code || '').toUpperCase();
     const message = String(driverError.sqlMessage || driverError.message || '').toLowerCase();
-    return code === 'ER_DUP_ENTRY' || message.includes('duplicate entry') || message.includes('unique constraint');
+    return (
+      code === 'ER_DUP_ENTRY' ||
+      message.includes('duplicate entry') ||
+      message.includes('unique constraint')
+    );
   }
 
   private isForeignKeyError(error: unknown): boolean {
@@ -196,12 +231,12 @@ export class UsersService {
     const code = String(driverError.code || '').toUpperCase();
     const message = String(driverError.sqlMessage || driverError.message || '').toLowerCase();
     return (
-      code === 'ER_NO_SUCH_TABLE'
-      || code === 'ER_BAD_FIELD_ERROR'
-      || message.includes("doesn't exist")
-      || message.includes('no such table')
-      || message.includes('unknown column')
-      || message.includes('relation') && message.includes('does not exist')
+      code === 'ER_NO_SUCH_TABLE' ||
+      code === 'ER_BAD_FIELD_ERROR' ||
+      message.includes("doesn't exist") ||
+      message.includes('no such table') ||
+      message.includes('unknown column') ||
+      (message.includes('relation') && message.includes('does not exist'))
     );
   }
 
@@ -218,15 +253,16 @@ export class UsersService {
     const parsedLimit = Number(limit);
 
     const safePage = Number.isFinite(parsedPage) && parsedPage > 0 ? Math.floor(parsedPage) : 1;
-    const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
-      ? Math.min(Math.floor(parsedLimit), 100)
-      : 20;
+    const safeLimit =
+      Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(Math.floor(parsedLimit), 100) : 20;
 
     return { page: safePage, limit: safeLimit };
   }
 
   private normalizeDirectionScopeType(value?: string | null): 'emitter' | 'recipient' | null {
-    const normalized = String(value || '').trim().toLowerCase();
+    const normalized = String(value || '')
+      .trim()
+      .toLowerCase();
     if (normalized === 'emitter' || normalized === 'recipient') {
       return normalized as 'emitter' | 'recipient';
     }
@@ -234,19 +270,26 @@ export class UsersService {
   }
 
   private normalizeSubEntityCode(value?: string | null): string | null {
-    const normalized = String(value || '').trim().toUpperCase();
+    const normalized = String(value || '')
+      .trim()
+      .toUpperCase();
     return normalized || null;
   }
 
   private async upsertUserDirectionAssignment(
     userId: string,
-    payload: { directionLabel?: string; directionScopeType?: string; directionScopeId?: string; subEntityCode?: string },
+    payload: {
+      directionLabel?: string;
+      directionScopeType?: string;
+      directionScopeId?: string;
+      subEntityCode?: string;
+    }
   ): Promise<UserDirectionAssignment | null> {
     const hasDirectionPayload =
-      payload.directionLabel !== undefined
-      || payload.directionScopeType !== undefined
-      || payload.directionScopeId !== undefined
-      || payload.subEntityCode !== undefined;
+      payload.directionLabel !== undefined ||
+      payload.directionScopeType !== undefined ||
+      payload.directionScopeId !== undefined ||
+      payload.subEntityCode !== undefined;
 
     if (!hasDirectionPayload) {
       try {
@@ -276,7 +319,9 @@ export class UsersService {
     const subEntityCode = this.normalizeSubEntityCode(payload.subEntityCode);
 
     if (!directionScopeType || !directionScopeId || !subEntityCode) {
-      throw new BadRequestException('Le scope de direction et le code de sous-entité sont obligatoires pour ce compte');
+      throw new BadRequestException(
+        'Le scope de direction et le code de sous-entité sont obligatoires pour ce compte'
+      );
     }
 
     let assignment: UserDirectionAssignment | null = null;
@@ -327,14 +372,35 @@ export class UsersService {
     try {
       const resultUsers = await this.userRepository.find({
         order: { createdAt: 'DESC' },
-        select: ['id', 'username', 'email', 'fullName', 'avatar', 'role', 'status', 'quota', 'createdAt', 'updatedAt'],
+        select: [
+          'id',
+          'username',
+          'email',
+          'fullName',
+          'avatar',
+          'role',
+          'status',
+          'quota',
+          'createdAt',
+          'updatedAt',
+        ],
       });
       users = resultUsers;
     } catch {
       // Fallback for legacy schemas where optional profile columns may be missing.
       const resultUsers = await this.userRepository.find({
         order: { createdAt: 'DESC' },
-        select: ['id', 'username', 'email', 'fullName', 'avatar', 'role', 'status', 'createdAt', 'updatedAt'],
+        select: [
+          'id',
+          'username',
+          'email',
+          'fullName',
+          'avatar',
+          'role',
+          'status',
+          'createdAt',
+          'updatedAt',
+        ],
       });
       users = resultUsers.map((user) => ({ ...user, quota: null }));
     }
@@ -374,34 +440,37 @@ export class UsersService {
     }
 
     const mappedUsers = users.map((u) => {
-        const assignment = directionAssignmentMap.get(String((u as any).id || ''));
-        const mappedAdministrationId = adminUserMap.get(u.email) || null;
-        const administrationId = assignment?.directionScopeType === 'recipient'
-          ? null
-          : mappedAdministrationId;
+      const assignment = directionAssignmentMap.get(String((u as any).id || ''));
+      const mappedAdministrationId = adminUserMap.get(u.email) || null;
+      const administrationId =
+        assignment?.directionScopeType === 'recipient' ? null : mappedAdministrationId;
 
-        return {
-          ...u,
-          administrationId,
-          directionLabel: assignment?.directionLabel || null,
-          directionScopeType: assignment?.directionScopeType || null,
-          directionScopeId: assignment?.directionScopeId || null,
-          subEntityCode: assignment?.subEntityCode || null,
-        };
-      });
+      return {
+        ...u,
+        administrationId,
+        directionLabel: assignment?.directionLabel || null,
+        directionScopeType: assignment?.directionScopeType || null,
+        directionScopeId: assignment?.directionScopeId || null,
+        subEntityCode: assignment?.subEntityCode || null,
+      };
+    });
 
     const scopedUsers = requesterIsSuperAdmin
       ? mappedUsers
       : mappedUsers.filter((u) => {
-        if (!requesterScope) return false;
+          if (!requesterScope) return false;
 
-        if (requesterScope.scopeType === 'emitter') {
-          return u.administrationId === requesterScope.scopeId
-            || (u.directionScopeType === 'emitter' && u.directionScopeId === requesterScope.scopeId);
-        }
+          if (requesterScope.scopeType === 'emitter') {
+            return (
+              u.administrationId === requesterScope.scopeId ||
+              (u.directionScopeType === 'emitter' && u.directionScopeId === requesterScope.scopeId)
+            );
+          }
 
-        return u.directionScopeType === 'recipient' && u.directionScopeId === requesterScope.scopeId;
-      });
+          return (
+            u.directionScopeType === 'recipient' && u.directionScopeId === requesterScope.scopeId
+          );
+        });
 
     const total = scopedUsers.length;
     const pageOffset = Math.max(0, (pagination.page - 1) * pagination.limit);
@@ -421,7 +490,17 @@ export class UsersService {
   async findOne(id: string) {
     const user = await this.userRepository.findOne({
       where: { id },
-      select: ['id', 'username', 'email', 'fullName', 'avatar', 'role', 'status', 'createdAt', 'updatedAt'],
+      select: [
+        'id',
+        'username',
+        'email',
+        'fullName',
+        'avatar',
+        'role',
+        'status',
+        'createdAt',
+        'updatedAt',
+      ],
     });
 
     if (!user) {
@@ -435,7 +514,9 @@ export class UsersService {
 
     let directionAssignment: UserDirectionAssignment | null = null;
     try {
-      directionAssignment = await this.userDirectionAssignmentRepository.findOne({ where: { userId: user.id } });
+      directionAssignment = await this.userDirectionAssignmentRepository.findOne({
+        where: { userId: user.id },
+      });
     } catch (error) {
       if (!this.isMissingRelationError(error)) {
         throw error;
@@ -539,7 +620,8 @@ export class UsersService {
           email: savedUser.email,
           username: savedUser.username || savedUser.email,
           fullName: savedUser.fullName,
-          adminRole: (savedUser.role as 'super_admin' | 'admin' | 'manager' | 'user' | 'signer') || 'user',
+          adminRole:
+            (savedUser.role as 'super_admin' | 'admin' | 'manager' | 'user' | 'signer') || 'user',
           status: savedUser.status === 'active' ? 'active' : 'inactive',
         });
         try {
@@ -549,7 +631,9 @@ export class UsersService {
           await this.userRepository.delete(savedUser.id);
 
           if (this.isDuplicateEntryError(error)) {
-            throw new ConflictException('Administration link already exists with same email or username');
+            throw new ConflictException(
+              'Administration link already exists with same email or username'
+            );
           }
           if (this.isForeignKeyError(error)) {
             throw new BadRequestException('Administration cible invalide');
@@ -566,7 +650,8 @@ export class UsersService {
       subEntityCode: userData.subEntityCode,
     });
 
-    const { passwordHash, ...result } = savedUser;
+    const result = { ...savedUser };
+    delete (result as Partial<User> & { passwordHash?: string }).passwordHash;
     return {
       ...result,
       administrationId: userData.administrationId || null,
@@ -597,13 +682,19 @@ export class UsersService {
     const requesterIsSuperAdmin = this.isSuperAdminRole(requester.role);
     const user = await this.findEntityById(id);
 
-    const existingAssignment = await this.userDirectionAssignmentRepository.findOne({ where: { userId: user.id } });
-    const existingAdminLink = await this.administrationUserRepository.findOne({ where: { email: user.email } });
+    const existingAssignment = await this.userDirectionAssignmentRepository.findOne({
+      where: { userId: user.id },
+    });
+    const existingAdminLink = await this.administrationUserRepository.findOne({
+      where: { email: user.email },
+    });
 
     const targetScope = this.ensureAdministrationIsMandatory({
       administrationId: userData.administrationId ?? existingAdminLink?.administrationId,
-      directionScopeType: userData.directionScopeType ?? existingAssignment?.directionScopeType ?? undefined,
-      directionScopeId: userData.directionScopeId ?? existingAssignment?.directionScopeId ?? undefined,
+      directionScopeType:
+        userData.directionScopeType ?? existingAssignment?.directionScopeType ?? undefined,
+      directionScopeId:
+        userData.directionScopeId ?? existingAssignment?.directionScopeId ?? undefined,
     });
 
     if (!requesterIsSuperAdmin) {
@@ -636,7 +727,8 @@ export class UsersService {
     if (userData.username !== undefined) updatePayload.username = userData.username;
     if (userData.email !== undefined) updatePayload.email = userData.email;
     if (userData.fullName !== undefined) updatePayload.fullName = userData.fullName;
-    if (userData.role !== undefined) updatePayload.role = userData.role as 'admin' | 'user' | 'signer' | 'manager';
+    if (userData.role !== undefined)
+      updatePayload.role = userData.role as 'admin' | 'user' | 'signer' | 'manager';
     if (userData.quota !== undefined) updatePayload.quota = userData.quota;
 
     if (userData.password) {
@@ -671,7 +763,9 @@ export class UsersService {
           await this.administrationUserRepository.save(existing);
         } catch (error) {
           if (this.isDuplicateEntryError(error)) {
-            throw new ConflictException('Administration link already exists with same email or username');
+            throw new ConflictException(
+              'Administration link already exists with same email or username'
+            );
           }
           if (this.isForeignKeyError(error)) {
             throw new BadRequestException('Administration cible invalide');
@@ -684,14 +778,17 @@ export class UsersService {
           email: savedUser.email,
           username: savedUser.username || savedUser.email,
           fullName: savedUser.fullName,
-          adminRole: (savedUser.role as 'super_admin' | 'admin' | 'manager' | 'user' | 'signer') || 'user',
+          adminRole:
+            (savedUser.role as 'super_admin' | 'admin' | 'manager' | 'user' | 'signer') || 'user',
           status: savedUser.status === 'active' ? 'active' : 'inactive',
         });
         try {
           await this.administrationUserRepository.save(adminUser);
         } catch (error) {
           if (this.isDuplicateEntryError(error)) {
-            throw new ConflictException('Administration link already exists with same email or username');
+            throw new ConflictException(
+              'Administration link already exists with same email or username'
+            );
           }
           if (this.isForeignKeyError(error)) {
             throw new BadRequestException('Administration cible invalide');
@@ -711,7 +808,8 @@ export class UsersService {
       subEntityCode: userData.subEntityCode,
     });
 
-    const { passwordHash: _ph, ...result } = savedUser as User & { passwordHash: string };
+    const result = { ...savedUser } as Partial<User> & { passwordHash?: string };
+    delete result.passwordHash;
     return {
       ...result,
       administrationId: userData.administrationId || null,
@@ -760,7 +858,8 @@ export class UsersService {
     }
 
     const savedUser = await this.userRepository.save(user);
-    const { passwordHash, ...result } = savedUser;
+    const result = { ...savedUser };
+    delete (result as Partial<User> & { passwordHash?: string }).passwordHash;
     return result;
   }
 
@@ -773,7 +872,8 @@ export class UsersService {
     user.avatar = `/storage/avatars/${filename}`;
 
     const savedUser = await this.userRepository.save(user);
-    const { passwordHash, ...result } = savedUser;
+    const result = { ...savedUser };
+    delete (result as Partial<User> & { passwordHash?: string }).passwordHash;
     return result;
   }
 
@@ -845,7 +945,7 @@ export class UsersService {
       .andWhere('au.status = :status', { status: 'active' })
       .andWhere(
         '(LOWER(au.adminRole) IN (:...signerRoles) OR LOWER(profile.name) LIKE :profilePattern)',
-        { signerRoles: ['signer', 'signataire'], profilePattern: '%signataire%' },
+        { signerRoles: ['signer', 'signataire'], profilePattern: '%signataire%' }
       )
       .getMany();
 
@@ -871,7 +971,12 @@ export class UsersService {
     }));
   }
 
-  async search(requesterUserId: string, query: string, page: number | string = 1, limit: number | string = 20) {
+  async search(
+    requesterUserId: string,
+    query: string,
+    page: number | string = 1,
+    limit: number | string = 20
+  ) {
     const pagination = this.normalizePagination(page, limit);
     const requester = await this.findEntityById(requesterUserId);
     const requesterScope = await this.resolveUserScopeByIdentity({
@@ -880,35 +985,35 @@ export class UsersService {
     });
     const requesterIsSuperAdmin = this.isSuperAdminRole(requester.role);
 
-    const [users, total] = await this.userRepository.findAndCount({
-      where: [
-        { username: query },
-        { email: query },
-        { fullName: query },
-      ],
+    const [users] = await this.userRepository.findAndCount({
+      where: [{ username: query }, { email: query }, { fullName: query }],
       skip: (pagination.page - 1) * pagination.limit,
       take: pagination.limit,
       select: ['id', 'username', 'email', 'fullName', 'role', 'status', 'createdAt', 'updatedAt'],
     });
 
     const userEmails = users.map((u) => u.email);
-    const adminLinks = userEmails.length > 0
-      ? await this.administrationUserRepository.find({ where: { email: In(userEmails) }, select: ['email', 'administrationId'] })
-      : [];
+    const adminLinks =
+      userEmails.length > 0
+        ? await this.administrationUserRepository.find({
+            where: { email: In(userEmails) },
+            select: ['email', 'administrationId'],
+          })
+        : [];
     const adminLinkMap = new Map(adminLinks.map((item) => [item.email, item.administrationId]));
 
     const userIds = users.map((u) => u.id);
-    const assignments = userIds.length > 0
-      ? await this.userDirectionAssignmentRepository.find({ where: { userId: In(userIds) } })
-      : [];
+    const assignments =
+      userIds.length > 0
+        ? await this.userDirectionAssignmentRepository.find({ where: { userId: In(userIds) } })
+        : [];
     const assignmentMap = new Map(assignments.map((item) => [item.userId, item]));
 
     const scopedResults = users
       .map((u) => {
         const assignment = assignmentMap.get(u.id);
-        const administrationId = assignment?.directionScopeType === 'recipient'
-          ? null
-          : (adminLinkMap.get(u.email) || null);
+        const administrationId =
+          assignment?.directionScopeType === 'recipient' ? null : adminLinkMap.get(u.email) || null;
 
         return {
           ...u,
@@ -923,10 +1028,14 @@ export class UsersService {
         if (requesterIsSuperAdmin) return true;
         if (!requesterScope) return false;
         if (requesterScope.scopeType === 'emitter') {
-          return u.administrationId === requesterScope.scopeId
-            || (u.directionScopeType === 'emitter' && u.directionScopeId === requesterScope.scopeId);
+          return (
+            u.administrationId === requesterScope.scopeId ||
+            (u.directionScopeType === 'emitter' && u.directionScopeId === requesterScope.scopeId)
+          );
         }
-        return u.directionScopeType === 'recipient' && u.directionScopeId === requesterScope.scopeId;
+        return (
+          u.directionScopeType === 'recipient' && u.directionScopeId === requesterScope.scopeId
+        );
       });
 
     return {
@@ -940,7 +1049,9 @@ export class UsersService {
     };
   }
 
-  private extractMenuPermissions(permissions: Record<string, unknown> | null | undefined): string[] {
+  private extractMenuPermissions(
+    permissions: Record<string, unknown> | null | undefined
+  ): string[] {
     if (!permissions) return [];
 
     if (Array.isArray(permissions)) {
@@ -970,9 +1081,26 @@ export class UsersService {
         return ['dashboard', 'templates-shared', 'documents', 'workflows', 'reception', 'qrcode'];
       case 'user':
       case 'manager':
-        return ['dashboard', 'templates-shared', 'documents', 'workflows', 'signatures', 'reception', 'act-requests', 'qrcode'];
+        return [
+          'dashboard',
+          'templates-shared',
+          'documents',
+          'workflows',
+          'signatures',
+          'reception',
+          'act-requests',
+          'qrcode',
+        ];
       case 'signer':
-        return ['dashboard', 'templates-shared', 'documents', 'signatures', 'reception', 'act-requests', 'qrcode'];
+        return [
+          'dashboard',
+          'templates-shared',
+          'documents',
+          'signatures',
+          'reception',
+          'act-requests',
+          'qrcode',
+        ];
       default:
         return [];
     }
@@ -984,7 +1112,9 @@ export class UsersService {
     }
 
     if (normalizedRole === 'assistant') {
-      return permissions.filter((permission) => permission !== 'signatures' && !permission.startsWith('signatures.'));
+      return permissions.filter(
+        (permission) => permission !== 'signatures' && !permission.startsWith('signatures.')
+      );
     }
 
     return permissions;
@@ -1006,12 +1136,23 @@ export class UsersService {
       .getOne();
 
     const normalizedAdminRole = this.normalizeRoleToken(administrationUser?.adminRole);
-    const isElevated = this.isSuperAdminRole(normalizedRole) || this.isSuperAdminRole(normalizedAdminRole);
+    const isElevated =
+      this.isSuperAdminRole(normalizedRole) || this.isSuperAdminRole(normalizedAdminRole);
 
     if (isElevated) {
       return {
         isElevated,
-        permissions: ['dashboard', 'templates-shared', 'documents', 'workflows', 'signatures', 'reception', 'act-requests', 'administration', 'qrcode'],
+        permissions: [
+          'dashboard',
+          'templates-shared',
+          'documents',
+          'workflows',
+          'signatures',
+          'reception',
+          'act-requests',
+          'administration',
+          'qrcode',
+        ],
         source: 'elevated_role',
         debug: {
           userRole: user.role || null,
@@ -1024,8 +1165,13 @@ export class UsersService {
       };
     }
 
-    const assignedProfilePermissions = this.extractMenuPermissions(administrationUser?.profile?.permissions as Record<string, unknown> | undefined);
-    const sanitizedAssignedPermissions = this.sanitizeMenuPermissionsByRole(normalizedRole, assignedProfilePermissions);
+    const assignedProfilePermissions = this.extractMenuPermissions(
+      administrationUser?.profile?.permissions as Record<string, unknown> | undefined
+    );
+    const sanitizedAssignedPermissions = this.sanitizeMenuPermissionsByRole(
+      normalizedRole,
+      assignedProfilePermissions
+    );
     if (sanitizedAssignedPermissions.length > 0) {
       return {
         isElevated: false,
@@ -1043,23 +1189,35 @@ export class UsersService {
     }
 
     const roleProfiles = (await this.administrationProfileRepository.find()).filter(
-      (profile) => this.normalizeRoleToken(profile.name) === normalizedRole,
+      (profile) => this.normalizeRoleToken(profile.name) === normalizedRole
     );
 
     const bestProfile = roleProfiles
       .map((profile) => ({
         profile,
-        permissions: this.extractMenuPermissions(profile.permissions as Record<string, unknown> | undefined),
+        permissions: this.extractMenuPermissions(
+          profile.permissions as Record<string, unknown> | undefined
+        ),
       }))
       .sort((a, b) => b.permissions.length - a.permissions.length)[0];
 
-    const roleProfilePermissions = this.sanitizeMenuPermissionsByRole(normalizedRole, bestProfile?.permissions || []);
-    const defaultRolePermissions = roleProfilePermissions.length > 0 ? [] : this.getDefaultMenuPermissionsByRole(normalizedRole);
+    const roleProfilePermissions = this.sanitizeMenuPermissionsByRole(
+      normalizedRole,
+      bestProfile?.permissions || []
+    );
+    const defaultRolePermissions =
+      roleProfilePermissions.length > 0 ? [] : this.getDefaultMenuPermissionsByRole(normalizedRole);
 
     return {
       isElevated: false,
-      permissions: roleProfilePermissions.length > 0 ? roleProfilePermissions : defaultRolePermissions,
-      source: roleProfilePermissions.length > 0 ? 'role_profile' : defaultRolePermissions.length > 0 ? 'role_default' : 'none',
+      permissions:
+        roleProfilePermissions.length > 0 ? roleProfilePermissions : defaultRolePermissions,
+      source:
+        roleProfilePermissions.length > 0
+          ? 'role_profile'
+          : defaultRolePermissions.length > 0
+            ? 'role_default'
+            : 'none',
       debug: {
         userRole: user.role || null,
         normalizedUserRole: normalizedRole || null,
@@ -1146,7 +1304,9 @@ export class UsersService {
       scopeId,
       menuColor: getScopedValue('menu_color') || settingsMap.get('theme_menu_color') || '#173b9f',
       loginBackgroundImage:
-        getScopedValue('login_background_image') || settingsMap.get('theme_login_background_image') || null,
+        getScopedValue('login_background_image') ||
+        settingsMap.get('theme_login_background_image') ||
+        null,
       administrationLogo,
     };
   }

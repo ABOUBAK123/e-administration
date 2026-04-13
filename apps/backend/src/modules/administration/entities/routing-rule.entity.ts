@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 import { RecipientAdministration } from './recipient-administration.entity';
 import { DocumentTemplate } from './template.entity';
 
@@ -31,10 +39,15 @@ export class RoutingRule {
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
 
-  @ManyToOne(() => RecipientAdministration, (recipient) => recipient.routingRules, { onDelete: 'CASCADE' })
+  @ManyToOne(() => RecipientAdministration, (recipient) => recipient.routingRules, {
+    onDelete: 'CASCADE',
+  })
   recipientAdministration!: RecipientAdministration;
 
-  @ManyToOne(() => DocumentTemplate, (template) => template.routingRules, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => DocumentTemplate, (template) => template.routingRules, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   template!: DocumentTemplate;
 
   @CreateDateColumn()

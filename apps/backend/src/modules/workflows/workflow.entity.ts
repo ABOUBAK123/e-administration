@@ -1,4 +1,14 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, CreateDateColumn, UpdateDateColumn, Index, JoinColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  OneToMany,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+  JoinColumn,
+} from 'typeorm';
 import { User } from '../users/user.entity';
 import { WorkflowStep } from './workflow-step.entity';
 import { WorkflowExecution } from './workflow-execution.entity';

@@ -1134,9 +1134,6 @@ function Settings() {
     return typeof candidate === 'string' ? candidate : ''
   }
 
-  const getAllChildIds = (node: PermissionNode): string[] =>
-    node.children ? [node.id, ...node.children.flatMap(getAllChildIds)] : [node.id]
-
   const toggleProfilePermission = (id: string, node: PermissionNode | undefined) => {
     if (node?.children?.length) {
       const childIds = node.children.map(c => c.id)

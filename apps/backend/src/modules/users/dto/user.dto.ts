@@ -39,7 +39,10 @@ export class CreateUserDto {
   @IsUUID()
   administrationId?: string;
 
-  @ApiProperty({ example: 'Direction des Marches Publics (Destinataire - Trésor Public)', required: false })
+  @ApiProperty({
+    example: 'Direction des Marches Publics (Destinataire - Trésor Public)',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   directionLabel?: string;
@@ -107,7 +110,10 @@ export class UpdateUserDto {
   @IsUUID()
   administrationId?: string;
 
-  @ApiProperty({ example: 'Direction des Marches Publics (Destinataire - Trésor Public)', required: false })
+  @ApiProperty({
+    example: 'Direction des Marches Publics (Destinataire - Trésor Public)',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   directionLabel?: string;

@@ -49,7 +49,7 @@ export class ChatGateway implements OnModuleInit, OnGatewayConnection, OnGateway
     private readonly notificationsService: NotificationsService,
     @InjectRepository(ChatMessageEntity)
     private readonly chatMessageRepository: Repository<ChatMessageEntity>,
-    private readonly dataSource: DataSource,
+    private readonly dataSource: DataSource
   ) {}
 
   async onModuleInit() {
@@ -70,7 +70,11 @@ export class ChatGateway implements OnModuleInit, OnGatewayConnection, OnGateway
     }
   }
 
-  private buildIdempotencyKey(senderId: string, room: string, clientMessageId?: string): string | null {
+  private buildIdempotencyKey(
+    senderId: string,
+    room: string,
+    clientMessageId?: string
+  ): string | null {
     const normalized = String(clientMessageId || '').trim();
     if (!normalized) return null;
     return `${senderId}|${room}|${normalized}`;
@@ -103,17 +107,19 @@ export class ChatGateway implements OnModuleInit, OnGatewayConnection, OnGateway
       if (!exists) {
         this.logger.error(
           '[Chat][HealthCheck] Table "chat_messages" introuvable. ' +
-          'Exécutez la migration: npm run migration:run. ' +
-          'Le chat temps réel reste actif, mais l\'historique ne sera pas persisté tant que la table est absente.',
+            'Exécutez la migration: npm run migration:run. ' +
+            "Le chat temps réel reste actif, mais l'historique ne sera pas persisté tant que la table est absente."
         );
       } else {
-        this.logger.log('[Chat][HealthCheck] Table "chat_messages" détectée: persistance chat active.');
+        this.logger.log(
+          '[Chat][HealthCheck] Table "chat_messages" détectée: persistance chat active.'
+        );
       }
     } catch (error: any) {
       this.isChatStorageReady = false;
       this.logger.error(
         `[Chat][HealthCheck] Vérification base de données échouée: ${error?.message || error}. ` +
-        'Le chat temps réel reste actif sans persistance.',
+          'Le chat temps réel reste actif sans persistance.'
       );
     } finally {
       await queryRunner.release();
@@ -130,7 +136,7 @@ export class ChatGateway implements OnModuleInit, OnGatewayConnection, OnGateway
       userName: string;
       userInitials: string;
     },
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: Socket
   ) {
     const { room, userId, userName, userInitials } = data;
 
@@ -160,17 +166,15 @@ export class ChatGateway implements OnModuleInit, OnGatewayConnection, OnGateway
         take: 50,
       });
 
-      history = persisted
-        .reverse()
-        .map((item) => ({
-          id: item.id,
-          senderId: item.senderId,
-          senderName: item.senderName,
-          senderInitials: item.senderInitials,
-          text: item.text,
-          timestamp: item.createdAt.toISOString(),
-          room: item.room,
-        }));
+      history = persisted.reverse().map((item) => ({
+        id: item.id,
+        senderId: item.senderId,
+        senderName: item.senderName,
+        senderInitials: item.senderInitials,
+        text: item.text,
+        timestamp: item.createdAt.toISOString(),
+        room: item.room,
+      }));
     }
 
     client.emit('room:history', history);
@@ -194,7 +198,7 @@ export class ChatGateway implements OnModuleInit, OnGatewayConnection, OnGateway
       room: string;
       clientMessageId?: string;
     },
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: Socket
   ) {
     const sender = this.connectedUsers.get(client.id);
     if (!sender) return;
@@ -213,18 +217,18 @@ export class ChatGateway implements OnModuleInit, OnGatewayConnection, OnGateway
 
     const persistedMessage = this.isChatStorageReady
       ? await this.chatMessageRepository.save(
-        this.chatMessageRepository.create({
-          senderId: sender.userId,
-          senderName: sender.userName,
-          senderInitials: sender.userInitials,
-          text: trimmedText,
-          room: data.room,
-        }),
-      )
-      : {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        createdAt: new Date(),
-      } as Pick<ChatMessageEntity, 'id' | 'createdAt'>;
+          this.chatMessageRepository.create({
+            senderId: sender.userId,
+            senderName: sender.userName,
+            senderInitials: sender.userInitials,
+            text: trimmedText,
+            room: data.room,
+          })
+        )
+      : ({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          createdAt: new Date(),
+        } as Pick<ChatMessageEntity, 'id' | 'createdAt'>);
 
     const message: ChatMessage = {
       id: persistedMessage.id,
@@ -241,54 +245,65 @@ export class ChatGateway implements OnModuleInit, OnGatewayConnection, OnGateway
 
     // Ensure direct messages are delivered even when recipient is not currently in the same room.
     if (this.isDirectRoom(data.room)) {
-      const recipientIds = this.parseDirectRoomUserIds(data.room).filter((id) => id !== sender.userId);
+      const recipientIds = this.parseDirectRoomUserIds(data.room).filter(
+        (id) => id !== sender.userId
+      );
       for (const recipientId of recipientIds) {
         // Fallback direct emit only to recipient sockets that are not currently in the DM room.
         // This avoids sending the same message twice when the recipient is already in the room.
         const recipientSockets = Array.from(this.connectedUsers.values()).filter(
-          (u) => u.userId === recipientId && u.room !== data.room,
+          (u) => u.userId === recipientId && u.room !== data.room
         );
-        recipientSockets.forEach((u) => this.server.to(u.socketId).emit('message:received', message));
+        recipientSockets.forEach((u) =>
+          this.server.to(u.socketId).emit('message:received', message)
+        );
 
-        this.notificationsService.createNotification({
-          recipientId,
-          title: 'Nouveau message',
-          message: `${sender.userName} vous a envoyé un message.`,
-          type: 'info',
-          actionUrl: '/documents',
-        }).catch((err) => {
-          this.logger.warn(`Failed to create chat notification for ${recipientId}: ${err?.message || err}`);
-        });
+        this.notificationsService
+          .createNotification({
+            recipientId,
+            title: 'Nouveau message',
+            message: `${sender.userName} vous a envoyé un message.`,
+            type: 'info',
+            actionUrl: '/documents',
+          })
+          .catch((err) => {
+            this.logger.warn(
+              `Failed to create chat notification for ${recipientId}: ${err?.message || err}`
+            );
+          });
       }
       return;
     }
 
     // Channel notifications for connected room users (except sender).
-    const channelRecipientIds = Array.from(new Set(
-      this.getRoomUsers(data.room)
-        .map((u) => u.userId)
-        .filter((id) => id !== sender.userId),
-    ));
+    const channelRecipientIds = Array.from(
+      new Set(
+        this.getRoomUsers(data.room)
+          .map((u) => u.userId)
+          .filter((id) => id !== sender.userId)
+      )
+    );
 
     channelRecipientIds.forEach((recipientId) => {
-      this.notificationsService.createNotification({
-        recipientId,
-        title: `Message dans #${data.room}`,
-        message: `${sender.userName}: ${trimmedText.slice(0, 120)}`,
-        type: 'info',
-        actionUrl: '/documents',
-      }).catch((err) => {
-        this.logger.warn(`Failed to create channel chat notification for ${recipientId}: ${err?.message || err}`);
-      });
+      this.notificationsService
+        .createNotification({
+          recipientId,
+          title: `Message dans #${data.room}`,
+          message: `${sender.userName}: ${trimmedText.slice(0, 120)}`,
+          type: 'info',
+          actionUrl: '/documents',
+        })
+        .catch((err) => {
+          this.logger.warn(
+            `Failed to create channel chat notification for ${recipientId}: ${err?.message || err}`
+          );
+        });
     });
   }
 
   /** Indicateur "en train d'écrire" */
   @SubscribeMessage('typing:start')
-  handleTypingStart(
-    @MessageBody() data: { room: string },
-    @ConnectedSocket() client: Socket,
-  ) {
+  handleTypingStart(@MessageBody() data: { room: string }, @ConnectedSocket() client: Socket) {
     const sender = this.connectedUsers.get(client.id);
     if (!sender) return;
     client.to(data.room).emit('typing:update', {
@@ -299,10 +314,7 @@ export class ChatGateway implements OnModuleInit, OnGatewayConnection, OnGateway
   }
 
   @SubscribeMessage('typing:stop')
-  handleTypingStop(
-    @MessageBody() data: { room: string },
-    @ConnectedSocket() client: Socket,
-  ) {
+  handleTypingStop(@MessageBody() data: { room: string }, @ConnectedSocket() client: Socket) {
     const sender = this.connectedUsers.get(client.id);
     if (!sender) return;
     client.to(data.room).emit('typing:update', {
@@ -313,9 +325,7 @@ export class ChatGateway implements OnModuleInit, OnGatewayConnection, OnGateway
   }
 
   private getRoomUsers(room: string): ConnectedUser[] {
-    return Array.from(this.connectedUsers.values()).filter(
-      (u) => u.room === room,
-    );
+    return Array.from(this.connectedUsers.values()).filter((u) => u.room === room);
   }
 
   private isDirectRoom(room: string): boolean {

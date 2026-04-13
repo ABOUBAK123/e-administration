@@ -13,7 +13,7 @@ export class NotificationsService {
   constructor(
     private readonly configService: ConfigService,
     @InjectRepository(Notification)
-    private notificationRepository: Repository<Notification>,
+    private notificationRepository: Repository<Notification>
   ) {
     const host = this.configService.get<string>('mail.host');
     const port = this.configService.get<number>('mail.port');
@@ -56,7 +56,9 @@ export class NotificationsService {
     html?: string;
   }): Promise<{ sent: boolean; reason?: string }> {
     if (!this.transporter) {
-      this.logger.warn(`Email skipped (mailer disabled) to=${params.to}, subject=${params.subject}`);
+      this.logger.warn(
+        `Email skipped (mailer disabled) to=${params.to}, subject=${params.subject}`
+      );
       return { sent: false, reason: 'mailer_disabled' };
     }
 
@@ -155,16 +157,10 @@ export class NotificationsService {
   }
 
   async markAsRead(notificationId: string, recipientId: string): Promise<void> {
-    await this.notificationRepository.update(
-      { id: notificationId, recipientId },
-      { isRead: true },
-    );
+    await this.notificationRepository.update({ id: notificationId, recipientId }, { isRead: true });
   }
 
   async markAllAsRead(recipientId: string): Promise<void> {
-    await this.notificationRepository.update(
-      { recipientId, isRead: false },
-      { isRead: true },
-    );
+    await this.notificationRepository.update({ recipientId, isRead: false }, { isRead: true });
   }
 }

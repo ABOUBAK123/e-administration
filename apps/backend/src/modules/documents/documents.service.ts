@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, In, EntityManager } from 'typeorm';
 import { existsSync } from 'fs';
@@ -41,7 +46,7 @@ export class DocumentsService {
     @InjectRepository(RequestedAct)
     private requestedActRepository: Repository<RequestedAct>,
     private notificationsService: NotificationsService,
-    private qrcodeService: QrcodeService,
+    private qrcodeService: QrcodeService
   ) {}
 
   private normalizePagination(page?: number | string, limit?: number | string) {
@@ -49,9 +54,8 @@ export class DocumentsService {
     const parsedLimit = Number(limit);
 
     const safePage = Number.isFinite(parsedPage) && parsedPage > 0 ? Math.floor(parsedPage) : 1;
-    const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
-      ? Math.min(Math.floor(parsedLimit), 100)
-      : 20;
+    const safeLimit =
+      Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(Math.floor(parsedLimit), 100) : 20;
 
     return { page: safePage, limit: safeLimit };
   }
@@ -71,7 +75,7 @@ export class DocumentsService {
 
   private upsertRecipientShareMeta(
     previousDescription: string | null | undefined,
-    partialMeta: Record<string, unknown>,
+    partialMeta: Record<string, unknown>
   ): string {
     const marker = 'RECIPIENT_SHARE_META::';
     const previous = String(previousDescription || '');
@@ -104,11 +108,16 @@ export class DocumentsService {
     let allowedRecipientIds = isAdmin
       ? apiRecipients.map((item) => item.id)
       : apiRecipients
-          .filter((item) => (item.emailAddress || '').trim().toLowerCase() === user.email.trim().toLowerCase())
+          .filter(
+            (item) =>
+              (item.emailAddress || '').trim().toLowerCase() === user.email.trim().toLowerCase()
+          )
           .map((item) => item.id);
 
     if (!isAdmin) {
-      const assignment = await this.userDirectionAssignmentRepository.findOne({ where: { userId } });
+      const assignment = await this.userDirectionAssignmentRepository.findOne({
+        where: { userId },
+      });
       if (assignment?.directionScopeType === 'recipient' && assignment.directionScopeId) {
         allowedRecipientIds = [assignment.directionScopeId];
       }
@@ -124,20 +133,21 @@ export class DocumentsService {
     }
 
     const administrationUser = await this.administrationUserRepository.findOne({
-      where: [
-        { email: user.email },
-        { username: user.username },
-      ],
+      where: [{ email: user.email }, { username: user.username }],
     });
 
     return administrationUser?.administrationId || null;
   }
 
   private normalizeSubEntityCode(value?: string | null): string {
-    return String(value || '').trim().toUpperCase();
+    return String(value || '')
+      .trim()
+      .toUpperCase();
   }
 
-  private normalizeSubEntities(raw: unknown): Array<{ code: string; managerEmail?: string; managerName?: string }> {
+  private normalizeSubEntities(
+    raw: unknown
+  ): Array<{ code: string; managerEmail?: string; managerName?: string }> {
     if (!Array.isArray(raw)) return [];
 
     return raw
@@ -147,8 +157,14 @@ export class DocumentsService {
         if (!code) return null;
         return {
           code,
-          managerEmail: String(data.managerEmail || data.responsableEmail || '').trim().toLowerCase() || undefined,
-          managerName: String(data.managerName || data.responsableName || '').trim().toLowerCase() || undefined,
+          managerEmail:
+            String(data.managerEmail || data.responsableEmail || '')
+              .trim()
+              .toLowerCase() || undefined,
+          managerName:
+            String(data.managerName || data.responsableName || '')
+              .trim()
+              .toLowerCase() || undefined,
         };
       })
       .filter(Boolean) as Array<{ code: string; managerEmail?: string; managerName?: string }>;
@@ -169,12 +185,14 @@ export class DocumentsService {
       return [];
     };
 
-    return Array.from(new Set([
-      ...collect(source.subEntityCode),
-      ...collect(source.subEntityCodes),
-      ...collect((source as any).entityCode),
-      ...collect((source as any).entityCodes),
-    ]));
+    return Array.from(
+      new Set([
+        ...collect(source.subEntityCode),
+        ...collect(source.subEntityCodes),
+        ...collect((source as any).entityCode),
+        ...collect((source as any).entityCodes),
+      ])
+    );
   }
 
   private extractMenuPermissions(permissions: unknown): string[] {
@@ -192,13 +210,26 @@ export class DocumentsService {
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-z0-9.-]+/g, '');
 
-      if (plain === 'actrequests' || plain === 'act-requests' || plain === 'demandedactes' || plain === 'demandesdactes') {
+      if (
+        plain === 'actrequests' ||
+        plain === 'act-requests' ||
+        plain === 'demandedactes' ||
+        plain === 'demandesdactes'
+      ) {
         return 'act-requests';
       }
-      if (plain === 'act-requests.view' || plain === 'actrequests.view' || plain === 'act-requests-view') {
+      if (
+        plain === 'act-requests.view' ||
+        plain === 'actrequests.view' ||
+        plain === 'act-requests-view'
+      ) {
         return 'act-requests.view';
       }
-      if (plain === 'act-requests.process' || plain === 'actrequests.process' || plain === 'act-requests-process') {
+      if (
+        plain === 'act-requests.process' ||
+        plain === 'actrequests.process' ||
+        plain === 'act-requests-process'
+      ) {
         return 'act-requests.process';
       }
       if (plain === 'receptionview' || plain === 'reception.view' || plain === 'reception-view') {
@@ -208,13 +239,8 @@ export class DocumentsService {
       return plain;
     };
 
-    const normalize = (values: unknown[]): string[] => Array.from(
-      new Set(
-        values
-          .map((item) => canonicalizePermissionToken(item))
-          .filter(Boolean),
-      ),
-    );
+    const normalize = (values: unknown[]): string[] =>
+      Array.from(new Set(values.map((item) => canonicalizePermissionToken(item)).filter(Boolean)));
 
     const collectObjectBooleanKeys = (value: unknown): string[] => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
@@ -255,11 +281,13 @@ export class DocumentsService {
   }
 
   private hasActRequestPermission(menuPermissions: string[]): boolean {
-    return menuPermissions.includes('act-requests')
-      || menuPermissions.includes('act-requests.view')
-      || menuPermissions.includes('act-requests.process')
-      || menuPermissions.includes('reception')
-      || menuPermissions.includes('reception.view');
+    return (
+      menuPermissions.includes('act-requests') ||
+      menuPermissions.includes('act-requests.view') ||
+      menuPermissions.includes('act-requests.process') ||
+      menuPermissions.includes('reception') ||
+      menuPermissions.includes('reception.view')
+    );
   }
 
   private hasActRequestProcessPermission(menuPermissions: string[]): boolean {
@@ -267,7 +295,10 @@ export class DocumentsService {
   }
 
   private normalizeRoleToken(value?: string | null): string {
-    return String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[-\s]+/g, '_');
   }
 
   private getDefaultMenuPermissionsByRole(normalizedRole: string): string[] {
@@ -276,16 +307,35 @@ export class DocumentsService {
         return ['dashboard', 'templates-shared', 'documents', 'workflows', 'reception', 'qrcode'];
       case 'user':
       case 'manager':
-        return ['dashboard', 'templates-shared', 'documents', 'workflows', 'signatures', 'reception', 'act-requests', 'qrcode'];
+        return [
+          'dashboard',
+          'templates-shared',
+          'documents',
+          'workflows',
+          'signatures',
+          'reception',
+          'act-requests',
+          'qrcode',
+        ];
       case 'signer':
-        return ['dashboard', 'templates-shared', 'documents', 'signatures', 'reception', 'act-requests', 'qrcode'];
+        return [
+          'dashboard',
+          'templates-shared',
+          'documents',
+          'signatures',
+          'reception',
+          'act-requests',
+          'qrcode',
+        ];
       default:
         return [];
     }
   }
 
   private isActRequestDocument(document: Document): boolean {
-    const normalizedType = String((document as any)?.type || '').trim().toLowerCase();
+    const normalizedType = String((document as any)?.type || '')
+      .trim()
+      .toLowerCase();
     if (normalizedType === 'request' || normalizedType === 'demande_acte') {
       return true;
     }
@@ -306,7 +356,11 @@ export class DocumentsService {
 
   private parseActRequestDescription(description?: string | null): {
     requiredDocuments: string[];
-    receivedDocuments: Array<{ originalName: string; storedPath: string; requiredDocumentLabel?: string }>;
+    receivedDocuments: Array<{
+      originalName: string;
+      storedPath: string;
+      requiredDocumentLabel?: string;
+    }>;
     applicant: { fullName: string; email: string; phone?: string };
     note: string;
     applicantFieldValues: Record<string, string>;
@@ -321,16 +375,25 @@ export class DocumentsService {
         const parsed = JSON.parse(jsonPart) as any;
         return {
           requiredDocuments: Array.isArray(parsed?.requiredDocuments)
-            ? parsed.requiredDocuments.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+            ? parsed.requiredDocuments
+                .map((item: unknown) => String(item || '').trim())
+                .filter(Boolean)
             : [],
           receivedDocuments: Array.isArray(parsed?.receivedDocuments)
             ? parsed.receivedDocuments
-              .map((item: any) => ({
-                originalName: String(item?.originalName || '').trim(),
-                storedPath: String(item?.storedPath || '').trim(),
-                requiredDocumentLabel: String(item?.requiredDocumentLabel || '').trim() || undefined,
-              }))
-              .filter((item: { originalName: string; storedPath: string; requiredDocumentLabel?: string }) => item.originalName || item.storedPath)
+                .map((item: any) => ({
+                  originalName: String(item?.originalName || '').trim(),
+                  storedPath: String(item?.storedPath || '').trim(),
+                  requiredDocumentLabel:
+                    String(item?.requiredDocumentLabel || '').trim() || undefined,
+                }))
+                .filter(
+                  (item: {
+                    originalName: string;
+                    storedPath: string;
+                    requiredDocumentLabel?: string;
+                  }) => item.originalName || item.storedPath
+                )
             : [],
           applicant: {
             fullName: String(parsed?.applicant?.fullName || '').trim(),
@@ -338,14 +401,18 @@ export class DocumentsService {
             phone: String(parsed?.applicant?.phone || '').trim() || undefined,
           },
           note: String(parsed?.note || '').trim(),
-          applicantFieldValues: parsed?.applicantFieldValues && typeof parsed.applicantFieldValues === 'object'
-            ? Object.entries(parsed.applicantFieldValues as Record<string, unknown>).reduce((acc, [key, value]) => {
-              const label = String(key || '').trim();
-              if (!label) return acc;
-              acc[label] = String(value || '').trim();
-              return acc;
-            }, {} as Record<string, string>)
-            : {},
+          applicantFieldValues:
+            parsed?.applicantFieldValues && typeof parsed.applicantFieldValues === 'object'
+              ? Object.entries(parsed.applicantFieldValues as Record<string, unknown>).reduce(
+                  (acc, [key, value]) => {
+                    const label = String(key || '').trim();
+                    if (!label) return acc;
+                    acc[label] = String(value || '').trim();
+                    return acc;
+                  },
+                  {} as Record<string, string>
+                )
+              : {},
         };
       } catch {
         // fallback on legacy parser below
@@ -354,13 +421,18 @@ export class DocumentsService {
 
     const lines = raw.split('\n').map((line) => line.trim());
     const requiredDocuments: string[] = [];
-    const receivedDocuments: Array<{ originalName: string; storedPath: string; requiredDocumentLabel?: string }> = [];
+    const receivedDocuments: Array<{
+      originalName: string;
+      storedPath: string;
+      requiredDocumentLabel?: string;
+    }> = [];
     const applicant = { fullName: '', email: '', phone: '' as string | undefined };
     let note = '';
     const applicantFieldValues: Record<string, string> = {};
 
     const parseBulletLine = (value: string) => value.replace(/^-\s*/, '').trim();
-    const lineByPrefix = (prefix: string) => lines.find((line) => line.toLowerCase().startsWith(prefix.toLowerCase()));
+    const lineByPrefix = (prefix: string) =>
+      lines.find((line) => line.toLowerCase().startsWith(prefix.toLowerCase()));
 
     applicant.fullName = lineByPrefix('Nom complet:')?.split(':').slice(1).join(':').trim() || '';
     applicant.email = lineByPrefix('Email:')?.split(':').slice(1).join(':').trim() || '';
@@ -394,7 +466,9 @@ export class DocumentsService {
       }
     }
 
-    const receivedStart = lines.findIndex((line) => line.toLowerCase() === 'pieces jointes usager:');
+    const receivedStart = lines.findIndex(
+      (line) => line.toLowerCase() === 'pieces jointes usager:'
+    );
     if (receivedStart >= 0) {
       for (let i = receivedStart + 1; i < lines.length; i += 1) {
         const line = lines[i];
@@ -407,7 +481,11 @@ export class DocumentsService {
         const filePart = (labelMatch?.[2] || parsed).trim();
         const match = filePart.match(/^(.*?)\s*\((\/uploads\/[^)]+)\)\s*$/);
         if (match) {
-          receivedDocuments.push({ originalName: match[1].trim(), storedPath: match[2].trim(), requiredDocumentLabel });
+          receivedDocuments.push({
+            originalName: match[1].trim(),
+            storedPath: match[2].trim(),
+            requiredDocumentLabel,
+          });
         } else {
           receivedDocuments.push({ originalName: filePart, storedPath: '', requiredDocumentLabel });
         }
@@ -416,7 +494,10 @@ export class DocumentsService {
 
     const noteStart = lines.findIndex((line) => line.toLowerCase() === 'observation usager:');
     if (noteStart >= 0) {
-      note = lines.slice(noteStart + 1).join(' ').trim();
+      note = lines
+        .slice(noteStart + 1)
+        .join(' ')
+        .trim();
       if (note === '-') note = '';
     }
 
@@ -429,7 +510,10 @@ export class DocumentsService {
     };
   }
 
-  private async resolveActRequestAccessContext(userId: string, options?: { requireProcess?: boolean }) {
+  private async resolveActRequestAccessContext(
+    userId: string,
+    options?: { requireProcess?: boolean }
+  ) {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('Utilisateur introuvable.');
@@ -448,12 +532,18 @@ export class DocumentsService {
     const administrationUserProfile = await this.administrationUserRepository
       .createQueryBuilder('administrationUser')
       .leftJoinAndSelect('administrationUser.profile', 'profile')
-      .where('LOWER(administrationUser.email) = :email', { email: (user.email || '').trim().toLowerCase() })
-      .orWhere('LOWER(administrationUser.username) = :username', { username: (user.username || '').trim().toLowerCase() })
+      .where('LOWER(administrationUser.email) = :email', {
+        email: (user.email || '').trim().toLowerCase(),
+      })
+      .orWhere('LOWER(administrationUser.username) = :username', {
+        username: (user.username || '').trim().toLowerCase(),
+      })
       .orderBy('administrationUser.updatedAt', 'DESC')
       .getOne();
 
-    let menuPermissions = this.extractMenuPermissions(administrationUserProfile?.profile?.permissions);
+    let menuPermissions = this.extractMenuPermissions(
+      administrationUserProfile?.profile?.permissions
+    );
     if (menuPermissions.length === 0) {
       const normalizedRole = this.normalizeRoleToken(user.role);
       const roleProfiles = (await this.administrationProfileRepository.find())
@@ -467,11 +557,15 @@ export class DocumentsService {
 
     const requireProcess = Boolean(options?.requireProcess);
     if (requireProcess && !this.hasActRequestProcessPermission(menuPermissions)) {
-      throw new ForbiddenException('Le droit act-requests.process est requis pour traiter les demandes d\'actes.');
+      throw new ForbiddenException(
+        "Le droit act-requests.process est requis pour traiter les demandes d'actes."
+      );
     }
 
     if (!requireProcess && !this.hasActRequestPermission(menuPermissions)) {
-      throw new ForbiddenException('Le droit act-requests.view est requis pour consulter les demandes d\'actes.');
+      throw new ForbiddenException(
+        "Le droit act-requests.view est requis pour consulter les demandes d'actes."
+      );
     }
 
     const requesterAdministrationId = await this.resolveUserAdministrationId(user.id);
@@ -484,7 +578,10 @@ export class DocumentsService {
       take: 1,
     });
 
-    const allowedSubEntityCodes = await this.resolveAuthorizedSubEntityCodes(user, managedRecipients);
+    const allowedSubEntityCodes = await this.resolveAuthorizedSubEntityCodes(
+      user,
+      managedRecipients
+    );
 
     return {
       user,
@@ -501,7 +598,11 @@ export class DocumentsService {
     note?: string;
     requestedActId: string;
     requestedDocuments: string[];
-    attachments: Array<{ originalName: string; storedPath: string; requiredDocumentLabel?: string }>;
+    attachments: Array<{
+      originalName: string;
+      storedPath: string;
+      requiredDocumentLabel?: string;
+    }>;
     applicantFieldValues?: Record<string, string>;
   }): string {
     const prettyList = payload.attachments
@@ -550,7 +651,9 @@ export class DocumentsService {
       select: ['id'],
     });
     if (!fallbackUser?.id) {
-      throw new NotFoundException('Aucun utilisateur interne disponible pour enregistrer la demande.');
+      throw new NotFoundException(
+        'Aucun utilisateur interne disponible pour enregistrer la demande.'
+      );
     }
     return fallbackUser.id;
   }
@@ -600,7 +703,9 @@ export class DocumentsService {
       directionLabel: item.directionLabel,
       documentName: item.documentName,
       requiredDocuments: Array.isArray(item.requiredDocuments) ? item.requiredDocuments : [],
-      applicantFields: Array.isArray((item as any).applicantFields) ? (item as any).applicantFields : [],
+      applicantFields: Array.isArray((item as any).applicantFields)
+        ? (item as any).applicantFields
+        : [],
     }));
   }
 
@@ -618,9 +723,16 @@ export class DocumentsService {
     const normalizedEmitterId = String(payload.emitterAdministrationId || '').trim();
     const normalizedRequestedActId = String(payload.requestedActId || '').trim();
     const normalizedFullName = String(payload.applicantFullName || '').trim();
-    const normalizedEmail = String(payload.applicantEmail || '').trim().toLowerCase();
+    const normalizedEmail = String(payload.applicantEmail || '')
+      .trim()
+      .toLowerCase();
 
-    if (!normalizedEmitterId || !normalizedRequestedActId || !normalizedFullName || !normalizedEmail) {
+    if (
+      !normalizedEmitterId ||
+      !normalizedRequestedActId ||
+      !normalizedFullName ||
+      !normalizedEmail
+    ) {
       throw new BadRequestException('Informations obligatoires manquantes.');
     }
 
@@ -628,11 +740,14 @@ export class DocumentsService {
     const fileLabels = Array.isArray(payload.fileLabels)
       ? payload.fileLabels.map((item) => String(item || '').trim())
       : [];
-    const applicantFieldValues = (payload.applicantFieldValues && typeof payload.applicantFieldValues === 'object')
-      ? payload.applicantFieldValues
-      : {};
+    const applicantFieldValues =
+      payload.applicantFieldValues && typeof payload.applicantFieldValues === 'object'
+        ? payload.applicantFieldValues
+        : {};
     if (attachments.length === 0) {
-      throw new BadRequestException('Veuillez joindre au moins un fichier pour soumettre la demande.');
+      throw new BadRequestException(
+        'Veuillez joindre au moins un fichier pour soumettre la demande.'
+      );
     }
 
     const requestedAct = await this.requestedActRepository.findOne({
@@ -650,7 +765,7 @@ export class DocumentsService {
     const requiredDocumentSet = new Set(
       (Array.isArray(requestedAct.requiredDocuments) ? requestedAct.requiredDocuments : [])
         .map((item) => String(item || '').trim())
-        .filter(Boolean),
+        .filter(Boolean)
     );
 
     if (requiredDocumentSet.size > 0) {
@@ -658,9 +773,13 @@ export class DocumentsService {
         throw new BadRequestException('Chaque fichier doit être associé à une pièce exigée.');
       }
 
-      const hasInvalidLabel = fileLabels.some((label) => !requiredDocumentSet.has(String(label || '').trim()));
+      const hasInvalidLabel = fileLabels.some(
+        (label) => !requiredDocumentSet.has(String(label || '').trim())
+      );
       if (hasInvalidLabel) {
-        throw new BadRequestException('Un ou plusieurs fichiers n\'ont pas de pièce valide associée.');
+        throw new BadRequestException(
+          "Un ou plusieurs fichiers n'ont pas de pièce valide associée."
+        );
       }
     }
 
@@ -668,16 +787,19 @@ export class DocumentsService {
       ? (requestedAct as any).applicantFields
       : [];
 
-    const normalizedApplicantFieldValues = configuredApplicantFields.reduce((acc, field) => {
-      const label = String(field?.label || '').trim();
-      if (!label) return acc;
-      const value = String((applicantFieldValues as Record<string, unknown>)[label] || '').trim();
-      if (!value) {
-        throw new BadRequestException(`Le champ usager "${label}" est obligatoire.`);
-      }
-      acc[label] = value;
-      return acc;
-    }, {} as Record<string, string>);
+    const normalizedApplicantFieldValues = configuredApplicantFields.reduce(
+      (acc, field) => {
+        const label = String(field?.label || '').trim();
+        if (!label) return acc;
+        const value = String((applicantFieldValues as Record<string, unknown>)[label] || '').trim();
+        if (!value) {
+          throw new BadRequestException(`Le champ usager "${label}" est obligatoire.`);
+        }
+        acc[label] = value;
+        return acc;
+      },
+      {} as Record<string, string>
+    );
 
     const ownerUserId = await this.resolveSystemOwnerUserId();
 
@@ -702,7 +824,9 @@ export class DocumentsService {
         email: normalizedEmail,
         phone: String(payload.applicantPhone || '').trim() || undefined,
       },
-      requiredDocuments: Array.isArray(requestedAct.requiredDocuments) ? requestedAct.requiredDocuments : [],
+      requiredDocuments: Array.isArray(requestedAct.requiredDocuments)
+        ? requestedAct.requiredDocuments
+        : [],
       receivedDocuments: attachmentSummaries,
       applicantFieldValues: normalizedApplicantFieldValues,
       note: String(payload.note || '').trim() || undefined,
@@ -716,7 +840,9 @@ export class DocumentsService {
       applicantPhone: String(payload.applicantPhone || '').trim() || undefined,
       note: String(payload.note || '').trim() || undefined,
       requestedActId: requestedAct.id,
-      requestedDocuments: Array.isArray(requestedAct.requiredDocuments) ? requestedAct.requiredDocuments : [],
+      requestedDocuments: Array.isArray(requestedAct.requiredDocuments)
+        ? requestedAct.requiredDocuments
+        : [],
       attachments: attachmentSummaries,
       applicantFieldValues: normalizedApplicantFieldValues,
     })}\n\nACT_REQUEST_META::${JSON.stringify(publicMeta)}`;
@@ -759,10 +885,14 @@ export class DocumentsService {
 
   private async resolveAuthorizedSubEntityCodes(
     user: User,
-    allowedRecipients: RecipientAdministration[],
+    allowedRecipients: RecipientAdministration[]
   ): Promise<string[]> {
-    const explicitAssignment = await this.userDirectionAssignmentRepository.findOne({ where: { userId: user.id } });
-    const explicitSubEntityCode = this.normalizeSubEntityCode(explicitAssignment?.subEntityCode || '');
+    const explicitAssignment = await this.userDirectionAssignmentRepository.findOne({
+      where: { userId: user.id },
+    });
+    const explicitSubEntityCode = this.normalizeSubEntityCode(
+      explicitAssignment?.subEntityCode || ''
+    );
     if (explicitSubEntityCode) {
       return [explicitSubEntityCode];
     }
@@ -780,24 +910,34 @@ export class DocumentsService {
       .getOne();
 
     const fromProfile = this.extractSubEntityCodesFromProfilePermissions(
-      administrationUser?.profile?.permissions,
+      administrationUser?.profile?.permissions
     );
 
     const fromRecipients = allowedRecipients.flatMap((recipient) => {
       const metadata = ((recipient as any)?.metadata || {}) as Record<string, unknown>;
-      const subEntities = this.normalizeSubEntities(metadata.subEntities || (metadata as any).sousTutelles);
+      const subEntities = this.normalizeSubEntities(
+        metadata.subEntities || (metadata as any).sousTutelles
+      );
 
       return subEntities
         .filter((entity) => {
           const byEmail = Boolean(entity.managerEmail) && entity.managerEmail === normalizedEmail;
-          const byName = Boolean(entity.managerName)
-            && (entity.managerName === normalizedFullName || entity.managerName === normalizedUsername);
+          const byName =
+            Boolean(entity.managerName) &&
+            (entity.managerName === normalizedFullName ||
+              entity.managerName === normalizedUsername);
           return byEmail || byName;
         })
         .map((entity) => entity.code);
     });
 
-    return Array.from(new Set([...fromProfile, ...fromRecipients].map((code) => this.normalizeSubEntityCode(code)).filter(Boolean)));
+    return Array.from(
+      new Set(
+        [...fromProfile, ...fromRecipients]
+          .map((code) => this.normalizeSubEntityCode(code))
+          .filter(Boolean)
+      )
+    );
   }
 
   private resolveStoredFileName(file: Express.Multer.File): string {
@@ -811,7 +951,9 @@ export class DocumentsService {
       return fromPath;
     }
 
-    throw new BadRequestException('Le fichier téléversé est invalide (nom de stockage introuvable).');
+    throw new BadRequestException(
+      'Le fichier téléversé est invalide (nom de stockage introuvable).'
+    );
   }
 
   private isInvalidDocumentPath(path?: string | null): boolean {
@@ -832,30 +974,33 @@ export class DocumentsService {
 
   async auditInvalidFilePaths(limit: number | string = 500) {
     const parsedLimit = Number(limit);
-    const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
-      ? Math.min(Math.floor(parsedLimit), 5000)
-      : 500;
+    const safeLimit =
+      Number.isFinite(parsedLimit) && parsedLimit > 0
+        ? Math.min(Math.floor(parsedLimit), 5000)
+        : 500;
 
     const invalidDocs = await this.documentRepository
       .createQueryBuilder('doc')
       .where('doc.filePath IS NULL')
       .orWhere("TRIM(doc.filePath) = ''")
-      .orWhere("doc.filePath LIKE :invalidSuffix", { invalidSuffix: '%/undefined' })
+      .orWhere('doc.filePath LIKE :invalidSuffix', { invalidSuffix: '%/undefined' })
       .orderBy('doc.updatedAt', 'DESC')
       .take(safeLimit)
       .getMany();
 
-    const rows = await Promise.all(invalidDocs.map(async (doc) => {
-      const fallbackPath = await this.findLatestValidVersionPath(doc.id);
-      return {
-        id: doc.id,
-        title: doc.title,
-        filePath: doc.filePath,
-        updatedAt: doc.updatedAt,
-        recoverable: Boolean(fallbackPath),
-        suggestedPath: fallbackPath,
-      };
-    }));
+    const rows = await Promise.all(
+      invalidDocs.map(async (doc) => {
+        const fallbackPath = await this.findLatestValidVersionPath(doc.id);
+        return {
+          id: doc.id,
+          title: doc.title,
+          filePath: doc.filePath,
+          updatedAt: doc.updatedAt,
+          recoverable: Boolean(fallbackPath),
+          suggestedPath: fallbackPath,
+        };
+      })
+    );
 
     return {
       total: rows.length,
@@ -883,7 +1028,12 @@ export class DocumentsService {
     };
   }
 
-  async findAll(page: number | string = 1, limit: number | string = 20, search?: string, ownerId?: string) {
+  async findAll(
+    page: number | string = 1,
+    limit: number | string = 20,
+    search?: string,
+    ownerId?: string
+  ) {
     const pagination = this.normalizePagination(page, limit);
     const query = this.documentRepository.createQueryBuilder('doc');
 
@@ -892,7 +1042,8 @@ export class DocumentsService {
     }
 
     if (search && search.trim()) {
-      const searchClause = 'LOWER(doc.title) LIKE LOWER(:search) OR LOWER(doc.description) LIKE LOWER(:search)';
+      const searchClause =
+        'LOWER(doc.title) LIKE LOWER(:search) OR LOWER(doc.description) LIKE LOWER(:search)';
       if (ownerId) {
         query.andWhere(`(${searchClause})`, { search: `%${search}%` });
       } else {
@@ -962,25 +1113,34 @@ export class DocumentsService {
     return await this.documentRepository.save(document);
   }
 
-  private async ensureDocumentWritableByUser(userId: string, documentId: string): Promise<Document> {
+  private async ensureDocumentWritableByUser(
+    userId: string,
+    documentId: string
+  ): Promise<Document> {
     const document = await this.documentRepository.findOne({ where: { id: documentId } });
     if (!document) {
       throw new NotFoundException('Document not found');
     }
 
     if (document.ownerId !== userId) {
-      throw new ForbiddenException('Vous n\'avez pas acces a ce document.');
+      throw new ForbiddenException("Vous n'avez pas acces a ce document.");
     }
 
     return document;
   }
 
   private normalizeLabelCodes(codes: string[]): string[] {
-    return Array.from(new Set(
-      (Array.isArray(codes) ? codes : [])
-        .map((code) => String(code || '').trim().toUpperCase())
-        .filter(Boolean),
-    ));
+    return Array.from(
+      new Set(
+        (Array.isArray(codes) ? codes : [])
+          .map((code) =>
+            String(code || '')
+              .trim()
+              .toUpperCase()
+          )
+          .filter(Boolean)
+      )
+    );
   }
 
   private parseStoredLabelCodes(value: unknown): string[] {
@@ -1003,7 +1163,10 @@ export class DocumentsService {
     return this.normalizeLabelCodes(raw.split(','));
   }
 
-  private async getPreferenceRaw(userId: string, documentId: string): Promise<{
+  private async getPreferenceRaw(
+    userId: string,
+    documentId: string
+  ): Promise<{
     id: string;
     isFavorite: boolean;
     labelCodes: string[];
@@ -1021,7 +1184,10 @@ export class DocumentsService {
 
     return {
       id: String(row.id || ''),
-      isFavorite: row.isFavorite === true || String(row.isFavorite || '').toLowerCase() === 'true' || String(row.isFavorite || '') === '1',
+      isFavorite:
+        row.isFavorite === true ||
+        String(row.isFavorite || '').toLowerCase() === 'true' ||
+        String(row.isFavorite || '') === '1',
       labelCodes: this.parseStoredLabelCodes(row.labelCodes),
     };
   }
@@ -1033,7 +1199,13 @@ export class DocumentsService {
   }
 
   async getUserDocumentPreferences(userId: string) {
-    let rows: Array<{ id: string; isFavorite: unknown; labelCodes: unknown; documentId: string; updatedAt: Date | string }> = [];
+    let rows: Array<{
+      id: string;
+      isFavorite: unknown;
+      labelCodes: unknown;
+      documentId: string;
+      updatedAt: Date | string;
+    }> = [];
     try {
       rows = await this.documentUserPreferenceRepository
         .createQueryBuilder('pref')
@@ -1054,7 +1226,10 @@ export class DocumentsService {
 
     return rows.map((row) => ({
       documentId: row.documentId,
-      isFavorite: row.isFavorite === true || String(row.isFavorite || '').toLowerCase() === 'true' || String(row.isFavorite || '') === '1',
+      isFavorite:
+        row.isFavorite === true ||
+        String(row.isFavorite || '').toLowerCase() === 'true' ||
+        String(row.isFavorite || '') === '1',
       labelCodes: this.parseStoredLabelCodes(row.labelCodes),
       updatedAt: row.updatedAt,
     }));
@@ -1168,7 +1343,7 @@ export class DocumentsService {
   async upload(
     userId: string,
     file: Express.Multer.File,
-    options?: { generatedFromSharedTemplate?: boolean; subEntityCode?: string; title?: string },
+    options?: { generatedFromSharedTemplate?: boolean; subEntityCode?: string; title?: string }
   ) {
     if (!file) {
       throw new NotFoundException('No file provided');
@@ -1178,48 +1353,51 @@ export class DocumentsService {
 
     const issuingAdministrationId = await this.resolveUserAdministrationId(userId);
 
-    const requestedSubEntityCode = this.normalizeSubEntityCode(String(options?.subEntityCode || '')) || null;
+    const requestedSubEntityCode =
+      this.normalizeSubEntityCode(String(options?.subEntityCode || '')) || null;
     const isGeneratedFromSharedTemplate = Boolean(options?.generatedFromSharedTemplate);
     const requestedTitle = String(options?.title || '').trim();
 
-    const savedDocument = await this.documentRepository.manager.transaction(async (manager: EntityManager) => {
-      let resolvedDocumentNumber: string | null = null;
-      if (isGeneratedFromSharedTemplate && issuingAdministrationId) {
-        resolvedDocumentNumber = await this.generateNextDocumentNumberForTemplateUpload(
-          manager,
+    const savedDocument = await this.documentRepository.manager.transaction(
+      async (manager: EntityManager) => {
+        let resolvedDocumentNumber: string | null = null;
+        if (isGeneratedFromSharedTemplate && issuingAdministrationId) {
+          resolvedDocumentNumber = await this.generateNextDocumentNumberForTemplateUpload(
+            manager,
+            issuingAdministrationId,
+            requestedSubEntityCode
+          );
+        }
+
+        const documentRepository = manager.getRepository(Document);
+        const versionRepository = manager.getRepository(DocumentVersion);
+
+        const document = documentRepository.create({
+          title: requestedTitle || file.originalname.split('.')[0],
+          filePath: `/uploads/${storedFileName}`,
+          fileSize: file.size,
+          mimeType: file.mimetype,
+          createdBy: userId,
+          ownerId: userId,
           issuingAdministrationId,
-          requestedSubEntityCode,
-        );
+          subEntityCode: requestedSubEntityCode,
+          documentNumber: resolvedDocumentNumber,
+          status: 'draft',
+        });
+
+        const saved = await documentRepository.save(document);
+
+        await versionRepository.save({
+          documentId: saved.id,
+          version: 1,
+          filePath: `/uploads/${storedFileName}`,
+          creatorId: userId,
+          changeLog: 'Initial upload',
+        });
+
+        return saved;
       }
-
-      const documentRepository = manager.getRepository(Document);
-      const versionRepository = manager.getRepository(DocumentVersion);
-
-      const document = documentRepository.create({
-        title: requestedTitle || file.originalname.split('.')[0],
-        filePath: `/uploads/${storedFileName}`,
-        fileSize: file.size,
-        mimeType: file.mimetype,
-        createdBy: userId,
-        ownerId: userId,
-        issuingAdministrationId,
-        subEntityCode: requestedSubEntityCode,
-        documentNumber: resolvedDocumentNumber,
-        status: 'draft',
-      });
-
-      const saved = await documentRepository.save(document);
-
-      await versionRepository.save({
-        documentId: saved.id,
-        version: 1,
-        filePath: `/uploads/${storedFileName}`,
-        creatorId: userId,
-        changeLog: 'Initial upload',
-      });
-
-      return saved;
-    });
+    );
 
     if (isGeneratedFromSharedTemplate && savedDocument.documentNumber) {
       try {
@@ -1244,7 +1422,7 @@ export class DocumentsService {
   private async generateNextDocumentNumberForTemplateUpload(
     manager: EntityManager,
     administrationId: string,
-    subEntityCode: string | null,
+    subEntityCode: string | null
   ): Promise<string> {
     const updateResult = await manager
       .createQueryBuilder()
@@ -1267,7 +1445,9 @@ export class DocumentsService {
       throw new NotFoundException('Issuing administration not found for document numbering');
     }
 
-    const prefix = String(row.documentNumberPrefix || row.code || 'DOC').trim().toUpperCase();
+    const prefix = String(row.documentNumberPrefix || row.code || 'DOC')
+      .trim()
+      .toUpperCase();
     const normalizedSubEntity = this.normalizeSubEntityCode(subEntityCode || '') || 'ENTITE';
     const padding = Math.max(Number(row.documentNumberPadding || 5), 5);
     const sequence = String(Number(row.documentNumberSequence || 1)).padStart(padding, '0');
@@ -1277,8 +1457,6 @@ export class DocumentsService {
   }
 
   async getVersions(id: string) {
-    const document = await this.findOne(id);
-
     const versions = await this.documentVersionRepository.find({
       where: { documentId: id },
       order: { createdAt: 'DESC' },
@@ -1317,7 +1495,8 @@ export class DocumentsService {
   }
 
   async getDocumentsByOwner(userId: string, page = 1, limit = 20) {
-    const query = this.documentRepository.createQueryBuilder('doc')
+    const query = this.documentRepository
+      .createQueryBuilder('doc')
       .where('doc.ownerId = :userId', { userId });
 
     const [documents, total] = await query
@@ -1337,21 +1516,34 @@ export class DocumentsService {
     };
   }
 
-  async getReceptionDocuments(userId: string, page: number | string = 1, limit: number | string = 20, search?: string) {
+  async getReceptionDocuments(
+    userId: string,
+    page: number | string = 1,
+    limit: number | string = 20,
+    search?: string
+  ) {
     const pagination = this.normalizePagination(page, limit);
     const allowedRecipientIds = await this.resolveAllowedRecipientAdministrationIds(userId);
     if (allowedRecipientIds.length === 0) {
-      return { data: [], pagination: { total: 0, page: pagination.page, limit: pagination.limit, pages: 0 } };
+      return {
+        data: [],
+        pagination: { total: 0, page: pagination.page, limit: pagination.limit, pages: 0 },
+      };
     }
 
     const queryBuilder = this.documentRepository
       .createQueryBuilder('doc')
-      .where('doc.recipientAdministrationId IN (:...recipientIds)', { recipientIds: allowedRecipientIds });
+      .where('doc.recipientAdministrationId IN (:...recipientIds)', {
+        recipientIds: allowedRecipientIds,
+      });
 
     if (search && search.trim()) {
-      queryBuilder.andWhere('(LOWER(doc.title) LIKE LOWER(:search) OR LOWER(doc.description) LIKE LOWER(:search))', {
-        search: `%${search.trim()}%`,
-      });
+      queryBuilder.andWhere(
+        '(LOWER(doc.title) LIKE LOWER(:search) OR LOWER(doc.description) LIKE LOWER(:search))',
+        {
+          search: `%${search.trim()}%`,
+        }
+      );
     }
 
     const [documents, total] = await queryBuilder
@@ -1374,12 +1566,19 @@ export class DocumentsService {
   async markReceptionZipDownloaded(userId: string, documentId: string) {
     const allowedRecipientIds = await this.resolveAllowedRecipientAdministrationIds(userId);
     if (allowedRecipientIds.length === 0) {
-      throw new ForbiddenException('Vous n\'êtes pas autorisé à traiter les documents de réception.');
+      throw new ForbiddenException(
+        "Vous n'êtes pas autorisé à traiter les documents de réception."
+      );
     }
 
     const document = await this.findOne(documentId);
-    if (!document.recipientAdministrationId || !allowedRecipientIds.includes(document.recipientAdministrationId)) {
-      throw new ForbiddenException('Ce document n\'appartient pas à votre administration destinataire.');
+    if (
+      !document.recipientAdministrationId ||
+      !allowedRecipientIds.includes(document.recipientAdministrationId)
+    ) {
+      throw new ForbiddenException(
+        "Ce document n'appartient pas à votre administration destinataire."
+      );
     }
 
     const currentMeta = this.parseRecipientShareMeta(document.description);
@@ -1398,7 +1597,12 @@ export class DocumentsService {
     };
   }
 
-  async getActRequests(userId: string, page: number | string = 1, limit: number | string = 20, search?: string) {
+  async getActRequests(
+    userId: string,
+    page: number | string = 1,
+    limit: number | string = 20,
+    search?: string
+  ) {
     const pagination = this.normalizePagination(page, limit);
     const access = await this.resolveActRequestAccessContext(userId, { requireProcess: false });
     const isAdmin = access.isAdmin;
@@ -1410,14 +1614,14 @@ export class DocumentsService {
         isAdmin
           ? '1 = 1'
           : '(doc.recipientAdministrationId = :administrationId OR doc.issuingAdministrationId = :administrationId)',
-        isAdmin ? {} : { administrationId: requesterAdministrationId },
+        isAdmin ? {} : { administrationId: requesterAdministrationId }
       )
       .andWhere(
         `(
           LOWER(COALESCE(doc.title, '')) LIKE :requestLike
           OR LOWER(COALESCE(doc.description, '')) LIKE :requestLike
         )`,
-        { requestLike: '%demande%' },
+        { requestLike: '%demande%' }
       );
 
     if (!isAdmin) {
@@ -1439,7 +1643,7 @@ export class DocumentsService {
           OR LOWER(COALESCE(doc.subEntityCode, '')) LIKE LOWER(:search)
           OR LOWER(COALESCE(doc.documentNumber, '')) LIKE LOWER(:search)
         )`,
-        { search: `%${search.trim()}%` },
+        { search: `%${search.trim()}%` }
       );
     }
 
@@ -1465,29 +1669,36 @@ export class DocumentsService {
     const document = await this.findOne(documentId);
 
     if (!this.isActRequestDocument(document)) {
-      throw new NotFoundException('Demande d\'acte introuvable.');
+      throw new NotFoundException("Demande d'acte introuvable.");
     }
 
     if (!access.isAdmin) {
       const administrationId = access.requesterAdministrationId;
-      const scopedByAdministration = document.issuingAdministrationId === administrationId
-        || document.recipientAdministrationId === administrationId;
+      const scopedByAdministration =
+        document.issuingAdministrationId === administrationId ||
+        document.recipientAdministrationId === administrationId;
       if (!scopedByAdministration) {
-        throw new ForbiddenException('Cette demande n\'appartient pas à votre administration.');
+        throw new ForbiddenException("Cette demande n'appartient pas à votre administration.");
       }
 
       if (access.allowedSubEntityCodes.length === 0) {
-        throw new ForbiddenException('Aucune entité sous tutelle autorisée pour traiter cette demande.');
+        throw new ForbiddenException(
+          'Aucune entité sous tutelle autorisée pour traiter cette demande.'
+        );
       }
 
       const documentSubEntityCode = this.normalizeSubEntityCode(document.subEntityCode || '');
       if (!access.allowedSubEntityCodes.includes(documentSubEntityCode)) {
-        throw new ForbiddenException('Cette demande n\'est pas affectée à votre entité sous tutelle.');
+        throw new ForbiddenException(
+          "Cette demande n'est pas affectée à votre entité sous tutelle."
+        );
       }
     }
 
     const parsed = this.parseActRequestDescription(document.description);
-    const normalizedReceivedNames = parsed.receivedDocuments.map((item) => this.normalizeAttachmentName(item.originalName));
+    const normalizedReceivedNames = parsed.receivedDocuments.map((item) =>
+      this.normalizeAttachmentName(item.originalName)
+    );
 
     const requiredDocuments = parsed.requiredDocuments.map((name) => {
       const normalizedRequired = this.normalizeAttachmentName(name);
@@ -1498,7 +1709,10 @@ export class DocumentsService {
             return true;
           }
           const normalizedReceived = this.normalizeAttachmentName(file.originalName);
-          return normalizedReceived.includes(normalizedRequired) || normalizedRequired.includes(normalizedReceived);
+          return (
+            normalizedReceived.includes(normalizedRequired) ||
+            normalizedRequired.includes(normalizedReceived)
+          );
         })
         .map((file) => file.originalName);
 
@@ -1538,28 +1752,35 @@ export class DocumentsService {
     const document = await this.findOne(documentId);
 
     if (!this.isActRequestDocument(document)) {
-      throw new NotFoundException('Demande d\'acte introuvable.');
+      throw new NotFoundException("Demande d'acte introuvable.");
     }
 
     if (!access.isAdmin) {
       const administrationId = access.requesterAdministrationId;
-      const scopedByAdministration = document.issuingAdministrationId === administrationId
-        || document.recipientAdministrationId === administrationId;
+      const scopedByAdministration =
+        document.issuingAdministrationId === administrationId ||
+        document.recipientAdministrationId === administrationId;
       if (!scopedByAdministration) {
-        throw new ForbiddenException('Cette demande n\'appartient pas à votre administration.');
+        throw new ForbiddenException("Cette demande n'appartient pas à votre administration.");
       }
 
       if (access.allowedSubEntityCodes.length === 0) {
-        throw new ForbiddenException('Aucune entité sous tutelle autorisée pour traiter cette demande.');
+        throw new ForbiddenException(
+          'Aucune entité sous tutelle autorisée pour traiter cette demande.'
+        );
       }
 
       const documentSubEntityCode = this.normalizeSubEntityCode(document.subEntityCode || '');
       if (!access.allowedSubEntityCodes.includes(documentSubEntityCode)) {
-        throw new ForbiddenException('Cette demande n\'est pas affectée à votre entité sous tutelle.');
+        throw new ForbiddenException(
+          "Cette demande n'est pas affectée à votre entité sous tutelle."
+        );
       }
     }
 
-    const previousStatus = String(document.status || '').trim().toLowerCase();
+    const previousStatus = String(document.status || '')
+      .trim()
+      .toLowerCase();
     if (previousStatus !== 'active') {
       document.status = 'active';
       await this.documentRepository.save(document);
@@ -1601,28 +1822,35 @@ export class DocumentsService {
     const document = await this.findOne(documentId);
 
     if (!this.isActRequestDocument(document)) {
-      throw new NotFoundException('Demande d\'acte introuvable.');
+      throw new NotFoundException("Demande d'acte introuvable.");
     }
 
     if (!access.isAdmin) {
       const administrationId = access.requesterAdministrationId;
-      const scopedByAdministration = document.issuingAdministrationId === administrationId
-        || document.recipientAdministrationId === administrationId;
+      const scopedByAdministration =
+        document.issuingAdministrationId === administrationId ||
+        document.recipientAdministrationId === administrationId;
       if (!scopedByAdministration) {
-        throw new ForbiddenException('Cette demande n\'appartient pas à votre administration.');
+        throw new ForbiddenException("Cette demande n'appartient pas à votre administration.");
       }
 
       if (access.allowedSubEntityCodes.length === 0) {
-        throw new ForbiddenException('Aucune entité sous tutelle autorisée pour traiter cette demande.');
+        throw new ForbiddenException(
+          'Aucune entité sous tutelle autorisée pour traiter cette demande.'
+        );
       }
 
       const documentSubEntityCode = this.normalizeSubEntityCode(document.subEntityCode || '');
       if (!access.allowedSubEntityCodes.includes(documentSubEntityCode)) {
-        throw new ForbiddenException('Cette demande n\'est pas affectée à votre entité sous tutelle.');
+        throw new ForbiddenException(
+          "Cette demande n'est pas affectée à votre entité sous tutelle."
+        );
       }
     }
 
-    const previousStatus = String(document.status || '').trim().toLowerCase();
+    const previousStatus = String(document.status || '')
+      .trim()
+      .toLowerCase();
     if (previousStatus === 'archived') {
       return {
         id: document.id,
@@ -1632,7 +1860,9 @@ export class DocumentsService {
     }
 
     if (previousStatus !== 'signed') {
-      throw new BadRequestException('La demande doit être signée avant d\'être marquée comme traitée.');
+      throw new BadRequestException(
+        "La demande doit être signée avant d'être marquée comme traitée."
+      );
     }
 
     document.status = 'archived';
@@ -1647,10 +1877,7 @@ export class DocumentsService {
 
   async searchDocuments(query: string, page = 1, limit = 20) {
     const [documents, total] = await this.documentRepository.findAndCount({
-      where: [
-        { title: Like(`%${query}%`) },
-        { description: Like(`%${query}%`) },
-      ],
+      where: [{ title: Like(`%${query}%`) }, { description: Like(`%${query}%`) }],
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -1695,7 +1922,9 @@ export class DocumentsService {
         throw new BadRequestException('Administration destinataire requise.');
       }
       if (!applicantFullName || !applicantMatricule || !applicantEmail) {
-        throw new BadRequestException('Nom et prénoms, matricule et email usager sont obligatoires.');
+        throw new BadRequestException(
+          'Nom et prénoms, matricule et email usager sont obligatoires.'
+        );
       }
 
       const recipientAdministration = await this.recipientAdministrationRepository.findOne({
@@ -1724,10 +1953,13 @@ export class DocumentsService {
           .createQueryBuilder('recipient')
           .where('recipient.channel = :channel', { channel: 'api' })
           .andWhere('recipient.isActive = :isActive', { isActive: true })
-          .andWhere('(LOWER(recipient.name) = :recipientName OR LOWER(recipient.emailAddress) = :recipientEmail)', {
-            recipientName: normalizedRecipientName || '__none__',
-            recipientEmail: normalizedRecipientEmail || '__none__',
-          })
+          .andWhere(
+            '(LOWER(recipient.name) = :recipientName OR LOWER(recipient.emailAddress) = :recipientEmail)',
+            {
+              recipientName: normalizedRecipientName || '__none__',
+              recipientEmail: normalizedRecipientEmail || '__none__',
+            }
+          )
           .getOne();
 
         if (match) {
@@ -1737,13 +1969,16 @@ export class DocumentsService {
       }
     }
     if (recipientEmail) {
-      const shareTypeLabel = shareData.mode === 'internal'
-        ? 'interne'
-        : (shareData.mode === 'recipient_administration' ? 'administration destinataire' : 'externe');
+      const shareTypeLabel =
+        shareData.mode === 'internal'
+          ? 'interne'
+          : shareData.mode === 'recipient_administration'
+            ? 'administration destinataire'
+            : 'externe';
       const permissionLabel = shareData.permission || 'lecture';
       const expiryLine = expiresAt
         ? `\nCe partage expire le ${expiresAt.toLocaleString('fr-FR')}.`
-        : '\nCe partage n\'a pas de date d\'expiration.';
+        : "\nCe partage n'a pas de date d'expiration.";
 
       const shareLink = `${process.env.API_URL || 'http://localhost:3000'}/documents/${document.id}`;
 

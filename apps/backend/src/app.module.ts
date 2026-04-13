@@ -27,7 +27,9 @@ import { ChatModule } from './modules/chat/chat.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService): TypeOrmModuleOptions => {
-        const dbType = (configService.get<string>('database.type') || 'postgres') as 'postgres' | 'mysql';
+        const dbType = (configService.get<string>('database.type') || 'postgres') as
+          | 'postgres'
+          | 'mysql';
         const isDevelopment = configService.get('app.env') === 'development';
 
         return {

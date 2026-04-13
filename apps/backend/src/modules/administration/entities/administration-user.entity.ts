@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 import { IssuingAdministration } from './issuing-administration.entity';
 import { AdministrationProfile } from './administration-profile.entity';
 
@@ -31,10 +39,15 @@ export class AdministrationUser {
   @Column({ type: 'varchar', length: 50, default: 'active' })
   status!: 'active' | 'inactive';
 
-  @ManyToOne(() => IssuingAdministration, (administration) => administration.users, { onDelete: 'CASCADE' })
+  @ManyToOne(() => IssuingAdministration, (administration) => administration.users, {
+    onDelete: 'CASCADE',
+  })
   administration!: IssuingAdministration;
 
-  @ManyToOne(() => AdministrationProfile, (profile) => profile.users, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => AdministrationProfile, (profile) => profile.users, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   profile!: AdministrationProfile;
 
   @CreateDateColumn()

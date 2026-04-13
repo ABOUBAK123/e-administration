@@ -12,7 +12,7 @@ Le guide est oriente production simple et maintenable.
 ## 2. Prerequis
 - Serveur Ubuntu 22.04 a jour
 - Acces SSH avec un utilisateur sudo
-- Nom de domaine pointe vers le serveur (ex: app.mondomaine.com)
+- Nom de domaine pointe vers le serveur (ex: e-administration.dyula.ci)
 - Ports ouverts:
   - 22 (SSH)
   - 80 (HTTP)
@@ -139,7 +139,7 @@ NODE_ENV=production
 
 Frontend:
 - Fichier: apps/frontend/.env
-- Configurer l'URL API publique (ex: https://app.mondomaine.com/api)
+- Configurer l'URL API publique (ex: https://e-administration.dyula.ci/api)
 
 ## 10. Installation des dependances et build
 Depuis la racine du projet:
@@ -185,37 +185,52 @@ pm2 startup
 ## 13. Configuration Apache en reverse proxy
 Creer un VirtualHost:
 ```bash
-sudo nano /etc/apache2/sites-available/eadministration.conf
+sudo nano /etc/apache2/sites-available/e-administration.dyula.ci.conf
 ```
 
-Contenu type:
+Contenu type (version durcie, unique et recommandee):
 ```apache
 <VirtualHost *:80>
-    ServerName app.mondomaine.com
+  ServerName e-administration.dyula.ci
+  ServerAlias www.e-administration.dyula.ci
 
-    ProxyPreserveHost On
-    RequestHeader set X-Forwarded-Proto "http"
+  RewriteEngine On
+  RewriteRule ^ https://e-administration.dyula.ci%{REQUEST_URI} [L,R=301]
+</VirtualHost>
 
-    # Frontend
-    ProxyPass / http://127.0.0.1:5173/
-    ProxyPassReverse / http://127.0.0.1:5173/
+<VirtualHost *:443>
+  ServerName www.e-administration.dyula.ci
 
-    # Backend API
-    ProxyPass /api http://127.0.0.1:3000/api
-    ProxyPassReverse /api http://127.0.0.1:3000/api
+  SSLEngine on
+  SSLCertificateFile /etc/letsencrypt/live/e-administration.dyula.ci/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/live/e-administration.dyula.ci/privkey.pem
 
-    # WebSocket (chat)
-    ProxyPass /socket.io/ ws://127.0.0.1:3000/socket.io/
-    ProxyPassReverse /socket.io/ ws://127.0.0.1:3000/socket.io/
+  RewriteEngine On
+  RewriteRule ^ https://e-administration.dyula.ci%{REQUEST_URI} [L,R=301]
+</VirtualHost>
 
-    ErrorLog ${APACHE_LOG_DIR}/eadministration_error.log
-    CustomLog ${APACHE_LOG_DIR}/eadministration_access.log combined
+<VirtualHost *:443>
+  ServerName e-administration.dyula.ci
+
+  SSLEngine on
+  SSLCertificateFile /etc/letsencrypt/live/e-administration.dyula.ci/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/live/e-administration.dyula.ci/privkey.pem
+
+  ProxyPreserveHost On
+  ProxyPass /api http://127.0.0.1:3000/api
+  ProxyPassReverse /api http://127.0.0.1:3000/api
+  ProxyPass /socket.io/ ws://127.0.0.1:3000/socket.io/
+  ProxyPassReverse /socket.io/ ws://127.0.0.1:3000/socket.io/
+  ProxyPass / http://127.0.0.1:5173/
+  ProxyPassReverse / http://127.0.0.1:5173/
 </VirtualHost>
 ```
 
+Pour la configuration complete (headers, TLS, cache, compression), reutiliser strictement la version de reference dans `docs/DEPLOYMENT_UBUNTU_22_04_PRODUCTION.md` section 4.12.
+
 Activation:
 ```bash
-sudo a2ensite eadministration.conf
+sudo a2ensite e-administration.dyula.ci.conf
 sudo a2dissite 000-default.conf
 sudo apache2ctl configtest
 sudo systemctl reload apache2
@@ -224,7 +239,7 @@ sudo systemctl reload apache2
 ## 14. SSL HTTPS avec Let's Encrypt
 ```bash
 sudo apt install -y certbot python3-certbot-apache
-sudo certbot --apache -d app.mondomaine.com
+sudo certbot --apache -d e-administration.dyula.ci -d www.e-administration.dyula.ci
 ```
 
 Renouvellement auto:
@@ -233,8 +248,8 @@ sudo systemctl status certbot.timer
 ```
 
 ## 15. Verification fonctionnelle
-- Frontend: https://app.mondomaine.com
-- API health/doc: https://app.mondomaine.com/api/docs
+- Frontend: https://e-administration.dyula.ci
+- API health/doc: https://e-administration.dyula.ci/api/docs
 - Login utilisateur
 - Upload document
 - Workflow

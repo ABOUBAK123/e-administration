@@ -16,7 +16,7 @@ export class SignaturesController {
   sign(
     @Param('documentId') documentId: string,
     @Body() signatureData: CreateSignatureDto,
-    @Request() req,
+    @Request() req
   ) {
     return this.signaturesService.sign(documentId, req.user.id, signatureData);
   }
@@ -32,7 +32,7 @@ export class SignaturesController {
   requestSignature(
     @Param('documentId') documentId: string,
     @Body() requestData: RequestSignatureDto,
-    @Request() req,
+    @Request() req
   ) {
     return this.signaturesService.requestSignature(documentId, req.user.id, requestData);
   }
@@ -59,7 +59,7 @@ export class SignaturesController {
   @ApiOperation({ summary: 'Respond to signature request' })
   respondToSignatureRequest(
     @Param('requestId') requestId: string,
-    @Body() body: { accepted: boolean },
+    @Body() body: { accepted: boolean }
   ) {
     return this.signaturesService.respondToSignatureRequest(requestId, body.accepted);
   }
