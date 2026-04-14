@@ -11,6 +11,7 @@
 #  SERVER_USER         |     ✅      | root  (ou eadmin)
 #  SSH_PORT            |     ❌      | 22 (par défaut)
 #  DEPLOY_PATH         |     ❌      | /var/www/e-administration
+#  APP_OWNER           |     ❌      | eadmin
 #  AUTO_CREATE_DB      |     ❌      | true
 #  DB_HOST             |     ❌      | 127.0.0.1
 #  DB_PORT             |     ❌      | 3306

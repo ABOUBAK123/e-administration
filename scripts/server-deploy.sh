@@ -8,6 +8,7 @@ set -euo pipefail
 # ── Configuration ────────────────────────────────────────────
 APP_DIR="${DEPLOY_PATH:-/var/www/e-administration}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-}"
+APP_OWNER="${APP_OWNER:-eadmin}"
 LOG_FILE="/var/log/e-administration-deploy.log"
 
 # ── Couleurs pour les logs ───────────────────────────────────
@@ -58,6 +59,19 @@ if [ -n "$ARCHIVE_PATH" ] && [ -f "$ARCHIVE_PATH" ]; then
   ok "Fichiers transférés et extraits dans $APP_DIR"
 else
   fail "Archive de déploiement introuvable (ARCHIVE_PATH=$ARCHIVE_PATH)"
+fi
+
+# Harmonise les droits pour éviter les EACCES sur npm ci
+if id "$APP_OWNER" >/dev/null 2>&1; then
+  log "Ajustement des permissions du projet pour l'utilisateur $APP_OWNER..."
+  if getent group www-data >/dev/null 2>&1; then
+    chown -R "$APP_OWNER":www-data "$APP_DIR"
+  else
+    chown -R "$APP_OWNER":"$APP_OWNER" "$APP_DIR"
+  fi
+  ok "Permissions synchronisées"
+else
+  warn "Utilisateur $APP_OWNER introuvable, permissions non modifiées"
 fi
 
 if [ -d "$APP_DIR/.git" ]; then
