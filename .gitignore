@@ -18,6 +18,8 @@ coverage/
 .prettierignore
 .eslintignore
 /apps/backend/dist
+/apps/backend/uploads/*
+!/apps/backend/uploads/.gitkeep
 /apps/frontend/dist
 /packages/*/dist
 postgres_data/
