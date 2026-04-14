@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { jsPDF } from 'jspdf'
 import {
   fetchAppSettings,
   fetchTemplates,
@@ -35,6 +36,32 @@ const slugify = (text: string): string =>
     .replace(/[']/g, '_')
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
+
+const buildPdfFromText = (content: string): Blob => {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const margin = 40
+  const lineHeight = 16
+  const maxWidth = pageWidth - margin * 2
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(11)
+
+  const lines = doc.splitTextToSize(content || '', maxWidth) as string[]
+  let cursorY = margin
+
+  lines.forEach((line) => {
+    if (cursorY > pageHeight - margin) {
+      doc.addPage()
+      cursorY = margin
+    }
+    doc.text(line, margin, cursorY)
+    cursorY += lineHeight
+  })
+
+  return doc.output('blob')
+}
 
 function SharedTemplates() {
   const user = useAuthStore((state) => state.user)
@@ -163,21 +190,31 @@ function SharedTemplates() {
       return
     }
 
+    const missingFields = generationFields.filter((field) => !String(generationValues[field.key] || '').trim())
+    if (missingFields.length > 0) {
+      const missingLabels = missingFields.map((field) => field.label || field.key).join(', ')
+      setFeedback({ type: 'error', message: `Veuillez renseigner tous les champs obligatoires: ${missingLabels}.` })
+      return
+    }
+
     setSubmitting(true)
     setFeedback(null)
     try {
       const outputName = selectedTemplate.fileName
-        ? `${selectedTemplate.fileName.replace(/\.[^.]+$/, '')}-genere.txt`
-        : 'document-genere.txt'
+        ? `${selectedTemplate.fileName.replace(/\.[^.]+$/, '')}-genere.pdf`
+        : 'document-genere.pdf'
 
       const generated = await generateTemplateDocument(selectedTemplateId, {
         values: generationValues,
         outputFileName: outputName,
+        requireAllFields: true,
+        outputFormat: 'pdf',
       })
 
       setGeneratedContent(generated.generatedContent)
       setGeneratedFileName(generated.fileName)
-      const generatedFile = new File([generated.generatedContent], generated.fileName, { type: 'text/plain;charset=utf-8' })
+      const pdfBlob = buildPdfFromText(generated.generatedContent)
+      const generatedFile = new File([pdfBlob], generated.fileName, { type: 'application/pdf' })
       await uploadDocumentFile(generatedFile, {
         generatedFromSharedTemplate: true,
         subEntityCode: user?.subEntityCode || undefined,
@@ -263,7 +300,7 @@ function SharedTemplates() {
                       onChange={(e) => setGenerationValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
                       className="w-full border rounded-lg px-3 py-2 text-xs min-h-[90px]"
                       placeholder={field.placeholder || ''}
-                      required={Boolean(field.required)}
+                      required
                     />
                   ) : (
                     <input
@@ -272,7 +309,7 @@ function SharedTemplates() {
                       onChange={(e) => setGenerationValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
                       className="w-full border rounded-lg px-3 py-2 text-xs"
                       placeholder={field.placeholder || ''}
-                      required={Boolean(field.required)}
+                      required
                     />
                   )}
                 </div>

@@ -115,6 +115,8 @@ export interface UpdateTemplatePayload {
 export interface GenerateTemplateDocumentPayload {
   values?: Record<string, string>;
   outputFileName?: string;
+  requireAllFields?: boolean;
+  outputFormat?: 'pdf';
 }
 
 export interface GeneratedTemplateDocument {

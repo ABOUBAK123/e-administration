@@ -1424,23 +1424,21 @@ export class DocumentsService {
     administrationId: string,
     subEntityCode: string | null
   ): Promise<string> {
-    const updateResult = await manager
-      .createQueryBuilder()
-      .update(IssuingAdministration)
-      .set({
-        documentNumberSequence: () => '"documentNumberSequence" + 1',
-      })
-      .where('id = :id', { id: administrationId })
-      .returning([
+    const adminRepository = manager.getRepository(IssuingAdministration);
+
+    await adminRepository.increment({ id: administrationId }, 'documentNumberSequence', 1);
+
+    const row = await adminRepository.findOne({
+      where: { id: administrationId },
+      select: [
         'id',
         'code',
         'documentNumberPrefix',
         'documentNumberPadding',
         'documentNumberSequence',
-      ])
-      .execute();
+      ],
+    });
 
-    const row = updateResult.raw?.[0];
     if (!row) {
       throw new NotFoundException('Issuing administration not found for document numbering');
     }

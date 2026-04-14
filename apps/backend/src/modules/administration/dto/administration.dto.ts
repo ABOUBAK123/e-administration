@@ -3,6 +3,7 @@ import {
   IsArray,
   IsBoolean,
   IsEmail,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -75,6 +76,16 @@ export class GenerateTemplateDocumentDto {
   @IsOptional()
   @IsString()
   outputFileName?: string;
+
+  @ApiProperty({ required: false, example: true, description: 'Require a non-empty value for every template placeholder' })
+  @IsOptional()
+  @IsBoolean()
+  requireAllFields?: boolean;
+
+  @ApiProperty({ required: false, example: 'pdf', enum: ['pdf'] })
+  @IsOptional()
+  @IsIn(['pdf'])
+  outputFormat?: 'pdf';
 }
 
 export class CreateTemplateVariableDto {

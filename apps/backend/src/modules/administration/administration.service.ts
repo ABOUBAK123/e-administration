@@ -861,6 +861,8 @@ export class AdministrationService {
     }
 
     const values = dto.values || {};
+    const requireAllFields = Boolean(dto.requireAllFields);
+    const forcePdf = dto.outputFormat === 'pdf';
     const variableConfig = new Map(template.variables.map((variable) => [variable.key, variable]));
 
     // Regex élargie pour capturer tout contenu entre {{ }} (espaces, accents, apostrophes, etc.)
@@ -903,6 +905,13 @@ export class AdministrationService {
     for (const placeholder of uniquePlaceholders) {
       const key = resolveKey(placeholder);
       const config = variableConfig.get(key);
+      if (requireAllFields) {
+        const rawValue = values[key];
+        const hasValue = typeof rawValue === 'string' && rawValue.trim().length > 0;
+        if (!hasValue) {
+          throw new BadRequestException(`Missing required value for variable: ${key}`);
+        }
+      }
       if (config?.required) {
         const rawValue = values[key];
         const hasValue = typeof rawValue === 'string' && rawValue.trim().length > 0;
@@ -929,7 +938,10 @@ export class AdministrationService {
     );
 
     const baseName = (template.fileName || template.name || 'document').replace(/\.[^.]+$/, '');
-    const fileName = dto.outputFileName || `${baseName}-genere.txt`;
+    const requestedName = dto.outputFileName || `${baseName}-genere.txt`;
+    const fileName = forcePdf
+      ? `${requestedName.replace(/\.[^.]+$/, '')}.pdf`
+      : requestedName;
 
     return {
       templateId: template.id,
