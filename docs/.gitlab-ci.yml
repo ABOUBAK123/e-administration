@@ -1,0 +1,38 @@
+stages:
+  - deploy
+
+variables:
+  SERVER_IP: "141.95.84.126"
+  DEPLOY_DIR: "/var/www/html/e-administration"
+  PM2_APP_NAME: "e-administration.dyula.ci"
+
+deploy:
+  stage: deploy
+  image: alpine:latest
+  before_script:
+    - apk add openssh-client git
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - ssh-keyscan -H $SERVER_IP >> ~/.ssh/known_hosts
+  script:
+    - |
+      ssh deploy@$SERVER_IP "
+        set -e
+        cd $DEPLOY_DIR
+        
+        # 1. Récupérer le code
+        git fetch origin main
+        git reset --hard origin/main
+        
+        # 2. Installer les dépendances (reproductible & rapide)
+        npm ci --production
+        
+        # 3. Build si nécessaire (TypeScript, Next.js, etc.)
+        npm run build 2>/dev/null || true
+        
+        # 4. Relancer l'app avec PM2 (injecte les vars CI/CD)
+        pm2 restart $PM2_APP_NAME --update-env || pm2 start ecosystem.config.js --name $PM2_APP_NAME
+      "
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
