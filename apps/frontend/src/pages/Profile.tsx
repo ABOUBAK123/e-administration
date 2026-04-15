@@ -154,8 +154,7 @@ function Profile() {
     setIsUploadingAvatar(true)
     try {
       await uploadAvatar(file)
-      await syncCurrentUser()
-      setSuccess('Photo de profil mise à jour avec succès.')
+      setSuccess('Photo de profil mise à jour avec succès. Rechargez la page si la photo ne se met pas à jour immédiatement.')
       setAvatarUploadPopup({ type: 'success', message: 'Upload réussi: photo de profil mise à jour.' })
     } catch (err: any) {
       const message = extractApiError(err, "Impossible d'uploader la photo de profil.")

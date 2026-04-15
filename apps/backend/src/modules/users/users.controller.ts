@@ -12,6 +12,7 @@ import {
   UseInterceptors,
   UploadedFiles,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
@@ -28,6 +29,7 @@ import { CreateUserDto, UpdateCurrentUserDto, UpdateUserDto } from './dto/user.d
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+  private readonly logger = new Logger(UsersController.name);
 
   private static ensureAvatarUploadDir() {
     const uploadDir = join(process.cwd(), 'storage', 'avatars');
@@ -113,7 +115,16 @@ export class UsersController {
       throw new BadRequestException('Avatar file is required');
     }
 
-    return this.usersService.updateCurrentUserAvatar(req.user.id, file.filename);
+    this.logger.log(
+      `[AvatarUpload][current] userId=${req.user?.id} filename=${file.filename} mimetype=${file.mimetype} size=${file.size}`
+    );
+
+    return this.usersService.updateCurrentUserAvatar(req.user.id, file.filename).then((updatedUser) => {
+      this.logger.log(
+        `[AvatarUpload][current][result] userId=${updatedUser?.id} avatar=${updatedUser?.avatar || 'null'}`
+      );
+      return updatedUser;
+    });
   }
 
   @Put(':id/avatar')
@@ -156,7 +167,16 @@ export class UsersController {
       throw new BadRequestException('Avatar file is required');
     }
 
-    return this.usersService.updateUserAvatar(id, file.filename);
+    this.logger.log(
+      `[AvatarUpload][admin] targetUserId=${id} filename=${file.filename} mimetype=${file.mimetype} size=${file.size}`
+    );
+
+    return this.usersService.updateUserAvatar(id, file.filename).then((updatedUser) => {
+      this.logger.log(
+        `[AvatarUpload][admin][result] userId=${updatedUser?.id} avatar=${updatedUser?.avatar || 'null'}`
+      );
+      return updatedUser;
+    });
   }
 
   @Get('signataires')

@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -16,6 +22,8 @@ import { WorkflowTemplate } from './workflow-template.entity';
 import { User } from '../users/user.entity';
 import { AdministrationUser } from '../administration/entities/administration-user.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SignaturesService } from '../signatures/signatures.service';
+import { Notification } from '../notifications/notification.entity';
 
 @Injectable()
 export class WorkflowsService {
@@ -36,7 +44,10 @@ export class WorkflowsService {
     private userRepository: Repository<User>,
     @InjectRepository(AdministrationUser)
     private administrationUserRepository: Repository<AdministrationUser>,
+    @InjectRepository(Notification)
+    private notificationRepository: Repository<Notification>,
     private readonly notificationsService: NotificationsService,
+    private readonly signaturesService: SignaturesService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService
   ) {}
@@ -54,15 +65,50 @@ export class WorkflowsService {
     return administrationUser?.administrationId || null;
   }
 
+  private isSignatureStepFromDescription(
+    description: string | null | undefined,
+    fallbackRequiresSignature?: boolean | null
+  ): boolean {
+    const normalized = String(description || '').toLowerCase();
+    if (normalized.includes('signature')) return true;
+    if (normalized.includes('validation')) return false;
+    return Boolean(fallbackRequiresSignature);
+  }
+
   async findAll(userId: string) {
     const all = await this.workflowRepository.find({
       relations: ['steps', 'creator', 'executions'],
     });
+
+    const notified = await this.notificationRepository.find({
+      where: { recipientId: userId },
+      select: ['workflowId'],
+    });
+    const notifiedWorkflowIds = new Set(
+      notified.map((item) => item.workflowId).filter((workflowId): workflowId is string => !!workflowId)
+    );
+
     return all.filter((wf) => {
       if (wf.createdBy === userId) return true;
       if (wf.steps?.some((s) => s.assigneeId === userId)) return true;
+      if (notifiedWorkflowIds.has(wf.id)) return true;
       return false;
     });
+  }
+
+  private async ensureWorkflowVisibility(workflow: Workflow, userId?: string) {
+    if (!userId) return;
+
+    if (workflow.createdBy === userId) return;
+    if (workflow.steps?.some((step) => step.assigneeId === userId)) return;
+
+    const notifiedCount = await this.notificationRepository.count({
+      where: { workflowId: workflow.id, recipientId: userId },
+    });
+
+    if (notifiedCount > 0) return;
+
+    throw new ForbiddenException("Vous n'avez pas de visibilité sur ce workflow");
   }
 
   async findTemplates(userId: string) {
@@ -97,8 +143,11 @@ export class WorkflowsService {
     const hasValidator = (templateData.validationSteps || []).some(
       (step) => !!step.approverId?.trim()
     );
-    if (!hasValidator) {
-      throw new BadRequestException('Au moins un validateur est requis');
+    const hasSigner = (templateData.signatureSteps || []).some(
+      (step) => !!step.signerId?.trim()
+    );
+    if (!hasValidator && !hasSigner) {
+      throw new BadRequestException('Ajoutez au moins une étape: validation ou signature');
     }
 
     const template = this.workflowTemplateRepository.create({
@@ -117,15 +166,17 @@ export class WorkflowsService {
     return this.workflowTemplateRepository.save(template);
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, userId?: string) {
     const workflow = await this.workflowRepository.findOne({
       where: { id },
-      relations: ['steps', 'creator', 'executions'],
+      relations: ['steps', 'steps.assignee', 'creator', 'executions'],
     });
 
     if (!workflow) {
       throw new NotFoundException('Workflow not found');
     }
+
+    await this.ensureWorkflowVisibility(workflow, userId);
 
     return workflow;
   }
@@ -151,7 +202,7 @@ export class WorkflowsService {
           type: 'approve',
           assigneeId: step.approverId,
           description: step.name,
-          requiresSignature: true,
+          requiresSignature: this.isSignatureStepFromDescription(step.name),
         })
       );
       await this.workflowStepRepository.save(steps);
@@ -190,7 +241,7 @@ export class WorkflowsService {
           type: 'approve',
           assigneeId: step.approverId,
           description: step.name,
-          requiresSignature: true,
+          requiresSignature: this.isSignatureStepFromDescription(step.name),
         })
       );
       await this.workflowStepRepository.save(steps);
@@ -206,11 +257,9 @@ export class WorkflowsService {
     return { message: 'Workflow deleted successfully' };
   }
 
-  async getSteps(id: string) {
-    return await this.workflowStepRepository.find({
-      where: { workflowId: id },
-      relations: ['assignee'],
-    });
+  async getSteps(id: string, userId?: string) {
+    const workflow = await this.findOne(id, userId);
+    return workflow.steps;
   }
 
   async executeWorkflow(documentId: string, workflowId: string, initiatorUserId?: string) {
@@ -302,9 +351,10 @@ export class WorkflowsService {
 
     for (const assignee of assignees) {
       const stepForUser = workflow.steps.find((s) => s.assigneeId === assignee.id);
-      const isSignatureStep =
-        stepForUser?.requiresSignature ||
-        stepForUser?.description?.toLowerCase().includes('signature');
+      const isSignatureStep = this.isSignatureStepFromDescription(
+        stepForUser?.description,
+        stepForUser?.requiresSignature
+      );
       const actionType = isSignatureStep ? 'signature' : 'validation';
       const actionLabel = isSignatureStep ? 'signature' : 'validation';
 
@@ -371,17 +421,79 @@ export class WorkflowsService {
     }
   }
 
-  async getExecution(executionId: string) {
+  async getExecution(executionId: string, userId?: string) {
     const execution = await this.workflowExecutionRepository.findOne({
       where: { id: executionId },
-      relations: ['workflow', 'workflow.steps', 'document'],
+      relations: ['workflow', 'workflow.steps', 'workflow.steps.assignee', 'document'],
     });
 
     if (!execution) {
       throw new NotFoundException('Workflow execution not found');
     }
 
+    await this.ensureWorkflowVisibility(execution.workflow, userId);
+
     return execution;
+  }
+
+  async performCurrentStepAction(
+    executionId: string,
+    userId: string,
+    action: 'signature' | 'validation'
+  ) {
+    const execution = await this.getExecution(executionId);
+
+    if (execution.status !== 'in_progress') {
+      throw new BadRequestException('Cette exécution de workflow n\'est plus en cours');
+    }
+
+    const currentStep = execution.workflow.steps.find(
+      (step) => Number(step.order) === Number(execution.currentStep)
+    );
+
+    if (!currentStep) {
+      throw new BadRequestException('Étape courante introuvable pour cette exécution');
+    }
+
+    if (currentStep.assigneeId && currentStep.assigneeId !== userId) {
+      throw new BadRequestException('Cette étape n\'est pas assignée à votre utilisateur');
+    }
+
+    const isSignatureStep = this.isSignatureStepFromDescription(
+      currentStep.description,
+      currentStep.requiresSignature
+    );
+
+    if (isSignatureStep && action !== 'signature') {
+      throw new BadRequestException('Cette étape nécessite une signature');
+    }
+
+    if (!isSignatureStep && action !== 'validation') {
+      throw new BadRequestException('Cette étape nécessite une validation');
+    }
+
+    if (isSignatureStep) {
+      await this.signaturesService.sign(execution.documentId, userId, {
+        signatureHash: `wf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        reason: `Workflow ${execution.workflowId} - Étape ${execution.currentStep}`,
+        location: 'Workflow',
+        certificate: '',
+      });
+    } else {
+      await this.signaturesService.triggerExternalSignaturePlatform(
+        execution.documentId,
+        userId,
+        `Workflow ${execution.workflowId} - Étape ${execution.currentStep} (validation)`
+      );
+    }
+
+    return this.advanceWorkflowStep(executionId, {
+      stepIndex: execution.currentStep,
+      decision: isSignatureStep ? 'signed' : 'approved',
+      action,
+      actedBy: userId,
+      actedAt: new Date().toISOString(),
+    });
   }
 
   async advanceWorkflowStep(executionId: string, stepData: Record<string, any>) {

@@ -740,6 +740,7 @@ function Settings() {
       `Créer le compte pour ${newUserForm.prenoms.trim()} ${newUserForm.nom.trim()} ?`,
       async () => {
         try {
+          const composedFullName = `${newUserForm.prenoms.trim()} ${newUserForm.nom.trim()}`.trim()
           const selectedDirection = newUserSubEntityOptions.find((item) => item.id === newUserForm.subEntityId)
           if (newUserForm.subEntityId && !selectedDirection) {
             setNewUserError('La direction sélectionnée est introuvable. Veuillez la sélectionner à nouveau avant de créer le compte.')
@@ -750,7 +751,7 @@ function Settings() {
             username: buildUsernameFromDisplayName(newUserForm.displayName, newUserForm.prenoms, newUserForm.nom),
             email: newUserForm.email.trim().toLowerCase(),
             password: newUserForm.password,
-            fullName: newUserForm.displayName.trim() || `${newUserForm.prenoms.trim()} ${newUserForm.nom.trim()}`,
+            fullName: composedFullName,
             role: newUserForm.role.trim(),
             status: newUserForm.isActive ? 'active' : 'inactive',
             quota: newUserForm.quota.trim() || '5 Go',
@@ -863,11 +864,6 @@ function Settings() {
       async () => {
         try {
           const composedDisplayName = `${editManagedUserForm.prenoms.trim()} ${editManagedUserForm.nom.trim()}`.trim()
-          const currentDisplayName = editManagedUserForm.displayName.trim()
-          const originalDisplayName = String(editingManagedUser.fullName || '').trim()
-          const hasCustomDisplayName = Boolean(currentDisplayName)
-            && currentDisplayName.toLowerCase() !== originalDisplayName.toLowerCase()
-          const effectiveDisplayName = hasCustomDisplayName ? currentDisplayName : composedDisplayName
 
           const selectedDirection = editUserSubEntityOptions.find((item) => item.id === editManagedUserForm.subEntityId)
           if (editManagedUserForm.subEntityId && !selectedDirection) {
@@ -876,9 +872,9 @@ function Settings() {
           }
           const selectedAdministrationId = selectedDirection?.scopeType === 'emitter' ? selectedDirection.scopeId : undefined
           const updated = await updateAppUser(editingManagedUser.id, {
-            username: buildUsernameFromDisplayName(effectiveDisplayName, editManagedUserForm.prenoms, editManagedUserForm.nom),
+            username: buildUsernameFromDisplayName(editManagedUserForm.displayName, editManagedUserForm.prenoms, editManagedUserForm.nom),
             email: editManagedUserForm.email.trim().toLowerCase(),
-            fullName: effectiveDisplayName,
+            fullName: composedDisplayName,
             role: editManagedUserForm.role.trim(),
             quota: editManagedUserForm.quota.trim() || '5 Go',
             administrationId: selectedAdministrationId,

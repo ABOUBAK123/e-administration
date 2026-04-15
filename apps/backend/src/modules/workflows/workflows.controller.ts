@@ -45,20 +45,20 @@ export class WorkflowsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get workflow by ID' })
-  findOne(@Param('id') id: string) {
-    return this.workflowsService.findOne(id);
+  findOne(@Param('id') id: string, @Request() req) {
+    return this.workflowsService.findOne(id, req.user.id);
   }
 
   @Get(':id/steps')
   @ApiOperation({ summary: 'Get workflow steps' })
-  getSteps(@Param('id') id: string) {
-    return this.workflowsService.getSteps(id);
+  getSteps(@Param('id') id: string, @Request() req) {
+    return this.workflowsService.getSteps(id, req.user.id);
   }
 
   @Get(':id/executions/:executionId')
   @ApiOperation({ summary: 'Get workflow execution' })
-  getExecution(@Param('id') id: string, @Param('executionId') executionId: string) {
-    return this.workflowsService.getExecution(executionId);
+  getExecution(@Param('id') id: string, @Param('executionId') executionId: string, @Request() req) {
+    return this.workflowsService.getExecution(executionId, req.user.id);
   }
 
   @Post()
@@ -84,6 +84,16 @@ export class WorkflowsController {
       stepIndex: body.stepIndex,
       decision: body.decision,
     });
+  }
+
+  @Post('execution/:executionId/action')
+  @ApiOperation({ summary: 'Perform current workflow step action (signature/validation)' })
+  performWorkflowStepAction(
+    @Param('executionId') executionId: string,
+    @Body() body: { action: 'signature' | 'validation' },
+    @Request() req
+  ) {
+    return this.workflowsService.performCurrentStepAction(executionId, req.user.id, body.action);
   }
 
   @Post('execution/:executionId/reject')

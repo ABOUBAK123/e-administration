@@ -49,6 +49,14 @@ export const advanceWorkflow = async (
   return response.data;
 };
 
+export const performWorkflowStepAction = async (
+  executionId: string,
+  action: 'signature' | 'validation',
+): Promise<WorkflowExecution> => {
+  const response = await api.post(`/workflows/execution/${executionId}/action`, { action });
+  return response.data;
+};
+
 export const rejectWorkflow = async (executionId: string, reason?: string): Promise<WorkflowExecution> => {
   const response = await api.post(`/workflows/execution/${executionId}/reject`, { reason });
   return response.data;

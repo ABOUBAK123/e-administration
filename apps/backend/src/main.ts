@@ -44,6 +44,18 @@ async function bootstrap() {
     const origin = req.headers?.origin;
     if (!isProduction) {
       console.log(`[REQ] ${req.method} ${req.url} origin=${origin || 'none'}`);
+      res.on('finish', () => {
+        if (res.statusCode >= 400) {
+          console.log(`[RES] ${req.method} ${req.url} status=${res.statusCode}`);
+        }
+      });
+      if (req.method === 'OPTIONS' && req.url?.includes('/api/v1/users/profile/avatar')) {
+        const requestedMethod = req.headers?.['access-control-request-method'] || 'none';
+        const requestedHeaders = req.headers?.['access-control-request-headers'] || 'none';
+        console.log(
+          `[PREFLIGHT] ${req.url} reqMethod=${requestedMethod} reqHeaders=${requestedHeaders}`
+        );
+      }
     }
     if (origin && allowedOrigins.has(origin)) {
       res.header('Access-Control-Allow-Origin', origin);
@@ -51,7 +63,7 @@ async function bootstrap() {
       res.header('Access-Control-Allow-Credentials', 'true');
       res.header(
         'Access-Control-Allow-Headers',
-        'Authorization, Content-Type, Accept, X-Requested-With, Origin'
+        'Authorization, Content-Type, Accept, X-Requested-With, Origin, Cache-Control, Pragma'
       );
       res.header('Access-Control-Allow-Methods', 'GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS');
       res.header('Access-Control-Expose-Headers', 'Content-Disposition');
@@ -89,7 +101,15 @@ async function bootstrap() {
       callback(null, false);
     },
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'Accept', 'X-Requested-With', 'Origin'],
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'Accept',
+      'X-Requested-With',
+      'Origin',
+      'Cache-Control',
+      'Pragma',
+    ],
     exposedHeaders: ['Content-Disposition'],
     credentials: true,
     optionsSuccessStatus: 204,

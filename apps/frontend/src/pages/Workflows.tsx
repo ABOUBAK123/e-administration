@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useState } from 'react'
-import { PlusCircle, PlayCircle, Trash2, CheckCircle2, FileText, PenTool, Upload, Eye, Copy, Settings } from 'lucide-react'
+import { PlusCircle, PlayCircle, Trash2, CheckCircle2, FileText, PenTool, Upload, Eye, Copy, Settings, Download } from 'lucide-react'
 import { fetchDocuments, uploadDocumentFile } from '../services/documents'
 import { fetchAppSetting } from '../services/administration'
 import { fetchSignataires, AppUserRecord } from '../services/users'
@@ -9,6 +9,7 @@ import {
   fetchWorkflowTemplates,
   createWorkflow,
   createWorkflowTemplate,
+  executeWorkflow,
   advanceWorkflow,
   rejectWorkflow,
   deleteWorkflow,
@@ -72,6 +73,9 @@ function Workflows() {
   const [savedZoneByKey, setSavedZoneByKey] = useState<Record<string, boolean>>({})
   const [showTileSettings, setShowTileSettings] = useState(false)
   const [workflowSearch, setWorkflowSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string>('Tous')
+  const [workflowDetailPopup, setWorkflowDetailPopup] = useState<WorkflowItem | null>(null)
+  const [detailPopupTab, setDetailPopupTab] = useState<'steps' | 'documents'>('steps')
   const [onlyofficeBaseUrl, setOnlyofficeBaseUrl] = useState('')
   const [docViewer, setDocViewer] = useState<'onlyoffice' | 'native'>('onlyoffice')
   const [forceNativeViewer, setForceNativeViewer] = useState(false)
@@ -102,26 +106,6 @@ function Workflows() {
     : null
   const shouldUseOnlyoffice = docViewer === 'onlyoffice' && !forceNativeViewer && Boolean(onlyofficeViewerUrl)
 
-  const tileStats = {
-    toValidate: executions.filter((execution) => {
-      const status = normalizeStatus(execution.status)
-      return status.includes('pending') || status.includes('en_attente') || status.includes('a_signer') || status.includes('a_valider')
-    }).length,
-    drafts: workflows.length,
-    started: executions.filter((execution) => {
-      const status = normalizeStatus(execution.status)
-      return status.includes('in_progress') || status.includes('started') || status.includes('demarre')
-    }).length,
-    finished: executions.filter((execution) => {
-      const status = normalizeStatus(execution.status)
-      return status.includes('complete') || status.includes('approved') || status.includes('termine') || status.includes('valide')
-    }).length,
-    stopped: executions.filter((execution) => {
-      const status = normalizeStatus(execution.status)
-      return status.includes('reject') || status.includes('arrete') || status.includes('stopped')
-    }).length,
-  }
-  const archivedCount = 0
   const allTilesVisible = Object.values(visibleTiles).every(Boolean)
   const normalizedWorkflowSearch = workflowSearch.trim().toLowerCase()
 
@@ -163,6 +147,92 @@ function Workflows() {
     })
 
     return isFinished ? 'finished' : 'started'
+  }
+
+  const getWorkflowTrackingSummary = (workflow: WorkflowItem) => {
+    // Prefer executions embedded in the workflow object (populated by the API), fall back to global state
+    const workflowExecutions =
+      workflow.executions && workflow.executions.length > 0
+        ? workflow.executions
+        : executions.filter((execution) => execution.workflowId === workflow.id)
+    const totalExecutions = workflowExecutions.length
+    const totalSteps = Math.max(workflow.steps?.length || 0, 1)
+
+    const pendingCount = workflowExecutions.filter((execution) => {
+      const status = normalizeStatus(execution.status)
+      return status.includes('pending') || status.includes('en_attente')
+    }).length
+
+    const inProgressCount = workflowExecutions.filter((execution) => {
+      const status = normalizeStatus(execution.status)
+      return status.includes('in_progress') || status.includes('started') || status.includes('demarre')
+    }).length
+
+    const completedCount = workflowExecutions.filter((execution) => {
+      const status = normalizeStatus(execution.status)
+      return status.includes('complete') || status.includes('approved') || status.includes('termine') || status.includes('valide')
+    }).length
+
+    const rejectedCount = workflowExecutions.filter((execution) => {
+      const status = normalizeStatus(execution.status)
+      return status.includes('reject') || status.includes('arrete') || status.includes('stopped')
+    }).length
+
+    let statusLabel = 'Brouillon'
+    let statusClass = 'bg-gray-100 text-gray-800'
+
+    if (totalExecutions > 0) {
+      if (completedCount === totalExecutions) {
+        statusLabel = 'Terminé'
+        statusClass = 'bg-green-100 text-green-800'
+      } else if (rejectedCount === totalExecutions) {
+        statusLabel = 'Rejeté'
+        statusClass = 'bg-red-100 text-red-800'
+      } else if (inProgressCount > 0) {
+        statusLabel = 'En cours'
+        statusClass = 'bg-amber-100 text-amber-800'
+      } else if (pendingCount > 0) {
+        statusLabel = 'En attente'
+        statusClass = 'bg-blue-100 text-blue-700'
+      } else {
+        statusLabel = 'Démarré'
+        statusClass = 'bg-amber-100 text-amber-800'
+      }
+    }
+
+    const progressPercentage =
+      totalExecutions > 0 ? Math.round((completedCount / totalExecutions) * 100) : 0
+
+    const activeExecution =
+      workflowExecutions.find((execution) => normalizeStatus(execution.status).includes('in_progress')) ||
+      workflowExecutions.find((execution) => normalizeStatus(execution.status).includes('pending')) ||
+      workflowExecutions[0]
+
+    const currentStep = activeExecution
+      ? Math.max(1, Math.min(Number(activeExecution.currentStep || 1), totalSteps))
+      : 0
+
+    return {
+      totalExecutions,
+      pendingCount,
+      inProgressCount,
+      completedCount,
+      rejectedCount,
+      statusLabel,
+      statusClass,
+      progressPercentage,
+      currentStep,
+      totalSteps,
+    }
+  }
+
+  // Compter les workflows par statut (cohérent avec le tableau et les filtres rapides)
+  const tileStats = {
+    toValidate: workflows.filter((wf) => getWorkflowTrackingSummary(wf).statusLabel === 'En attente').length,
+    drafts: workflows.filter((wf) => getWorkflowTrackingSummary(wf).statusLabel === 'Brouillon').length,
+    started: workflows.filter((wf) => getWorkflowTrackingSummary(wf).statusLabel === 'En cours').length,
+    finished: workflows.filter((wf) => getWorkflowTrackingSummary(wf).statusLabel === 'Terminé').length,
+    stopped: workflows.filter((wf) => getWorkflowTrackingSummary(wf).statusLabel === 'Rejeté').length,
   }
 
   const getUserDisplayName = (userId: string) => {
@@ -235,14 +305,16 @@ function Workflows() {
   }
 
   const filteredWorkflows = workflows.filter((workflow) => {
-    if (!normalizedWorkflowSearch) {
-      return true
-    }
-
     const owner = getOwnerLabel(workflow)
     const displayStatus = getWorkflowDisplayStatus(workflow.id)
     const status = displayStatus === 'draft' ? 'brouillon' : displayStatus === 'started' ? 'démarré' : 'terminé'
-    return [workflow.name, owner, status].join(' ').toLowerCase().includes(normalizedWorkflowSearch)
+    const matchesSearch = !normalizedWorkflowSearch || [workflow.name, owner, status].join(' ').toLowerCase().includes(normalizedWorkflowSearch)
+    if (!matchesSearch) return false
+    if (statusFilter !== 'Tous') {
+      const tracking = getWorkflowTrackingSummary(workflow)
+      if (tracking.statusLabel !== statusFilter) return false
+    }
+    return true
   })
 
   const tileOptions = [
@@ -250,8 +322,7 @@ function Workflows() {
     { key: 'drafts', label: 'Brouillons' },
     { key: 'started', label: 'Démarrés' },
     { key: 'finished', label: 'Terminés' },
-    { key: 'stopped', label: 'Arrêtés' },
-    { key: 'archived', label: 'Archivés' },
+    { key: 'stopped', label: 'Rejetés' },
   ] as const
 
   useEffect(() => {
@@ -276,6 +347,11 @@ function Workflows() {
       try {
         const wf = await fetchWorkflows()
         setWorkflows(wf)
+        // Extract embedded executions so getWorkflowTrackingSummary & tile counts work on first render
+        const allExecutions = wf.flatMap((w) =>
+          (w.executions || []).map((ex) => ({ ...ex, workflowId: ex.workflowId || w.id }))
+        )
+        setExecutions(allExecutions)
         if (wf.length > 0 && !selectedWorkflowId) {
           setSelectedWorkflowId(wf[0].id)
         }
@@ -491,8 +567,9 @@ function Workflows() {
       return
     }
     const validationStepsFiltered = newWorkflowForm.validationSteps.filter(s => s.approverId.trim())
-    if (validationStepsFiltered.length === 0) {
-      setFeedback('Au moins un validateur est requis')
+    const signatureStepsFiltered = newWorkflowForm.signatureSteps.filter(s => s.signerId.trim())
+    if (validationStepsFiltered.length + signatureStepsFiltered.length === 0) {
+      setFeedback('Ajoutez au moins une étape: validation ou signature')
       return
     }
     try {
@@ -504,8 +581,7 @@ function Workflows() {
             id: index + 1,
             approverId: step.approverId,
           })),
-          signatureSteps: newWorkflowForm.signatureSteps
-            .filter((step) => step.signerId.trim())
+          signatureSteps: signatureStepsFiltered
             .map((step, index) => ({ id: index + 1, signerId: step.signerId })),
           notificationConfig: {
             notifyEmail: newWorkflowForm.notifyEmail,
@@ -564,7 +640,7 @@ function Workflows() {
 
       const steps = [
         ...validationStepsFiltered.map((s, i) => ({ name: `Validation ${i + 1}`, approverId: s.approverId, order: i + 1 })),
-        ...newWorkflowForm.signatureSteps.filter(s => s.signerId.trim()).map((s, i) => ({ name: `Signature ${i + 1}`, approverId: s.signerId, order: validationStepsFiltered.length + i + 1 })),
+        ...signatureStepsFiltered.map((s, i) => ({ name: `Signature ${i + 1}`, approverId: s.signerId, order: validationStepsFiltered.length + i + 1 })),
       ]
       const uploadedSignatureFiles = docsToSignToUpload.map((file) => {
         const fileKey = getFileKey(file)
@@ -589,12 +665,30 @@ function Workflows() {
         attachedDocs: attachedDocsIds,
         uploadedSignatureFiles: allSignatureFiles,
       })
+
+      // Démarre le workflow pour chaque document à signer afin de créer les exécutions
+      // et rendre les actions disponibles dans la boîte de réception des signataires/validateurs.
+      if (docsToSignIds.length > 0) {
+        for (const docId of docsToSignIds) {
+          try {
+            await executeWorkflow(created.id, docId)
+          } catch {
+            // Keep creation success even if one execution fails; user gets feedback below.
+          }
+        }
+      }
+
+      const refreshedWorkflows = await fetchWorkflows().catch(() => [] as WorkflowItem[])
       setWorkflows((prev) => [
-        ...prev,
-        {
-          ...created,
-          createdBy: created.createdBy || currentUser?.id || currentUser?.fullName || currentUser?.username || '',
-        },
+        ...(refreshedWorkflows.length > 0
+          ? refreshedWorkflows
+          : [
+              ...prev,
+              {
+                ...created,
+                createdBy: created.createdBy || currentUser?.id || currentUser?.fullName || currentUser?.username || '',
+              },
+            ]),
       ])
       if (uploadedDocsToSign.length > 0 || uploadedAttachedDocs.length > 0) {
         setDocuments((prev) => [...uploadedDocsToSign, ...uploadedAttachedDocs, ...prev])
@@ -696,8 +790,9 @@ function Workflows() {
     }
     if (newWorkflowStep === 2) {
       const validatorsCount = newWorkflowForm.validationSteps.filter(s => s.approverId.trim()).length
-      if (validatorsCount === 0) {
-        setFeedback('Au moins un validateur est requis')
+      const signersCount = newWorkflowForm.signatureSteps.filter(s => s.signerId.trim()).length
+      if (validatorsCount + signersCount === 0) {
+        setFeedback('Ajoutez au moins une étape: validation ou signature')
         return
       }
     }
@@ -919,19 +1014,9 @@ function Workflows() {
 
           {visibleTiles.stopped && (
           <div className="rounded-xl overflow-hidden border border-gray-200 bg-[#f5f5f5]">
-            <div className="bg-[#e38200] text-white text-lg font-semibold px-3 py-1.5">Arrêtés</div>
+            <div className="bg-[#e04934] text-white text-lg font-semibold px-3 py-1.5">Rejetés</div>
             <div className="px-4 py-5 flex items-end justify-between">
               <span className="text-5xl text-gray-500 font-light">{tileStats.stopped}</span>
-              <FileText size={72} className="text-gray-300" strokeWidth={1.2} />
-            </div>
-          </div>
-          )}
-
-          {visibleTiles.archived && (
-          <div className="rounded-xl overflow-hidden border border-gray-200 bg-[#f5f5f5] lg:col-span-1">
-            <div className="bg-[#5c5c5e] text-white text-lg font-semibold px-3 py-1.5">Archivés</div>
-            <div className="px-4 py-5 flex items-end justify-between">
-              <span className="text-5xl text-gray-500 font-light">{archivedCount}</span>
               <FileText size={72} className="text-gray-300" strokeWidth={1.2} />
             </div>
           </div>
@@ -950,6 +1035,31 @@ function Workflows() {
             placeholder="Rechercher un workflow ou un propriétaire..."
             className="w-full md:w-80 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2453d6]/30 focus:border-[#2453d6]"
           />
+        </div>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {['Tous', 'En attente', 'En cours', 'Terminé', 'Rejeté', 'Brouillon'].map((label) => (
+            <button
+              key={label}
+              onClick={() => setStatusFilter(label)}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                statusFilter === label
+                  ? label === 'Tous'
+                    ? 'bg-gray-700 text-white border-gray-700'
+                    : label === 'En cours'
+                    ? 'bg-amber-500 text-white border-amber-500'
+                    : label === 'Terminé'
+                    ? 'bg-green-600 text-white border-green-600'
+                    : label === 'Rejeté'
+                    ? 'bg-red-600 text-white border-red-600'
+                    : label === 'En attente'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-gray-500 text-white border-gray-500'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {workflows.length === 0 ? (
@@ -971,12 +1081,8 @@ function Workflows() {
               </thead>
               <tbody>
                 {filteredWorkflows.map((wf, idx) => {
-                  const workflowExecutions = executions.filter(ex => ex.workflowId === wf.id)
-                  const totalExecutions = workflowExecutions.length
-                  const completedExecutions = workflowExecutions.filter(ex => ex.status === 'completed').length
-                  const progressPercentage = totalExecutions > 0 ? Math.round((completedExecutions / totalExecutions) * 100) : 0
+                  const tracking = getWorkflowTrackingSummary(wf)
                   const lastModified = wf.updatedAt ? new Date(wf.updatedAt).toLocaleDateString('fr-FR') : 'N/A'
-                  const displayStatus = getWorkflowDisplayStatus(wf.id)
                   
                   return (
                     <tr
@@ -987,31 +1093,40 @@ function Workflows() {
                       <td className="px-4 py-3 text-sm text-gray-600">{getOwnerLabel(wf)}</td>
                       <td className="px-4 py-3 text-sm text-gray-600">{lastModified}</td>
                       <td className="px-4 py-3 text-sm">
-                        <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                          displayStatus === 'finished' ? 'bg-green-100 text-green-800' :
-                          displayStatus === 'started' ? 'bg-amber-100 text-amber-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {displayStatus === 'draft' ? 'Brouillon' : displayStatus === 'started' ? 'Démarré' : 'Terminé'}
+                        <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${tracking.statusClass}`}>
+                          {tracking.statusLabel}
                         </span>
+                        {tracking.totalExecutions > 0 && (
+                          <div className="mt-1 text-[11px] text-gray-500">
+                            En attente: {tracking.pendingCount} • En cours: {tracking.inProgressCount} • Terminé: {tracking.completedCount} • Rejeté: {tracking.rejectedCount}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm">
                         <div className="flex items-center gap-2">
                           <div className="w-24 bg-gray-200 rounded-full h-2">
                             <div
                               className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                              style={{ width: `${progressPercentage}%` }}
+                              style={{ width: `${tracking.progressPercentage}%` }}
                             ></div>
                           </div>
-                          <span className="text-xs text-gray-600 font-medium">{progressPercentage}%</span>
+                          <span className="text-xs text-gray-600 font-medium">{tracking.progressPercentage}%</span>
                         </div>
+                        {tracking.totalExecutions > 0 ? (
+                          <div className="mt-1 text-[11px] text-gray-500">
+                            {tracking.completedCount}/{tracking.totalExecutions} exécution(s) terminée(s)
+                            {tracking.currentStep > 0 && ` • Étape ${tracking.currentStep}/${tracking.totalSteps}`}
+                          </div>
+                        ) : (
+                          <div className="mt-1 text-[11px] text-gray-500">Aucune exécution démarrée</div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex items-center justify-center gap-2">
                           <button
                             onClick={() => {
-                              setSelectedWorkflowId(wf.id)
-                              openViewWorkflowModal(wf)
+                              setDetailPopupTab('steps')
+                              setWorkflowDetailPopup(wf)
                             }}
                             className="text-blue-500 hover:text-blue-700 transition-colors"
                             title="Voir détails"
@@ -1025,16 +1140,18 @@ function Workflows() {
                           >
                             <Copy size={18} />
                           </button>
-                          <button
-                            onClick={() => {
-                              setNewWorkflowForm(wf as any)
-                              setDeleteConfirmation({ show: true, id: wf.id })
-                            }}
-                            className="text-red-500 hover:text-red-700 transition-colors"
-                            title="Supprimer"
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                          {currentUser && wf.createdBy === currentUser.id && (
+                            <button
+                              onClick={() => {
+                                setNewWorkflowForm(wf as any)
+                                setDeleteConfirmation({ show: true, id: wf.id })
+                              }}
+                              className="text-red-500 hover:text-red-700 transition-colors"
+                              title="Supprimer"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1869,61 +1986,197 @@ function Workflows() {
         </div>
       )}
 
-      <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <h2 className="text-2xl font-bold text-gray-800 mb-4">Workflows existants</h2>
-        {workflows.length === 0 ? (
-          <p className="text-gray-500">Aucun workflow</p>
-        ) : (
-          <div className="space-y-3">
-            {workflows.map((wf) => (
-              <div key={wf.id} className="border border-gray-200 p-4 rounded-xl flex justify-between items-center bg-gray-50">
-                <div>
-                  <p className="font-semibold text-lg text-gray-800">{wf.name}</p>
-                  <p className="text-sm text-gray-600">{wf.description}</p>
-                </div>
-                <button
-                  onClick={() => handleDelete(wf.id)}
-                  className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center gap-2"
-                >
-                  <Trash2 size={15} /> Supprimer
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      {/* ===== POPUP DÉTAIL WORKFLOW ===== */}
+      {workflowDetailPopup && (() => {
+        const tracking = getWorkflowTrackingSummary(workflowDetailPopup)
+        const apiBaseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1').replace(/\/?api\/v1\/?$/i, '')
+        const toSign = (workflowDetailPopup.docsToSign || []).filter(Boolean)
+        const attached = (workflowDetailPopup.attachedDocs || []).filter(Boolean)
 
-      <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <h2 className="text-2xl font-bold text-gray-800 mb-4">Exécutions</h2>
-        {executions.length === 0 ? (
-          <p className="text-gray-500">Aucune exécution</p>
-        ) : (
-          <div className="space-y-3">
-            {executions.map((exec) => (
-              <div key={exec.id} className="border border-gray-200 p-4 rounded-xl bg-gray-50">
-                <p className="text-sm text-gray-600">Workflow ID: {exec.workflowId}</p>
-                <p className="text-sm text-gray-600">Document ID: {exec.documentId}</p>
-                <p className="text-sm text-gray-600">Étape actuelle: {exec.currentStep}</p>
-                <p className="text-sm text-gray-600">Statut: {exec.status}</p>
-                <div className="mt-2 flex gap-2">
+        const handleDownloadDoc = async (doc: DocumentItem) => {
+          try {
+            const url = apiBaseUrl + doc.filePath
+            const resp = await fetch(url)
+            const blob = await resp.blob()
+            const a = document.createElement('a')
+            a.href = URL.createObjectURL(blob)
+            a.download = doc.title || 'document'
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(a.href)
+          } catch {
+            window.open(apiBaseUrl + (doc.filePath || ''), '_blank')
+          }
+        }
+
+        const renderDocRow = (docId: string, label: string) => {
+          const doc = documents.find((d) => d.id === docId)
+          if (!doc) return (
+            <div key={docId} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50">
+              <FileText size={16} className="text-gray-400 flex-shrink-0" />
+              <p className="text-sm text-gray-500 flex-1">Document {docId.slice(0, 8)}… (introuvable)</p>
+            </div>
+          )
+          const fileUrl = doc.filePath ? apiBaseUrl + doc.filePath : null
+          return (
+            <div key={doc.id} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors">
+              <FileText size={16} className="text-[#2453d6] flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800 truncate">{doc.title}</p>
+                <p className="text-xs text-gray-400">{label}</p>
+              </div>
+              {fileUrl && (
+                <div className="flex items-center gap-1 flex-shrink-0">
                   <button
-                    onClick={() => handleAdvance(exec.id)}
-                    className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                    onClick={() => window.open(fileUrl, '_blank')}
+                    className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="Visualiser"
                   >
-                    Avancer
+                    <Eye size={16} />
                   </button>
                   <button
-                    onClick={() => handleReject(exec.id)}
-                    className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                    onClick={() => handleDownloadDoc(doc)}
+                    className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                    title="Télécharger"
                   >
-                    Rejeter
+                    <Download size={16} />
                   </button>
                 </div>
+              )}
+            </div>
+          )
+        }
+
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-2xl max-h-[90vh] flex flex-col">
+              {/* En-tête */}
+              <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">{workflowDetailPopup.name}</h2>
+                  {workflowDetailPopup.description && (
+                    <p className="text-xs text-gray-500 mt-0.5">{workflowDetailPopup.description}</p>
+                  )}
+                </div>
+                <button onClick={() => setWorkflowDetailPopup(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none ml-4">×</button>
               </div>
-            ))}
+
+              {/* Progression */}
+              <div className="px-6 py-4 border-b border-gray-100 bg-blue-50">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-gray-700">Progression du traitement</p>
+                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${tracking.statusClass}`}>
+                    {tracking.statusLabel}
+                  </span>
+                </div>
+                <div className="w-full bg-white rounded-full h-2.5 border border-blue-100 overflow-hidden">
+                  <div
+                    className="h-2.5 bg-[#2453d6] rounded-full transition-all duration-300"
+                    style={{ width: `${tracking.progressPercentage}%` }}
+                  />
+                </div>
+                <div className="flex justify-between mt-1.5 text-[11px] text-gray-500">
+                  <span>{tracking.progressPercentage}% traité</span>
+                  <span>
+                    {tracking.completedCount}/{tracking.totalExecutions} document(s) traité(s)
+                    {tracking.currentStep > 0 && ` • Étape ${tracking.currentStep}/${tracking.totalSteps}`}
+                  </span>
+                </div>
+                {tracking.totalExecutions > 0 && (
+                  <div className="mt-1.5 flex gap-4 text-[11px]">
+                    <span className="text-blue-600">En attente : {tracking.pendingCount}</span>
+                    <span className="text-amber-600">En cours : {tracking.inProgressCount}</span>
+                    <span className="text-green-600">Terminé : {tracking.completedCount}</span>
+                    {tracking.rejectedCount > 0 && <span className="text-red-600">Rejeté : {tracking.rejectedCount}</span>}
+                  </div>
+                )}
+              </div>
+
+              {/* Onglets */}
+              <div className="flex border-b border-gray-100 px-6">
+                {(['steps', 'documents'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setDetailPopupTab(tab)}
+                    className={`py-3 mr-6 text-sm font-medium border-b-2 transition-colors ${
+                      detailPopupTab === tab
+                        ? 'border-[#2453d6] text-[#2453d6]'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {tab === 'steps' ? 'Étapes du workflow' : `Documents (${toSign.length + attached.length})`}
+                  </button>
+                ))}
+              </div>
+
+              {/* Contenu des onglets */}
+              <div className="overflow-y-auto flex-1 px-6 py-4">
+                {detailPopupTab === 'steps' && (
+                  <div className="space-y-3">
+                    {workflowDetailPopup.steps && workflowDetailPopup.steps.length > 0 ? (
+                      workflowDetailPopup.steps
+                        .slice()
+                        .sort((a, b) => a.order - b.order)
+                        .map((step, idx) => {
+                          const stepName = step.name || ''
+                          const isSignature = step.requiresSignature || stepName.toLowerCase().includes('signature')
+                          const assigneeName = getUserDisplayName(step.approverId || step.assigneeId || '')
+                          return (
+                            <div
+                              key={step.id || idx}
+                              className={`flex items-start gap-4 p-4 rounded-xl border ${isSignature ? 'border-blue-100 bg-blue-50' : 'border-green-100 bg-green-50'}`}
+                            >
+                              <div className={`flex-shrink-0 h-9 w-9 rounded-full flex items-center justify-center text-white text-sm font-bold ${isSignature ? 'bg-blue-600' : 'bg-green-600'}`}>
+                                {step.order}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-gray-800">{stepName || `Étape ${step.order}`}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                  {isSignature ? 'Signature' : 'Validation'} — {assigneeName || 'Non assigné'}
+                                </p>
+                              </div>
+                              {isSignature
+                                ? <PenTool size={16} className="text-blue-400 mt-1 flex-shrink-0" />
+                                : <CheckCircle2 size={16} className="text-green-400 mt-1 flex-shrink-0" />
+                              }
+                            </div>
+                          )
+                        })
+                    ) : (
+                      <p className="text-gray-400 text-center py-10 text-sm">Aucune étape définie</p>
+                    )}
+                  </div>
+                )}
+
+                {detailPopupTab === 'documents' && (
+                  <div className="space-y-5">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                        Documents à signer ({toSign.length})
+                      </p>
+                      {toSign.length > 0
+                        ? <div className="space-y-2">{toSign.map((id) => renderDocRow(id, 'Document à signer'))}</div>
+                        : <p className="text-gray-400 text-sm text-center py-4 bg-gray-50 rounded-xl">Aucun document à signer</p>
+                      }
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                        Pièces jointes ({attached.length})
+                      </p>
+                      {attached.length > 0
+                        ? <div className="space-y-2">{attached.map((id) => renderDocRow(id, 'Pièce jointe'))}</div>
+                        : <p className="text-gray-400 text-sm text-center py-4 bg-gray-50 rounded-xl">Aucune pièce jointe</p>
+                      }
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        )}
-      </section>
+        )
+      })()}
+
     </div>
   )
 }

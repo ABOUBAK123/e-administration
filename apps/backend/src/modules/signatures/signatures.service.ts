@@ -172,6 +172,48 @@ export class SignaturesService {
       return body;
     };
 
+    const resolveProviderPartPayload = (payload: any): Record<string, any> | null => {
+      const pick = (candidate: any): Record<string, any> | null => {
+        if (!candidate || typeof candidate !== 'object') return null;
+
+        const idValue = String(candidate.id || '').trim();
+        if (idValue) return { id: idValue };
+
+        const partIdValue = String(candidate.partId || '').trim();
+        if (partIdValue) return { partId: partIdValue };
+
+        const hashValue = String(candidate.hash || '').trim();
+        if (hashValue) {
+          return {
+            hash: hashValue,
+            filename: String(candidate.filename || '').trim() || 'Document',
+            contentType: String(candidate.contentType || '').trim() || contentType,
+            isOriginal: Boolean(candidate.isOriginal),
+            size: Number(candidate.size) || fileBuffer.length,
+          };
+        }
+
+        return null;
+      };
+
+      const direct = pick(payload);
+      if (direct) return direct;
+
+      const nestedCandidates = [
+        payload?.part,
+        payload?.data,
+        Array.isArray(payload?.items) ? payload.items[0] : null,
+        Array.isArray(payload?.parts) ? payload.parts[0] : null,
+      ];
+
+      for (const candidate of nestedCandidates) {
+        const resolved = pick(candidate);
+        if (resolved) return resolved;
+      }
+
+      return null;
+    };
+
     // ── Step 1: Resolve signer email ────────────────────────────────────────
     const signer = await this.userRepository.findOne({ where: { id: userId } });
     const signerEmail = signer?.email;
@@ -249,15 +291,20 @@ export class SignaturesService {
     if (!fileBuffer) {
       throw new BadRequestException(`Le fichier document est inaccessible : ${document.filePath}`);
     }
-    const fileHash = crypto.createHash('sha256').update(fileBuffer).digest('base64');
-    const fileSize = fileBuffer.length;
     const contentType = document.mimeType || 'application/pdf';
 
-    await fetchStep(`${apiBase}/workflows/${workflowId}/parts`, {
+    const uploadPartResponse = await fetchStep(`${apiBase}/workflows/${workflowId}/parts`, {
       method: 'POST',
       headers: { ...baseHeaders, 'Content-Type': contentType },
       body: fileBuffer,
     });
+
+    const providerPartPayload = resolveProviderPartPayload(uploadPartResponse);
+    if (!providerPartPayload) {
+      throw new BadRequestException(
+        `Signature API: identifiant de part introuvable dans la réponse /parts (${JSON.stringify(uploadPartResponse)})`
+      );
+    }
 
     // ── Step 6: Link document to workflow ──────────────────────────────────
     const qrPosition = await this.resolveSignatureQrPosition();
@@ -266,14 +313,7 @@ export class SignaturesService {
       method: 'POST',
       headers: { ...baseHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        parts: [
-          {
-            filename: document.title || 'Document',
-            contentType,
-            size: fileSize,
-            hash: fileHash,
-          },
-        ],
+        parts: [providerPartPayload],
         signatureProfileId,
         pdfSignatureFields: [
           {
@@ -386,23 +426,21 @@ export class SignaturesService {
     administrationId: string,
     subEntityCode: string | null
   ): Promise<string> {
-    const updateResult = await manager
-      .createQueryBuilder()
-      .update(IssuingAdministration)
-      .set({
-        documentNumberSequence: () => '"documentNumberSequence" + 1',
-      })
-      .where('id = :id', { id: administrationId })
-      .returning([
+    const adminRepository = manager.getRepository(IssuingAdministration);
+
+    await adminRepository.increment({ id: administrationId }, 'documentNumberSequence', 1);
+
+    const row = await adminRepository.findOne({
+      where: { id: administrationId },
+      select: [
         'id',
         'code',
         'documentNumberPrefix',
         'documentNumberPadding',
         'documentNumberSequence',
-      ])
-      .execute();
+      ],
+    });
 
-    const row = updateResult.raw?.[0];
     if (!row) {
       throw new NotFoundException('Issuing administration not found for document numbering');
     }
@@ -519,6 +557,29 @@ export class SignaturesService {
       documentNumber: assignedDocumentNumber,
       qrcode: qrCode,
     };
+  }
+
+  async triggerExternalSignaturePlatform(
+    documentId: string,
+    userId: string,
+    reason?: string
+  ): Promise<Record<string, any> | null> {
+    const document = await this.documentRepository.findOne({
+      where: { id: documentId },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    const administrationId = await this.resolveAdministrationIdForDocument(document, userId);
+
+    return this.callExternalSignatureProvider(document, userId, administrationId, {
+      signatureHash: `wf-ext-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      reason: reason || 'Workflow validation',
+      location: 'Workflow',
+      certificate: '',
+    });
   }
 
   async verify(documentId: string, signatureId: string) {

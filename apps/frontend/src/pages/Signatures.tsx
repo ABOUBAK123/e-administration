@@ -1,8 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { PenLine, Send, ShieldCheck, CheckCircle2, XCircle, Upload, FileUp, Workflow, PenSquare, MapPin, PlusCircle, Trash2, PlayCircle, PenTool, FileText, Eye } from 'lucide-react'
+import { PenLine, Send, ShieldCheck, CheckCircle2, XCircle, Upload, FileUp, Workflow, MapPin, PlusCircle, Trash2, PlayCircle, PenTool, FileText, Eye } from 'lucide-react'
 import { fetchDocumentById, fetchDocuments, uploadDocumentFile } from '../services/documents'
 import { fetchAppSetting, fetchSignatureProviderConfig } from '../services/administration'
-import { fetchWorkflows, fetchWorkflowDetails, advanceWorkflow, fetchWorkflowTemplates, createWorkflow, executeWorkflow } from '../services/workflows'
+import {
+  fetchWorkflows,
+  fetchWorkflowDetails,
+  fetchWorkflowTemplates,
+  createWorkflow,
+  executeWorkflow,
+  performWorkflowStepAction,
+} from '../services/workflows'
 import { fetchSignataires, AppUserRecord } from '../services/users'
 import {
   fetchSignatures,
@@ -20,12 +27,18 @@ import { WorkflowExecution, WorkflowItem, WorkflowTemplateItem } from '../types/
 
 type SignatureWorkflowRow = {
   executionId: string
+  executionIds: string[]
+  actionableExecutionIds: string[]
   workflowId: string
   workflowName: string
+  creatorLabel: string
   documentId: string
   documentTitle: string
+  documentCount: number
   status: string
-  currentStep: number
+  statusLabel: string
+  progressPercent: number
+  nextActorLabel: string
   actionType: 'signature' | 'validation'
   isMyTurn: boolean
 }
@@ -38,6 +51,16 @@ type PendingSelfDoc = {
 type SignedSelfDoc = {
   doc: DocumentItem
   signedAt: string
+}
+
+const isSignatureStepType = (
+  description?: string | null,
+  requiresSignature?: boolean,
+): boolean => {
+  const normalized = String(description || '').toLowerCase()
+  if (normalized.includes('signature')) return true
+  if (normalized.includes('validation')) return false
+  return Boolean(requiresSignature)
 }
 
 function Signatures() {
@@ -134,10 +157,216 @@ function Signatures() {
   const getFileKey = (file: File) => `${file.name}-${file.size}-${file.lastModified}`
   const wfCurrentZones = wfPositioningFile ? wfZonesByFileKey[getFileKey(wfPositioningFile)] || [] : []
   const getDocumentZoneKey = (documentId: string) => `doc-${documentId}`
+  const getUserDisplayLabel = (userId?: string | null) => {
+    if (!userId) return 'Non assigné'
+    if (user?.id === userId) {
+      return user.fullName || user.username || user.email || 'Vous'
+    }
+    const matched = wfSignataires.find((item) => item.id === userId)
+    if (!matched) return 'Utilisateur inconnu'
+    return matched.fullName || matched.username || matched.email || 'Utilisateur inconnu'
+  }
+
+  const getExecutionStatusLabel = (
+    status: string,
+    currentStep: number,
+    totalSteps: number,
+  ) => {
+    const normalized = String(status || '').toLowerCase()
+    if (normalized === 'completed') return 'Terminé'
+    if (normalized === 'rejected') return 'Rejeté'
+    if (normalized === 'in_progress') {
+      if (currentStep <= 1) return 'Démarré'
+      if (currentStep <= totalSteps) return 'En cours'
+    }
+    if (normalized === 'pending') return 'Démarré'
+    return status || 'Inconnu'
+  }
+
+  const getExecutionProgressPercent = (
+    status: string,
+    currentStep: number,
+    totalSteps: number,
+  ) => {
+    if (totalSteps <= 0) return 0
+    const normalized = String(status || '').toLowerCase()
+    if (normalized === 'completed') return 100
+    const completedSteps = Math.max(0, Math.min(currentStep - 1, totalSteps))
+    return Math.round((completedSteps / totalSteps) * 100)
+  }
   const formatDate = (value?: string | null) => {
     if (!value) return '-'
     const parsed = new Date(value)
     return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleString('fr-FR')
+  }
+
+  const buildWorkflowInboxRows = async (): Promise<SignatureWorkflowRow[]> => {
+    const [wfList, docs] = await Promise.all([fetchWorkflows(), fetchDocuments()])
+    const docsMap = new Map(docs.map((doc) => [doc.id, doc.title]))
+
+    const detailsList = await Promise.all(
+      wfList.map(async (wf) => {
+        try {
+          return await fetchWorkflowDetails(wf.id)
+        } catch {
+          return null
+        }
+      }),
+    )
+
+    type ExecutionItem = {
+      executionId: string
+      documentId: string
+      documentTitle: string
+      status: string
+      progressPercent: number
+      nextActorLabel: string
+      isMyTurn: boolean
+    }
+
+    const grouped = new Map<
+      string,
+      {
+        workflowId: string
+        workflowName: string
+        creatorLabel: string
+        actionType: 'signature' | 'validation'
+        currentStep: number
+        items: ExecutionItem[]
+      }
+    >()
+
+    for (const details of detailsList) {
+      if (!details) continue
+      const steps = (details.steps || []) as any[]
+      const executions = (details.executions || []) as WorkflowExecution[]
+
+      for (const execution of executions) {
+        const currentStep = Number(execution.currentStep || 1)
+        const currentStepData = steps.find((step) => Number(step.order) === currentStep)
+        const totalSteps = Math.max(steps.length, 1)
+        const nextStepData = steps.find((step) => Number(step.order) === currentStep + 1)
+        const assigneeId = currentStepData?.assigneeId || currentStepData?.approverId || ''
+        const actionType: 'signature' | 'validation' = isSignatureStepType(
+          currentStepData?.description || currentStepData?.name,
+          currentStepData?.requiresSignature,
+        )
+          ? 'signature'
+          : 'validation'
+        const progressPercent = getExecutionProgressPercent(execution.status, currentStep, totalSteps)
+        const nextActorId = nextStepData?.assigneeId || nextStepData?.approverId || ''
+        const nextActorFromRelation =
+          nextStepData?.assignee?.fullName ||
+          nextStepData?.assignee?.username ||
+          nextStepData?.assignee?.email
+        const nextActorLabel =
+          execution.status === 'completed'
+            ? 'Workflow terminé'
+            : execution.status === 'rejected'
+              ? 'Workflow rejeté'
+              : nextActorFromRelation || (nextActorId ? getUserDisplayLabel(nextActorId) : 'Fin de workflow')
+
+        const key = `${details.id}::${actionType}::${currentStep}`
+        const creatorLabel =
+          details.creator?.fullName ||
+          details.creator?.username ||
+          details.creator?.email ||
+          'Créateur inconnu'
+        const group = grouped.get(key) || {
+          workflowId: details.id,
+          workflowName: details.name,
+          creatorLabel,
+          actionType,
+          currentStep,
+          items: [],
+        }
+
+        group.items.push({
+          executionId: execution.id,
+          documentId: execution.documentId,
+          documentTitle: docsMap.get(execution.documentId) || `Document ${execution.documentId.slice(0, 8)}`,
+          status: execution.status,
+          progressPercent,
+          nextActorLabel,
+          isMyTurn: !assigneeId || assigneeId === user?.id,
+        })
+
+        grouped.set(key, group)
+      }
+    }
+
+    const rows: SignatureWorkflowRow[] = []
+
+    for (const group of grouped.values()) {
+      const statuses = group.items.map((item) => item.status)
+      const status = statuses.includes('in_progress')
+        ? 'in_progress'
+        : statuses.includes('pending')
+          ? 'pending'
+          : statuses.includes('rejected')
+            ? 'rejected'
+            : 'completed'
+
+      const statusLabel =
+        status === 'completed'
+          ? 'Terminé'
+          : status === 'rejected'
+            ? 'Rejeté'
+            : status === 'in_progress'
+              ? 'En cours'
+              : 'Démarré'
+
+      const progressPercent =
+        group.items.length > 0
+          ? Math.round(
+              group.items.reduce((sum, item) => sum + item.progressPercent, 0) / group.items.length,
+            )
+          : 0
+
+      const inProgressItem = group.items.find((item) => item.status === 'in_progress')
+      const representative = inProgressItem || group.items[0]
+      const actionableExecutionIds = group.items
+        .filter((item) => item.status === 'in_progress' && item.isMyTurn)
+        .map((item) => item.executionId)
+
+      rows.push({
+        executionId: representative?.executionId || `${group.workflowId}-${group.currentStep}`,
+        executionIds: group.items.map((item) => item.executionId),
+        actionableExecutionIds,
+        workflowId: group.workflowId,
+        workflowName: group.workflowName,
+        creatorLabel: group.creatorLabel,
+        documentId: representative?.documentId || '',
+        documentTitle:
+          group.items.length === 1
+            ? representative?.documentTitle || 'Document'
+            : `${group.items.length} documents`,
+        documentCount: group.items.length,
+        status,
+        statusLabel,
+        progressPercent,
+        nextActorLabel:
+          status === 'completed'
+            ? 'Workflow terminé'
+            : status === 'rejected'
+              ? 'Workflow rejeté'
+              : inProgressItem?.nextActorLabel || representative?.nextActorLabel || 'Fin de workflow',
+        actionType: group.actionType,
+        isMyTurn: actionableExecutionIds.length > 0,
+      })
+    }
+
+    rows.sort((a, b) => {
+      if (a.isMyTurn !== b.isMyTurn) return a.isMyTurn ? -1 : 1
+      if (a.status !== b.status) {
+        const aPending = a.status === 'in_progress'
+        const bPending = b.status === 'in_progress'
+        if (aPending !== bPending) return aPending ? -1 : 1
+      }
+      return a.workflowName.localeCompare(b.workflowName)
+    })
+
+    return rows
   }
 
   const reloadSelfSignatureLists = async () => {
@@ -170,6 +399,7 @@ function Signatures() {
 
   useEffect(() => {
     const loadDocuments = async () => {
+      if (!user?.id) return
       try {
         await reloadSelfSignatureLists()
       } catch (error) {
@@ -259,58 +489,14 @@ function Signatures() {
 
   useEffect(() => {
     const loadWorkflowRows = async () => {
+      if (!user?.id) {
+        setWorkflowsRows([])
+        setWorkflowsLoading(false)
+        return
+      }
       setWorkflowsLoading(true)
       try {
-        const [wfList, docs] = await Promise.all([fetchWorkflows(), fetchDocuments()])
-        const docsMap = new Map(docs.map((doc) => [doc.id, doc.title]))
-
-        const detailsList = await Promise.all(
-          wfList.map(async (wf) => {
-            try {
-              return await fetchWorkflowDetails(wf.id)
-            } catch {
-              return null
-            }
-          }),
-        )
-
-        const rows: SignatureWorkflowRow[] = []
-        for (const details of detailsList) {
-          if (!details) continue
-          const steps = (details.steps || []) as any[]
-          const executions = (details.executions || []) as WorkflowExecution[]
-
-          for (const execution of executions) {
-            const currentStep = Number(execution.currentStep || 1)
-            const currentStepData = steps.find((step) => Number(step.order) === currentStep)
-            const assigneeId = currentStepData?.assigneeId || currentStepData?.approverId || ''
-            const requiresSignature = Boolean(currentStepData?.requiresSignature)
-            const actionType: 'signature' | 'validation' = requiresSignature ? 'signature' : 'validation'
-
-            rows.push({
-              executionId: execution.id,
-              workflowId: details.id,
-              workflowName: details.name,
-              documentId: execution.documentId,
-              documentTitle: docsMap.get(execution.documentId) || `Document ${execution.documentId.slice(0, 8)}`,
-              status: execution.status,
-              currentStep,
-              actionType,
-              isMyTurn: !assigneeId || assigneeId === user?.id,
-            })
-          }
-        }
-
-        rows.sort((a, b) => {
-          if (a.isMyTurn !== b.isMyTurn) return a.isMyTurn ? -1 : 1
-          if (a.status !== b.status) {
-            const aPending = a.status === 'in_progress'
-            const bPending = b.status === 'in_progress'
-            if (aPending !== bPending) return aPending ? -1 : 1
-          }
-          return a.workflowName.localeCompare(b.workflowName)
-        })
-
+        const rows = await buildWorkflowInboxRows()
         setWorkflowsRows(rows)
       } catch {
         setFeedback('Impossible de charger les workflows de signature/validation')
@@ -320,6 +506,14 @@ function Signatures() {
     }
 
     loadWorkflowRows()
+
+    const timer = window.setInterval(() => {
+      loadWorkflowRows()
+    }, 10000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
   }, [user?.id])
 
   useEffect(() => {
@@ -412,33 +606,7 @@ function Signatures() {
 
   const refreshWorkflowsRows = async () => {
     try {
-      const [wfList, docs] = await Promise.all([fetchWorkflows(), fetchDocuments()])
-      const docsMap = new Map(docs.map((doc) => [doc.id, doc.title]))
-      const detailsList = await Promise.all(wfList.map((wf) => fetchWorkflowDetails(wf.id).catch(() => null)))
-
-      const rows: SignatureWorkflowRow[] = []
-      for (const details of detailsList) {
-        if (!details) continue
-        const steps = (details.steps || []) as any[]
-        const executions = (details.executions || []) as WorkflowExecution[]
-        for (const execution of executions) {
-          const currentStep = Number(execution.currentStep || 1)
-          const currentStepData = steps.find((step) => Number(step.order) === currentStep)
-          const assigneeId = currentStepData?.assigneeId || currentStepData?.approverId || ''
-          const actionType: 'signature' | 'validation' = currentStepData?.requiresSignature ? 'signature' : 'validation'
-          rows.push({
-            executionId: execution.id,
-            workflowId: details.id,
-            workflowName: details.name,
-            documentId: execution.documentId,
-            documentTitle: docsMap.get(execution.documentId) || `Document ${execution.documentId.slice(0, 8)}`,
-            status: execution.status,
-            currentStep,
-            actionType,
-            isMyTurn: !assigneeId || assigneeId === user?.id,
-          })
-        }
-      }
+      const rows = await buildWorkflowInboxRows()
       setWorkflowsRows(rows)
     } catch {
       // best effort refresh
@@ -446,39 +614,93 @@ function Signatures() {
   }
 
   const handleWorkflowSignatureAction = async (row: SignatureWorkflowRow) => {
-    if (!row.isMyTurn) {
+    if (row.status !== 'in_progress') {
+      setFeedback('Cette exécution n’est plus en cours')
+      return
+    }
+
+    if (row.actionType !== 'signature') {
+      setFeedback('Cette étape est une validation, pas une signature')
+      return
+    }
+
+    if (row.actionableExecutionIds.length === 0) {
       setFeedback('Cette étape n’est pas assignée à votre utilisateur')
       return
     }
 
     try {
-      const generatedSignature = `sig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      await signDocument(row.documentId, { signatureHash: generatedSignature })
-      await advanceWorkflow(row.executionId, row.currentStep, 'signed')
-      setFeedback(`Signature effectuée sur « ${row.documentTitle} »`)
+      const results = await Promise.allSettled(
+        row.actionableExecutionIds.map((executionId) =>
+          performWorkflowStepAction(executionId, 'signature'),
+        ),
+      )
+      const successCount = results.filter((result) => result.status === 'fulfilled').length
+      const failedCount = results.length - successCount
+      if (successCount === 0) {
+        const firstRejected = results.find((result) => result.status === 'rejected') as
+          | PromiseRejectedResult
+          | undefined
+        throw firstRejected?.reason
+      }
 
-      setSelectedDocumentId(row.documentId)
-      const sigs = await fetchSignatures(row.documentId)
-      setSignatures(sigs)
+      setFeedback(
+        failedCount > 0
+          ? `Signature par lot partielle: ${successCount} document(s) signé(s), ${failedCount} en échec.`
+          : `Signature par lot effectuée sur ${successCount} document(s).`,
+      )
+
+      if (row.documentId) {
+        setSelectedDocumentId(row.documentId)
+        const sigs = await fetchSignatures(row.documentId)
+        setSignatures(sigs)
+      }
       await refreshWorkflowsRows()
       await reloadSelfSignatureLists()
-    } catch {
-      setFeedback('Erreur lors de la signature depuis le workflow')
+    } catch (error: any) {
+      setFeedback(getApiErrorMessage(error, 'Erreur lors de la signature depuis le workflow'))
     }
   }
 
   const handleWorkflowValidationAction = async (row: SignatureWorkflowRow) => {
-    if (!row.isMyTurn) {
+    if (row.status !== 'in_progress') {
+      setFeedback('Cette exécution n’est plus en cours')
+      return
+    }
+
+    if (row.actionType !== 'validation') {
+      setFeedback('Cette étape est une signature, pas une validation')
+      return
+    }
+
+    if (row.actionableExecutionIds.length === 0) {
       setFeedback('Cette étape n’est pas assignée à votre utilisateur')
       return
     }
 
     try {
-      await advanceWorkflow(row.executionId, row.currentStep, 'approved')
-      setFeedback(`Validation effectuée sur « ${row.documentTitle} »`)
+      const results = await Promise.allSettled(
+        row.actionableExecutionIds.map((executionId) =>
+          performWorkflowStepAction(executionId, 'validation'),
+        ),
+      )
+      const successCount = results.filter((result) => result.status === 'fulfilled').length
+      const failedCount = results.length - successCount
+      if (successCount === 0) {
+        const firstRejected = results.find((result) => result.status === 'rejected') as
+          | PromiseRejectedResult
+          | undefined
+        throw firstRejected?.reason
+      }
+
+      setFeedback(
+        failedCount > 0
+          ? `Validation par lot partielle: ${successCount} document(s) validé(s), ${failedCount} en échec.`
+          : `Validation par lot effectuée sur ${successCount} document(s).`,
+      )
       await refreshWorkflowsRows()
-    } catch {
-      setFeedback('Erreur lors de la validation depuis le workflow')
+    } catch (error: any) {
+      setFeedback(getApiErrorMessage(error, 'Erreur lors de la validation depuis le workflow'))
     }
   }
 
@@ -658,7 +880,14 @@ function Signatures() {
 
   const wfNextStep = () => {
     if (wfStep === 1 && !wfForm.name.trim()) { setFeedback('Le nom du parapheur est obligatoire'); return }
-    if (wfStep === 2 && wfForm.validationSteps.filter(s => s.approverId.trim()).length === 0) { setFeedback('Au moins un validateur est requis'); return }
+    if (wfStep === 2) {
+      const validationCount = wfForm.validationSteps.filter(s => s.approverId.trim()).length
+      const signatureCount = wfForm.signatureSteps.filter(s => s.signerId.trim()).length
+      if (validationCount + signatureCount === 0) {
+        setFeedback('Ajoutez au moins une étape: validation ou signature')
+        return
+      }
+    }
     setFeedback(null)
     setWfStep(prev => Math.min(prev + 1, WF_MAX_STEP))
   }
@@ -723,7 +952,11 @@ function Signatures() {
     setWfError(null)
     if (!wfForm.name) { setWfError('Nom du workflow requis'); return }
     const validationStepsFiltered = wfForm.validationSteps.filter(s => s.approverId.trim())
-    if (validationStepsFiltered.length === 0) { setWfError('Au moins un validateur est requis'); return }
+    const signatureStepsFiltered = wfForm.signatureSteps.filter(s => s.signerId.trim())
+    if (validationStepsFiltered.length + signatureStepsFiltered.length === 0) {
+      setWfError('Ajoutez au moins une étape: validation ou signature')
+      return
+    }
     setWfSubmitting(true)
     try {
       const uploadFilesWithHandling = async (files: File[]) => {
@@ -742,7 +975,7 @@ function Signatures() {
       const attachedDocsIds = [...wfForm.attachedDocs, ...uploadedAttachedDocs.map(d => d.id)]
       const steps = [
         ...validationStepsFiltered.map((s, i) => ({ name: `Validation ${i + 1}`, approverId: s.approverId, order: i + 1 })),
-        ...wfForm.signatureSteps.filter(s => s.signerId.trim()).map((s, i) => ({ name: `Signature ${i + 1}`, approverId: s.signerId, order: validationStepsFiltered.length + i + 1 })),
+        ...signatureStepsFiltered.map((s, i) => ({ name: `Signature ${i + 1}`, approverId: s.signerId, order: validationStepsFiltered.length + i + 1 })),
       ]
       const uploadedSignatureFiles = wfForm.docsToSignUploaded.map(file => {
         const fileKey = getFileKey(file)
@@ -836,7 +1069,7 @@ function Signatures() {
       <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <Workflow size={20} className="text-[#2453d6]" /> Workflows de signature / validation
+            <Workflow size={20} className="text-[#2453d6]" /> Boîte de réception des actions (signature / validation)
           </h2>
           <span className="text-xs text-gray-500">{workflowsRows.length} ligne(s)</span>
         </div>
@@ -851,10 +1084,10 @@ function Signatures() {
               <thead className="bg-gray-100 text-gray-600 text-[11px] uppercase tracking-wide">
                 <tr>
                   <th className="px-3 py-2 font-semibold">Workflow</th>
-                  <th className="px-3 py-2 font-semibold">Document</th>
-                  <th className="px-3 py-2 font-semibold">Étape</th>
+                  <th className="px-3 py-2 font-semibold">Créateur</th>
+                  <th className="px-3 py-2 font-semibold">Progression</th>
                   <th className="px-3 py-2 font-semibold">Statut</th>
-                  <th className="px-3 py-2 font-semibold">Assignation</th>
+                  <th className="px-3 py-2 font-semibold">Prochain intervenant</th>
                   <th className="px-3 py-2 font-semibold">Action</th>
                 </tr>
               </thead>
@@ -862,40 +1095,54 @@ function Signatures() {
                 {workflowsRows.map((row) => (
                   <tr key={row.executionId} className={!row.isMyTurn ? 'bg-gray-50' : 'bg-white'}>
                     <td className="px-3 py-2 font-medium text-gray-800">{row.workflowName}</td>
-                    <td className="px-3 py-2 text-gray-700">{row.documentTitle}</td>
-                    <td className="px-3 py-2 text-gray-600">#{row.currentStep}</td>
-                    <td className="px-3 py-2">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${row.status === 'in_progress' ? 'bg-amber-100 text-amber-800' : row.status === 'completed' ? 'bg-green-100 text-green-800' : row.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}>
-                        {row.status}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-gray-600">
-                      {row.isMyTurn ? (
-                        <span className="text-green-600 font-semibold">Votre tour</span>
-                      ) : (
-                        <span className="text-gray-500">Autre utilisateur</span>
-                      )}
-                    </td>
+                    <td className="px-3 py-2 text-gray-700">{row.creatorLabel}</td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          title="Aller à la signature"
-                          disabled={!row.isMyTurn || row.actionType !== 'signature' || row.status !== 'in_progress'}
-                          onClick={() => handleWorkflowSignatureAction(row)}
-                          className="h-8 w-8 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center"
-                        >
-                          <PenSquare size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          title="Aller à la validation"
-                          disabled={!row.isMyTurn || row.actionType !== 'validation' || row.status !== 'in_progress'}
-                          onClick={() => handleWorkflowValidationAction(row)}
-                          className="h-8 w-8 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center"
-                        >
-                          <CheckCircle2 size={14} />
-                        </button>
+                        <div className="w-20 h-2 rounded-full bg-gray-200 overflow-hidden">
+                          <div
+                            className="h-2 rounded-full bg-[#2453d6] transition-all duration-300"
+                            style={{ width: `${row.progressPercent}%` }}
+                          />
+                        </div>
+                        <span className="text-gray-600 font-semibold text-xs">{row.progressPercent}%</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${row.statusLabel === 'En cours' ? 'bg-amber-100 text-amber-800' : row.statusLabel === 'Terminé' ? 'bg-green-100 text-green-800' : row.statusLabel === 'Rejeté' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {row.statusLabel}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-gray-600">{row.nextActorLabel}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        {row.status !== 'completed' && row.actionType === 'signature' && (
+                          <button
+                            type="button"
+                            title="Signer"
+                            onClick={() => handleWorkflowSignatureAction(row)}
+                            className={`h-8 w-8 rounded-lg border inline-flex items-center justify-center ${
+                              row.status === 'in_progress' && row.isMyTurn
+                                ? 'border-blue-200 text-blue-600 hover:bg-blue-50'
+                                : 'border-gray-200 text-gray-400 hover:bg-gray-50'
+                            }`}
+                          >
+                            <PenTool size={14} />
+                          </button>
+                        )}
+                        {row.status !== 'completed' && row.actionType === 'validation' && (
+                          <button
+                            type="button"
+                            title="Valider"
+                            onClick={() => handleWorkflowValidationAction(row)}
+                            className={`h-8 w-8 rounded-lg border inline-flex items-center justify-center ${
+                              row.status === 'in_progress' && row.isMyTurn
+                                ? 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'
+                                : 'border-gray-200 text-gray-400 hover:bg-gray-50'
+                            }`}
+                          >
+                            <CheckCircle2 size={14} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -927,7 +1174,7 @@ function Signatures() {
 
       {/* ── Tableau Workflows de signature / validation ──────────────── */}
       <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <h2 className="text-2xl font-bold text-gray-800 mb-4">Workflows de signature / validation</h2>
+        <h2 className="text-2xl font-bold text-gray-800 mb-4">Suivi global des workflows</h2>
         {myWorkflows.length === 0 ? (
           <p className="text-gray-500 text-center py-6">Aucun workflow créé</p>
         ) : (
@@ -951,8 +1198,20 @@ function Signatures() {
                   const progress = Math.round((completedSteps / totalSteps) * 100)
                   const currentStepObj = latestExec && wf.steps ? wf.steps.find(s => s.order === latestExec.currentStep) : wf.steps?.[0]
                   const isSignatureStep = currentStepObj?.description?.toLowerCase().includes('signature') || currentStepObj?.name?.toLowerCase().includes('signature')
-                  const statusLabel = latestExec?.status === 'completed' ? 'TERMINÉ' : latestExec?.status === 'rejected' ? 'REJETÉ' : wf.status === 'active' ? 'DÉMARRÉ' : 'BROUILLON'
-                  const statusColor = latestExec?.status === 'completed' ? 'bg-green-500 text-white' : latestExec?.status === 'rejected' ? 'bg-red-500 text-white' : wf.status === 'active' ? 'bg-[#e8a230] text-white' : 'bg-gray-200 text-gray-700'
+                  const statusLabel = !latestExec
+                    ? 'BROUILLON'
+                    : latestExec.status === 'completed'
+                      ? 'TERMINÉ'
+                      : latestExec.status === 'rejected'
+                        ? 'REJETÉ'
+                        : 'DÉMARRÉ'
+                  const statusColor = !latestExec
+                    ? 'bg-gray-200 text-gray-700'
+                    : latestExec.status === 'completed'
+                      ? 'bg-green-500 text-white'
+                      : latestExec.status === 'rejected'
+                        ? 'bg-red-500 text-white'
+                        : 'bg-[#e8a230] text-white'
                   const progressColor = latestExec?.status === 'completed' ? 'bg-green-500' : 'bg-[#e8a230]'
 
                   return (

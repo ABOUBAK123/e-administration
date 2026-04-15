@@ -12,6 +12,8 @@ import { WorkflowTemplate } from './workflow-template.entity';
 import { User } from '../users/user.entity';
 import { AdministrationUser } from '../administration/entities/administration-user.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SignaturesModule } from '../signatures/signatures.module';
+import { Notification } from '../notifications/notification.entity';
 
 @Module({
   imports: [
@@ -23,8 +25,10 @@ import { NotificationsModule } from '../notifications/notifications.module';
       Document,
       User,
       AdministrationUser,
+      Notification,
     ]),
     NotificationsModule,
+    SignaturesModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

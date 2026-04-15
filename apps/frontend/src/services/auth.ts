@@ -1,5 +1,4 @@
 import api from './api';
-import { tokenStore } from './tokenStore';
 
 interface LoginPayload {
   email: string;
@@ -106,7 +105,9 @@ export const refreshToken = async (refreshToken?: string): Promise<AuthResponse>
 };
 
 export const getCurrentUser = async (): Promise<AuthResponse['user']> => {
-  const response = await api.get('/users/profile');
+  const response = await api.get('/users/profile', {
+    params: { _: Date.now() },
+  });
   return response.data;
 };
 
@@ -128,68 +129,21 @@ export const updateCurrentUserProfile = async (
 };
 
 export const uploadCurrentUserAvatar = async (file: File): Promise<AuthResponse['user']> => {
-  const endpoint = `${import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1'}/users/profile/avatar`;
-
-  const sendUpload = async (fieldName: 'file' | 'avatar', accessTokenOverride?: string | null) => {
+  const sendUpload = async (fieldName: 'file' | 'avatar') => {
     const formData = new FormData();
     formData.append(fieldName, file);
-
-    const accessToken = accessTokenOverride ?? tokenStore.getAccessToken();
-    const headers: HeadersInit = {};
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
-    }
-
-    const response = await fetch(endpoint, {
-      method: 'PUT',
-      headers,
-      body: formData,
-      credentials: 'include',
-    });
-
-    const payload = await response.json().catch(() => ({} as any));
-    if (!response.ok) {
-      const error: any = new Error(payload?.message || 'Avatar upload failed');
-      error.response = {
-        status: response.status,
-        data: payload,
-      };
-      throw error;
-    }
-
-    return payload as AuthResponse['user'];
+    const response = await api.put('/users/profile/avatar', formData);
+    return response.data as AuthResponse['user'];
   };
 
-  let refreshedAccessToken: string | null = null;
-  let refreshedOnce = false;
   let lastError: any = null;
 
   for (const fieldName of ['file', 'avatar'] as const) {
     try {
-      return await sendUpload(fieldName, refreshedAccessToken);
+      return await sendUpload(fieldName);
     } catch (error: any) {
       lastError = error;
       const status = Number(error?.response?.status || 0);
-
-      if (status === 401 && !refreshedOnce) {
-        const refreshed = await refreshToken(tokenStore.getRefreshToken() || undefined);
-        tokenStore.setTokens({ accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken });
-        refreshedAccessToken = refreshed.accessToken;
-        refreshedOnce = true;
-
-        try {
-          return await sendUpload(fieldName, refreshedAccessToken);
-        } catch (retryError: any) {
-          lastError = retryError;
-          const retryStatus = Number(retryError?.response?.status || 0);
-          const canTryOtherField = retryStatus === 400 || retryStatus === 415 || retryStatus === 422;
-          if (!canTryOtherField) {
-            throw retryError;
-          }
-          continue;
-        }
-      }
-
       const canTryOtherField = status === 400 || status === 415 || status === 422;
       if (!canTryOtherField) {
         throw error;

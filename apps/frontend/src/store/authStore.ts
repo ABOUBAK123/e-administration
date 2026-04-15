@@ -178,7 +178,14 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
     get().setUser(user);
   },
   uploadAvatar: async (file) => {
-    const user = await uploadCurrentUserAvatar(file);
-    get().setUser(user);
+    const uploadedUser = await uploadCurrentUserAvatar(file);
+    if (uploadedUser?.avatar) {
+      get().setUser(uploadedUser);
+      return;
+    }
+
+    // Fallback: if API response misses avatar, force a fresh profile read.
+    const refreshedUser = await getCurrentUser();
+    get().setUser(refreshedUser);
   },
 }));
