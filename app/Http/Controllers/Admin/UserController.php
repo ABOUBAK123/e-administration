@@ -51,9 +51,13 @@ class UserController extends Controller
         if ($fallbackProfile) {
             $selectedProfileId = $fallbackProfile->id;
         } else {
+            Log::warning('UserController@store: No profile found for administration', [
+                'administration_id' => $selectedAdminId,
+                'administration_type' => $selectedAdminType,
+            ]);
             return back()
                 ->withInput()
-                ->withErrors(['users' => 'Aucun profil trouvé pour cette administration. Veuillez d\'abord créer un profil.']);
+                ->withErrors(['administration_id' => 'Aucun profil trouvé pour cette administration. Veuillez d\'abord créer un profil.']);
         }
 
         $payload = [
@@ -69,11 +73,27 @@ class UserController extends Controller
         ];
 
         try {
-            User::create($payload);
+            $user = User::create($payload);
+
+            // Créer aussi une assignation de direction pour que l'administration soit directement accessible
+            \App\Models\UserDirectionAssignment::create([
+                'user_id' => $user->id,
+                'direction_scope_type' => $selectedAdminType,
+                'direction_scope_id' => $selectedAdminId,
+                'sub_entity_code' => null,
+                'direction_label' => $fallbackProfile->name ?? null,
+            ]);
+
+            Log::info('User created successfully with profile and direction', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'profile_id' => $selectedProfileId,
+            ]);
         } catch (\Throwable $e) {
             Log::error('Admin UserController@store failed', [
                 'email' => $data['email'] ?? null,
                 'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             $msg = strtolower($e->getMessage());
@@ -85,7 +105,7 @@ class UserController extends Controller
 
             return back()
                 ->withInput()
-                ->withErrors(['users' => 'Échec de création utilisateur: ' . $e->getMessage()]);
+                ->withErrors(['email' => 'Échec de création utilisateur: ' . $e->getMessage()]);
         }
 
         return redirect()->route('admin.users.index')->with('success', 'Utilisateur créé.');
