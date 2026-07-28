@@ -167,6 +167,7 @@ class ReceptionController extends Controller
 
         // Récupérer le reception_status par document pour l'utilisateur connecté
         $receptionStatuses = collect();
+        $transmissionInfo = collect();
         if ($sharedDocIds->isNotEmpty() && Schema::hasColumn('document_shares', 'reception_status')) {
             try {
                 $receptionStatuses = DocumentShare::query()
@@ -185,14 +186,48 @@ class ReceptionController extends Controller
                     })
                     ->whereNotNull('reception_status')
                     ->orderByRaw("CASE reception_status WHEN 'transmis' THEN 1 WHEN 'recu' THEN 2 ELSE 3 END")
-                    ->get(['document_id', 'reception_status'])
+                    ->get(['document_id', 'reception_status', 'recipient_name'])
                     ->keyBy('document_id');
+
+                // Récupérer les noms des entités transmises (pour le tooltip)
+                if (Schema::hasTable('sub_entities')) {
+                    try {
+                        $transmissionInfo = DocumentShare::query()
+                            ->whereIn('document_id', $sharedDocIds)
+                            ->where('reception_status', 'transmis')
+                            ->where(function ($q) use ($userId, $userEmail, $subEntityCodes, $recipientAdminIds) {
+                                $q->where('recipient_name', 'user:' . $userId);
+                                if (!empty($userEmail)) {
+                                    $q->orWhere('recipient_email', $userEmail);
+                                }
+                                foreach ($subEntityCodes as $code) {
+                                    $q->orWhere('recipient_name', 'sub_entity:' . $code);
+                                }
+                                if ($recipientAdminIds->isNotEmpty()) {
+                                    $q->orWhereIn('recipient_administration_id', $recipientAdminIds);
+                                }
+                            })
+                            ->get(['document_id', 'recipient_name'])
+                            ->map(function ($share) {
+                                // Extraire le code de la sub_entity du recipient_name (format: sub_entity:CODE)
+                                if (str_starts_with($share->recipient_name, 'sub_entity:')) {
+                                    $code = substr($share->recipient_name, 11); // Enlever 'sub_entity:' prefix
+                                    $subEntity = SubEntity::where('code', $code)->first();
+                                    return $subEntity?->name ?? $code;
+                                }
+                                return null;
+                            })
+                            ->keyBy('document_id');
+                    } catch (\Throwable $e) {
+                        Log::warning('Reception: cannot load transmission info', ['message' => $e->getMessage()]);
+                    }
+                }
             } catch (\Throwable $e) {
                 Log::warning('Reception: cannot load reception_status', ['message' => $e->getMessage()]);
             }
         }
 
-        return view('reception.index', compact('documents', 'search', 'sharesInfo', 'subEntities', 'receptionStatuses'));
+        return view('reception.index', compact('documents', 'search', 'sharesInfo', 'subEntities', 'receptionStatuses', 'transmissionInfo'));
     }
 
     /**

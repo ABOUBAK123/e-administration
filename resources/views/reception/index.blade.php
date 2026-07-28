@@ -145,6 +145,7 @@
                         <button type="button"
                             id="forward-btn-{{ $doc->id }}"
                             onclick="openForwardModal('{{ $doc->id }}', '{{ addslashes($doc->title) }}')"
+                            title="{{ $isTransmis && isset($transmissionInfo[$doc->id]) ? 'Transmis à : ' . $transmissionInfo[$doc->id] : '' }}"
                             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition
                                 {{ $isTransmis
                                     ? 'bg-green-100 hover:bg-green-200 text-green-700 border border-green-200'
