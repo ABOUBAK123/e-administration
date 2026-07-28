@@ -1548,23 +1548,35 @@ class DocumentController extends Controller
                 return null;
             }
 
-            $xml = @simplexml_load_string($body);
-            if (!$xml) {
-                Log::warning('OnlyOffice conversion response invalid', ['filetype' => $ext, 'body' => substr($body, 0, 500)]);
-                return null;
+            $pdfUrl = null;
+
+            // Essayer JSON d'abord (format moderne d'OnlyOffice)
+            $jsonData = @json_decode($body, true);
+            if ($jsonData && isset($jsonData['fileUrl'])) {
+                $pdfUrl = (string)$jsonData['fileUrl'];
+                Log::info('OnlyOffice conversion response JSON', ['fileUrl' => $pdfUrl, 'filetype' => $ext]);
+            } else {
+                // Essayer XML (ancien format)
+                $xml = @simplexml_load_string($body);
+                if ($xml) {
+                    $error = $xml->Error ?? null;
+                    if ($error && (int)$error !== 0) {
+                        Log::warning('OnlyOffice conversion error', [
+                            'filetype' => $ext,
+                            'error' => (string)$error,
+                            'response' => $body,
+                        ]);
+                        return null;
+                    }
+                    $pdfUrl = (string)($xml->FileUrl ?? null);
+                    if ($pdfUrl) {
+                        Log::info('OnlyOffice conversion response XML', ['fileUrl' => $pdfUrl, 'filetype' => $ext]);
+                    }
+                } else {
+                    Log::warning('OnlyOffice conversion response invalid', ['filetype' => $ext, 'body' => substr($body, 0, 500)]);
+                }
             }
 
-            $error = $xml->Error ?? null;
-            if ($error && (int)$error !== 0) {
-                Log::warning('OnlyOffice conversion error', [
-                    'filetype' => $ext,
-                    'error' => (string)$error,
-                    'response' => $body,
-                ]);
-                return null;
-            }
-
-            $pdfUrl = (string)($xml->FileUrl ?? null);
             if (!$pdfUrl) {
                 Log::warning('OnlyOffice conversion failed - no fileUrl', [
                     'response' => $body,
