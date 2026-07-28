@@ -1533,7 +1533,7 @@ class DocumentController extends Controller
                 CURLOPT_POSTFIELDS => json_encode($payload),
                 CURLOPT_HTTPHEADER => array_merge(['Content-Type: application/json'], $headers),
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 60,
+                CURLOPT_TIMEOUT => 120,
                 CURLOPT_SSL_VERIFYPEER => false,
                 CURLOPT_SSL_VERIFYHOST => 0,
                 CURLOPT_FOLLOWLOCATION => true,
@@ -1542,8 +1542,6 @@ class DocumentController extends Controller
             $body = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);
-
-            Storage::disk('public')->delete($tmpDir . '/' . $tmpName);
 
             if (!$body) {
                 Log::warning('OnlyOffice conversion response empty', ['filetype' => $ext, 'httpCode' => $httpCode]);
@@ -1580,7 +1578,7 @@ class DocumentController extends Controller
                 $ch2 = curl_init($pdfUrl);
                 curl_setopt_array($ch2, [
                     CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT => 30,
+                    CURLOPT_TIMEOUT => 60,
                     CURLOPT_SSL_VERIFYPEER => false,
                     CURLOPT_SSL_VERIFYHOST => 0,
                     CURLOPT_FOLLOWLOCATION => true,
@@ -1592,12 +1590,16 @@ class DocumentController extends Controller
 
             if (!$pdfContent) {
                 Log::warning('OnlyOffice PDF download failed', ['pdfUrl' => $pdfUrl]);
+                Storage::disk('public')->delete($tmpDir . '/' . $tmpName);
                 return null;
             }
 
             $localPdf = storage_path('app/tmp/pdf-convert/' . pathinfo($absOfficePath, PATHINFO_FILENAME) . '_oo.pdf');
             @mkdir(dirname($localPdf), 0755, true);
             file_put_contents($localPdf, $pdfContent);
+
+            Storage::disk('public')->delete($tmpDir . '/' . $tmpName);
+
             return $localPdf;
         } catch (\Throwable $e) {
             Log::warning('Document convertOfficeToPdf failed', ['error' => $e->getMessage()]);
