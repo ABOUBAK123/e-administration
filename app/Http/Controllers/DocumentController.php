@@ -1495,12 +1495,12 @@ class DocumentController extends Controller
             $ext      = strtolower(pathinfo($absOfficePath, PATHINFO_EXTENSION));
             $convKey  = md5(pathinfo($absOfficePath, PATHINFO_FILENAME) . time());
 
-            // Essayer la conversion avec URL publique
+            // Essayer la conversion avec URL API (évite problèmes d'accès /storage/)
             $tmpDir  = 'tmp-convert';
             $tmpName = uniqid('conv_', true) . '.' . $ext;
             $fileContent = file_get_contents($absOfficePath);
             Storage::disk('public')->put($tmpDir . '/' . $tmpName, $fileContent);
-            $fileUrl = $appUrl . '/storage/' . $tmpDir . '/' . $tmpName;
+            $fileUrl = $appUrl . '/api/tmp-convert/' . $tmpName;
 
             $payload = [
                 'async' => false,
