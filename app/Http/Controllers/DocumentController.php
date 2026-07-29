@@ -14,8 +14,6 @@ use App\Models\UserDirectionAssignment;
 use App\Models\AppSetting;
 use App\Services\ClamAvScanner;
 use App\Services\NotificationService;
-use App\Services\PdfEnhancementService;
-use App\Services\Templates\TemplateGenerationCoreService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
@@ -1410,17 +1408,6 @@ class DocumentController extends Controller
         $pdfDestPath = 'documents/' . pathinfo($relative, PATHINFO_FILENAME) . '-' . now()->format('Ymd-His') . '.pdf';
         Storage::disk('public')->put($pdfDestPath, file_get_contents($pdfAbsPath));
         @unlink($pdfAbsPath);
-
-        // Ensure document has a number and add QR code + number to PDF
-        if (!$document->document_number) {
-            $templateService = new TemplateGenerationCoreService();
-            $docNumber = $templateService->reserveDocumentNumber($document);
-            $document->update(['document_number' => $docNumber]);
-        }
-
-        $pdfEnhancementService = new PdfEnhancementService();
-        $pdfAbsPath = Storage::disk('public')->path($pdfDestPath);
-        $pdfEnhancementService->enhancePdfWithQrAndNumber($pdfAbsPath, $document);
 
         $publicPdfPath = '/storage/' . $pdfDestPath;
         $title = (string) ($document->title ?? 'document');

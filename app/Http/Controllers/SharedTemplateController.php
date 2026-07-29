@@ -7,7 +7,6 @@ use App\Models\Document;
 use App\Models\DocumentTemplate;
 use App\Models\DocumentVersion;
 use App\Services\Templates\TemplateGenerationCoreService;
-use App\Services\PdfEnhancementService;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use Endroid\QrCode\Builder\Builder;
@@ -402,18 +401,6 @@ class SharedTemplateController extends Controller
                     } else {
                         $pdfDestPath = 'documents/' . pathinfo($destPath, PATHINFO_FILENAME) . '.pdf';
                         Storage::disk('public')->put($pdfDestPath, file_get_contents($pdfAbsPath));
-
-                        // Enhance PDF with QR code and document number
-                        if ($docNumber && $qrToken) {
-                            $pdfEnhancementService = new PdfEnhancementService();
-                            $pdfAbsStoragePath = Storage::disk('public')->path($pdfDestPath);
-                            $pdfEnhancementService->enhancePdfWithQrAndNumber(
-                                $pdfAbsStoragePath,
-                                null,
-                                $docNumber,
-                                $qrToken
-                            );
-                        }
 
                         $storagePath = '/storage/' . $pdfDestPath;
                         $mimeType = 'application/pdf';
