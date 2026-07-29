@@ -14,6 +14,10 @@ use App\Models\UserDirectionAssignment;
 use App\Models\AppSetting;
 use App\Services\ClamAvScanner;
 use App\Services\NotificationService;
+use Dompdf\Dompdf;
+use Dompdf\Options;
+use Endroid\QrCode\Builder\Builder;
+use Endroid\QrCode\Writer\PngWriter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
@@ -1391,6 +1395,92 @@ class DocumentController extends Controller
         }
 
         $absOfficePath = Storage::disk('public')->path($relative);
+
+        // ── Préparation du QR code (même logique que SharedTemplateController) ──
+        $docNumber = $document->document_number ?: preg_replace('/\.(doc|docx|xls|xlsx|ppt|pptx|odt|ods|odp|pdf)$/i', '', $document->title);
+        $qrToken = $document->qr_token ?: Str::random(40);
+        $verifyUrl = route('qr.public', ['token' => $qrToken]);
+
+        // Récupérer la position du QR depuis AppSetting
+        $qrFromOnlyoffice = false;
+        $qrX = 10.0;
+        $qrY = 10.0;
+        $qrW = 30.0;
+        $qrH = 30.0;
+
+        $signatureQrRaw = AppSetting::where('key', 'signature_qr_position')->value('value');
+        if ($signatureQrRaw) {
+            try {
+                $signatureQr = json_decode($signatureQrRaw, true, 512, JSON_THROW_ON_ERROR);
+                if (is_array($signatureQr)) {
+                    $qrX = (float) ($signatureQr['imageX'] ?? $qrX);
+                    $qrY = (float) ($signatureQr['imageY'] ?? $qrY);
+                    $qrW = (float) ($signatureQr['imageWidth'] ?? $qrW);
+                    $qrH = (float) ($signatureQr['imageHeight'] ?? $qrH);
+                    $qrFromOnlyoffice = true;
+                }
+            } catch (\Throwable $e) {
+                // fallback
+            }
+        }
+
+        if (!$qrFromOnlyoffice) {
+            $qrX = (float) (AppSetting::where('key', 'qr_image_x')->value('value') ?? 10);
+            $qrY = (float) (AppSetting::where('key', 'qr_image_y')->value('value') ?? 10);
+            $qrW = (float) (AppSetting::where('key', 'qr_image_width')->value('value') ?? 30);
+            $qrH = (float) (AppSetting::where('key', 'qr_image_height')->value('value') ?? 30);
+        }
+
+        // Générer QR PNG
+        $qrTempPath = null;
+        try {
+            $qrResult = Builder::create()
+                ->writer(new PngWriter())
+                ->data($verifyUrl)
+                ->size(300)
+                ->margin(6)
+                ->build();
+            $qrTempPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'qr_' . $qrToken . '.png';
+            file_put_contents($qrTempPath, $qrResult->getString());
+        } catch (\Throwable $e) {
+            Log::warning('convertToPdf: QR generation failed', ['error' => $e->getMessage()]);
+            $qrTempPath = null;
+        }
+
+        // Injecter QR dans le fichier Office avant conversion (pour DOCX uniquement)
+        if ($ext === 'docx' && $qrTempPath && file_exists($qrTempPath)) {
+            $pageWidthPt = 595.28;
+            $pageHeightPt = 841.89;
+            $mm = 2.8346;
+
+            if ($qrFromOnlyoffice) {
+                $qrWptForDocx = max(20, $qrW);
+                $qrHptForDocx = max(20, $qrH);
+                $qrXptForDocx = $qrX;
+                $qrYptForDocx = $qrY;
+            } else {
+                $qrWptForDocx = max(20, $qrW * $mm);
+                $qrHptForDocx = max(20, $qrH * $mm);
+                $qrXptForDocx = $pageWidthPt - ($qrX * $mm) - $qrWptForDocx;
+                $qrYptForDocx = $pageHeightPt - ($qrY * $mm) - $qrHptForDocx;
+            }
+
+            try {
+                $this->injectDocxFooterWithQr(
+                    $absOfficePath,
+                    $docNumber ?? '',
+                    $verifyUrl,
+                    $qrTempPath,
+                    $qrWptForDocx,
+                    $qrHptForDocx,
+                    $qrXptForDocx,
+                    $qrYptForDocx
+                );
+            } catch (\Throwable $e) {
+                Log::warning('convertToPdf: DOCX footer injection failed', ['error' => $e->getMessage()]);
+            }
+        }
+
         $pdfAbsPath = $this->convertOfficeToPdf($absOfficePath);
         if (!$pdfAbsPath || !file_exists($pdfAbsPath) || $this->isSuspiciousPdf($pdfAbsPath)) {
             if ($pdfAbsPath && file_exists($pdfAbsPath)) {
@@ -1408,6 +1498,17 @@ class DocumentController extends Controller
         $pdfDestPath = 'documents/' . pathinfo($relative, PATHINFO_FILENAME) . '-' . now()->format('Ymd-His') . '.pdf';
         Storage::disk('public')->put($pdfDestPath, file_get_contents($pdfAbsPath));
         @unlink($pdfAbsPath);
+
+        // Nettoyage du fichier QR temporaire
+        if ($qrTempPath && file_exists($qrTempPath)) {
+            @unlink($qrTempPath);
+        }
+
+        // Mettre à jour le document avec les infos QR et numéro
+        $document->update([
+            'document_number' => $docNumber,
+            'qr_token' => $qrToken,
+        ]);
 
         $publicPdfPath = '/storage/' . $pdfDestPath;
         $title = (string) ($document->title ?? 'document');
@@ -1630,5 +1731,240 @@ class DocumentController extends Controller
         }
         $head = @file_get_contents($absPdfPath, false, null, 0, 4096);
         return !is_string($head) || strpos($head, '%PDF-') !== 0;
+    }
+
+    private function injectDocxFooterWithQr(
+        string $absFilePath,
+        string $docNumber,
+        string $verifyUrl,
+        string $qrPngPath,
+        float $qrWidthPt = 56.7,
+        float $qrHeightPt = 56.7,
+        ?float $qrXpt = null,
+        ?float $qrYpt = null
+    ): void
+    {
+        if (!class_exists('ZipArchive') || !file_exists($qrPngPath)) return;
+
+        $zip = new \ZipArchive();
+        if ($zip->open($absFilePath) !== true) return;
+
+        // Lire les fichiers existants
+        $docXml       = $zip->getFromName('word/document.xml');
+        $contentTypes = $zip->getFromName('[Content_Types].xml');
+
+        if ($docXml === false || $contentTypes === false) {
+            $zip->close();
+            return;
+        }
+
+        // Créer un _rels minimal si absent (DOCX simple sans relations)
+        $docRelsXml = $zip->getFromName('word/_rels/document.xml.rels');
+        if ($docRelsXml === false) {
+            $docRelsXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                . '</Relationships>';
+        }
+
+        // Ajouter un <w:sectPr> minimal si absent (requis pour la référence footer)
+        if (strpos($docXml, '<w:sectPr') === false) {
+            $docXml = str_replace('</w:body>', '<w:sectPr/></w:body>', $docXml);
+        }
+
+        $qrPngBytes  = file_get_contents($qrPngPath);
+        $footerRelId = 'rIdFtrE-Admin1';
+        $imgRelId    = 'rIdQrFtrImg1';
+        $footerFile  = 'word/footer_eadmin.xml';
+        $footerRels  = 'word/_rels/footer_eadmin.xml.rels';
+        $mediaFile   = 'word/media/qr_eadmin.png';
+
+        // 1. Ajouter l'image QR dans le ZIP
+        $zip->addFromString($mediaFile, $qrPngBytes);
+
+        // 2. Créer le fichier de relations du footer
+        $footerRelsContent = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            . '<Relationship Id="' . $imgRelId . '"'
+            . ' Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"'
+            . ' Target="media/qr_eadmin.png"/>'
+            . '</Relationships>';
+        $zip->addFromString($footerRels, $footerRelsContent);
+
+        // 3. Construire le footer XML Word
+        // Taille image en EMU (1pt = 12700 EMU)
+        $cx  = (int) max(12700, round($qrWidthPt * 12700));
+        $cy  = (int) max(12700, round($qrHeightPt * 12700));
+        $num = htmlspecialchars($docNumber, ENT_XML1, 'UTF-8');
+        $url = htmlspecialchars($verifyUrl,  ENT_XML1, 'UTF-8');
+
+        // Par défaut, conserver le mode historique (inline dans la ligne de footer).
+        // Si des coordonnées X/Y sont fournies, utiliser un ancrage absolu sur la page.
+        if ($qrXpt !== null && $qrYpt !== null) {
+            $pageWidthPt  = 595.28; // A4 portrait
+            $pageHeightPt = 841.89; // A4 portrait
+
+            $xPt = max(0, min($pageWidthPt  - $qrWidthPt,  $qrXpt));
+            $yPt = max(0, min($pageHeightPt - $qrHeightPt, $qrYpt));
+
+            $xEmu = (int) round($xPt * 12700);
+            $yEmu = (int) round($yPt * 12700);
+
+            $qrDrawingXml =
+                '<w:r><w:rPr/>' .
+                '<w:drawing>' .
+                '<wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251659264" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">' .
+                '<wp:simplePos x="0" y="0"/>' .
+                '<wp:positionH relativeFrom="page"><wp:posOffset>' . $xEmu . '</wp:posOffset></wp:positionH>' .
+                '<wp:positionV relativeFrom="page"><wp:posOffset>' . $yEmu . '</wp:posOffset></wp:positionV>' .
+                '<wp:extent cx="' . $cx . '" cy="' . $cy . '"/>' .
+                '<wp:effectExtent l="0" t="0" r="0" b="0"/>' .
+                '<wp:wrapNone/>' .
+                '<wp:docPr id="101" name="QR-eAdmin"/>' .
+                '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>' .
+                '<a:graphic>' .
+                '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' .
+                '<pic:pic>' .
+                '<pic:nvPicPr>' .
+                '<pic:cNvPicPr id="0" name="QR-eAdmin"/>' .
+                '<pic:cNvPicPr><a:picLocks noChangeAspect="1"/></pic:cNvPicPr>' .
+                '</pic:nvPicPr>' .
+                '<pic:blipFill>' .
+                '<a:blip r:embed="' . $imgRelId . '"/>' .
+                '<a:stretch><a:fillRect/></a:stretch>' .
+                '</pic:blipFill>' .
+                '<pic:spPr>' .
+                '<a:xfrm><a:off x="0" y="0"/><a:ext cx="' . $cx . '" cy="' . $cy . '"/></a:xfrm>' .
+                '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>' .
+                '</pic:spPr>' .
+                '</pic:pic>' .
+                '</a:graphicData>' .
+                '</a:graphic>' .
+                '</wp:anchor>' .
+                '</w:drawing>' .
+                '</w:r>';
+        } else {
+            $qrDrawingXml =
+                '<w:r><w:rPr/>' .
+                '<w:drawing>' .
+                '<wp:inline distT="0" distB="0" distL="0" distR="0">' .
+                '<wp:extent cx="' . $cx . '" cy="' . $cy . '"/>' .
+                '<wp:effectExtent l="0" t="0" r="0" b="0"/>' .
+                '<wp:docPr id="101" name="QR-eAdmin"/>' .
+                '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>' .
+                '<a:graphic>' .
+                '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' .
+                '<pic:pic>' .
+                '<pic:nvPicPr>' .
+                '<pic:cNvPicPr id="0" name="QR-eAdmin"/>' .
+                '<pic:cNvPicPr><a:picLocks noChangeAspect="1"/></pic:cNvPicPr>' .
+                '</pic:nvPicPr>' .
+                '<pic:blipFill>' .
+                '<a:blip r:embed="' . $imgRelId . '"/>' .
+                '<a:stretch><a:fillRect/></a:stretch>' .
+                '</pic:blipFill>' .
+                '<pic:spPr>' .
+                '<a:xfrm><a:off x="0" y="0"/><a:ext cx="' . $cx . '" cy="' . $cy . '"/></a:xfrm>' .
+                '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>' .
+                '</pic:spPr>' .
+                '</pic:pic>' .
+                '</a:graphicData>' .
+                '</a:graphic>' .
+                '</wp:inline>' .
+                '</w:drawing>' .
+                '</w:r>';
+        }
+
+        $footerXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+            . ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+            . ' xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
+            . ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+            . ' xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+
+            // Ligne séparatrice (bordure haut du paragraphe)
+            . '<w:p>'
+            . '<w:pPr>'
+            . '<w:pBdr><w:top w:val="single" w:sz="4" w:space="1" w:color="CCCCCC"/></w:pBdr>'
+            . '<w:tabs><w:tab w:val="center" w:pos="4680"/><w:tab w:val="right" w:pos="9360"/></w:tabs>'
+            . '</w:pPr>'
+            // Numéro (gauche)
+            . '<w:r><w:rPr><w:sz w:val="16"/><w:color w:val="2453D6"/><w:b/></w:rPr>'
+            . '<w:t xml:space="preserve">N\xc2\xb0\xc2\xa0: ' . $num . '</w:t></w:r>'
+            // Tab → centre
+            . '<w:r><w:tab/></w:r>'
+            // Texte vérification (centre)
+            . '<w:r><w:rPr><w:sz w:val="14"/><w:color w:val="888888"/></w:rPr>'
+            . '<w:t>Authenticit\xc3\xa9 v\xc3\xa9rifiable par QR code</w:t></w:r>'
+            // Tab → droite
+            . '<w:r><w:tab/></w:r>'
+            // QR code image (inline historique ou anchor absolu)
+            . $qrDrawingXml
+            . '</w:p>'
+            . '</w:ftr>';
+
+        $zip->addFromString($footerFile, $footerXml);
+
+        // 4. Ajouter la relation footer dans document.xml.rels
+        $docRelsXml = str_replace(
+            '</Relationships>',
+            '<Relationship Id="' . $footerRelId . '"'
+            . ' Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"'
+            . ' Target="footer_eadmin.xml"/>'
+            . '</Relationships>',
+            $docRelsXml
+        );
+        $zip->addFromString('word/_rels/document.xml.rels', $docRelsXml);
+
+        // 5. Ajouter la référence footer dans sectPr du document.xml
+        // IMPORTANT: injecter dans le DERNIER <w:sectPr> (le sectPr principal du corps du document,
+        // pas les sectPr des sauts de section à l'intérieur du texte).
+        $footerRef = '<w:footerReference w:type="default" r:id="' . $footerRelId . '"/>';
+        if (strpos($docXml, 'w:footerReference') === false) {
+            // Trouver la DERNIÈRE occurrence de </w:sectPr> ou <w:sectPr ... />
+            $lastClose = strrpos($docXml, '</w:sectPr>');
+            if ($lastClose !== false) {
+                // Insérer footerRef juste avant le dernier </w:sectPr>
+                $docXml = substr($docXml, 0, $lastClose) . $footerRef . substr($docXml, $lastClose);
+            } else {
+                // Pas de </w:sectPr> : chercher un self-closing <w:sectPr ... /> et l'expanser
+                $expanded = preg_replace('/<w:sectPr([^>]*)\/>/s', '<w:sectPr$1>' . $footerRef . '</w:sectPr>', $docXml, 1, $cnt);
+                if ($cnt > 0 && is_string($expanded)) {
+                    $docXml = $expanded;
+                } else {
+                    // Dernier recours : insérer avant </w:body>
+                    $docXml = str_replace('</w:body>', '<w:sectPr>' . $footerRef . '</w:sectPr></w:body>', $docXml);
+                }
+            }
+        } else {
+            // Remplacer le footer default existant pour garantir l'affichage du QR
+            // → remplacer dans le dernier footerReference default
+            $pattern = '/<w:footerReference\s+[^>]*w:type="default"[^>]*\/>/';
+            preg_match_all($pattern, $docXml, $allMatches, PREG_OFFSET_CAPTURE);
+            if (!empty($allMatches[0])) {
+                $last = end($allMatches[0]);
+                $docXml = substr($docXml, 0, $last[1]) . $footerRef . substr($docXml, $last[1] + strlen($last[0]));
+            } else {
+                // Injecter avant le dernier </w:sectPr>
+                $lastClose = strrpos($docXml, '</w:sectPr>');
+                if ($lastClose !== false) {
+                    $docXml = substr($docXml, 0, $lastClose) . $footerRef . substr($docXml, $lastClose);
+                }
+            }
+        }
+        $zip->addFromString('word/document.xml', $docXml);
+
+        // 6. Déclarer le footer dans [Content_Types].xml
+        if (strpos($contentTypes, 'footer_eadmin.xml') === false) {
+            $contentTypes = str_replace(
+                '</Types>',
+                '<Override PartName="/word/footer_eadmin.xml"'
+                . ' ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>'
+                . '</Types>',
+                $contentTypes
+            );
+            $zip->addFromString('[Content_Types].xml', $contentTypes);
+        }
+
+        $zip->close();
     }
 }
