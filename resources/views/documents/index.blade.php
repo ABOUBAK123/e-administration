@@ -608,6 +608,11 @@ async function lookupShareByTrackingNumber() {
 
         const result = data.data;
         unlockRecipientAdministration(adminSelect, sectorSelect);
+
+        // Sélectionner le secteur de l'administration liée au numéro de suivi
+        const foundAdmin = RECIPIENT_ADMINS.find((a) => String(a.id) === String(result.recipient_administration_id || ''));
+        sectorSelect.value = foundAdmin ? (foundAdmin.sector || '') : '';
+
         filterRecipientAdministrations();
         adminSelect.value = result.recipient_administration_id || '';
         document.getElementById('shareFullName').value = result.applicant_full_name || '';
