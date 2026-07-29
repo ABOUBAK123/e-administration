@@ -1505,10 +1505,17 @@ class DocumentController extends Controller
         }
 
         // Mettre à jour le document avec les infos QR et numéro
-        $document->update([
+        $updateData = [
             'document_number' => $docNumber,
             'qr_token' => $qrToken,
-        ]);
+        ];
+
+        // Définir le propriétaire s'il n'est pas déjà défini
+        if (!$document->owner_id && auth()->check()) {
+            $updateData['owner_id'] = auth()->id();
+        }
+
+        $document->update($updateData);
 
         $publicPdfPath = '/storage/' . $pdfDestPath;
         $title = (string) ($document->title ?? 'document');
