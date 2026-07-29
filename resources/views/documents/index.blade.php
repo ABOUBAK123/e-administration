@@ -585,8 +585,12 @@ async function lookupShareByTrackingNumber() {
         statusEl.classList.remove('hidden');
     };
 
+    const adminSelect = document.getElementById('shareAdminId');
+    const sectorSelect = document.getElementById('shareAdminSector');
+
     if (!trackingNumber) {
         statusEl.classList.add('hidden');
+        unlockRecipientAdministration(adminSelect, sectorSelect);
         return;
     }
 
@@ -603,16 +607,39 @@ async function lookupShareByTrackingNumber() {
         }
 
         const result = data.data;
+        unlockRecipientAdministration(adminSelect, sectorSelect);
         filterRecipientAdministrations();
-        document.getElementById('shareAdminId').value = result.recipient_administration_id || '';
+        adminSelect.value = result.recipient_administration_id || '';
         document.getElementById('shareFullName').value = result.applicant_full_name || '';
         document.getElementById('shareApplicantEmail').value = result.applicant_email || '';
         document.getElementById('shareApplicantPhone').value = result.applicant_phone || '';
 
         const adminLabel = result.recipient_administration_name || 'Administration trouvee';
+        if (result.recipient_administration_id) {
+            lockRecipientAdministration(adminSelect, sectorSelect);
+        }
         showStatus(`Informations chargees (${adminLabel}).`, true);
     } catch (err) {
+        unlockRecipientAdministration(adminSelect, sectorSelect);
         showStatus(err.message || 'Impossible de recuperer les informations de suivi.', false);
+    }
+}
+
+function lockRecipientAdministration(adminSelect, sectorSelect) {
+    adminSelect.disabled = true;
+    adminSelect.classList.add('bg-gray-100', 'cursor-not-allowed', 'text-gray-500');
+    if (sectorSelect) {
+        sectorSelect.disabled = true;
+        sectorSelect.classList.add('bg-gray-100', 'cursor-not-allowed', 'text-gray-500');
+    }
+}
+
+function unlockRecipientAdministration(adminSelect, sectorSelect) {
+    adminSelect.disabled = false;
+    adminSelect.classList.remove('bg-gray-100', 'cursor-not-allowed', 'text-gray-500');
+    if (sectorSelect) {
+        sectorSelect.disabled = false;
+        sectorSelect.classList.remove('bg-gray-100', 'cursor-not-allowed', 'text-gray-500');
     }
 }
 
@@ -1307,6 +1334,7 @@ function openShareModal(id) {
     document.getElementById('shareRibWrapper').classList.add('hidden');
     document.getElementById('shareTrackingNumber').value = '';
     document.getElementById('shareTrackingStatus').classList.add('hidden');
+    unlockRecipientAdministration(document.getElementById('shareAdminId'), document.getElementById('shareAdminSector'));
     document.getElementById('shareHasDelay').checked = false;
     document.getElementById('delayFields').classList.add('hidden');
     resetInternalShareOptions();
