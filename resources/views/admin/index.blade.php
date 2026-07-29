@@ -9346,6 +9346,109 @@ function themingToggleDisable() {
     </div>
 </div>
 
+{{-- ══════ AUTHENTIFICATION À DEUX FACTEURS (OTP) ══════ --}}
+@php
+    $otpScopeValue = '';
+    $otpScopeLabel = null;
+    if (isset($adminScope) && $adminScope) {
+        $otpScopeValue = $adminScope['type'] . ':' . $adminScope['id'];
+        $otpScopeLabel = $adminScope['type'] === 'emitter'
+            ? \App\Models\IssuingAdministration::find($adminScope['id'])?->name
+            : \App\Models\RecipientAdministration::find($adminScope['id'])?->name;
+    }
+    $otpChannelMap = collect($settings)
+        ->filter(fn($s, $k) => $k === 'otp_channel' || str_starts_with($k, 'otp_channel:'))
+        ->mapWithKeys(fn($s, $k) => [($k === 'otp_channel' ? '' : substr($k, 12)) => $s->value]);
+    $otpCurrent = $otpChannelMap[$otpScopeValue] ?? ($otpChannelMap[''] ?? 'email');
+@endphp
+<div class="mt-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+        <div class="h-10 w-10 bg-green-100 rounded-xl flex items-center justify-center">
+            <i class="fas fa-shield-alt text-green-600"></i>
+        </div>
+        <div>
+            <h2 class="text-base font-bold text-gray-800">Authentification à deux facteurs (OTP)</h2>
+            <p class="text-xs text-gray-400">Choisissez le canal d'envoi du code de vérification à la connexion, par administration</p>
+        </div>
+    </div>
+    <form method="POST" action="{{ route('admin.settings.save') }}" class="p-6 space-y-5">
+        @csrf @method('PUT')
+        <input type="hidden" name="tab" value="email-notifications">
+
+        <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1.5">Administration concernée</label>
+            @if($otpScopeValue !== '')
+                {{-- Admin d'administration : champ grisé, verrouillé sur son administration --}}
+                <select id="otpAdminScopeSelect" disabled
+                    class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm bg-gray-100 text-gray-500 cursor-not-allowed">
+                    <option selected>{{ $otpScopeLabel ?? 'Mon administration' }}</option>
+                </select>
+                <input type="hidden" name="otp_admin_scope" value="{{ $otpScopeValue }}">
+                <p class="text-xs text-gray-400 mt-1">Le paramétrage s'applique uniquement à votre administration.</p>
+            @else
+                {{-- Super admin : choix de l'administration --}}
+                <select name="otp_admin_scope" id="otpAdminScopeSelect"
+                    class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                    <option value="">« Toutes les administrations (par défaut) »</option>
+                    @foreach($emitters as $e)
+                    <option value="emitter:{{ $e->id }}">{{ $e->name }}{{ $e->code ? ' ('.$e->code.')' : '' }}</option>
+                    @endforeach
+                    @foreach($recipients as $r)
+                    <option value="recipient:{{ $r->id }}">{{ $r->name }}{{ $r->code ? ' ('.$r->code.')' : '' }} [dest.]</option>
+                    @endforeach
+                </select>
+                <p class="text-xs text-gray-400 mt-1">Le choix du canal s'appliquera aux utilisateurs de l'administration sélectionnée.</p>
+            @endif
+        </div>
+
+        <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1.5">Canal d'envoi du code OTP</label>
+            <select name="otp_channel" id="otpChannelSelect" onchange="document.getElementById('whatsappOtpConfig').classList.toggle('hidden', this.value !== 'whatsapp')"
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                <option value="email" {{ $otpCurrent === 'email' ? 'selected' : '' }}>Email</option>
+                <option value="whatsapp" {{ $otpCurrent === 'whatsapp' ? 'selected' : '' }}>WhatsApp</option>
+            </select>
+            <p class="text-xs text-gray-400 mt-1">Si WhatsApp échoue ou si l'utilisateur n'a pas de numéro de téléphone, le code est envoyé par email.</p>
+        </div>
+
+        <div id="whatsappOtpConfig" class="{{ $otpCurrent === 'whatsapp' ? '' : 'hidden' }} space-y-4 bg-green-50 border border-green-200 rounded-xl p-4">
+            <p class="text-xs font-semibold text-green-700"><i class="fab fa-whatsapp"></i> Configuration API WhatsApp Cloud (Meta)</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1.5">Token d'accès API</label>
+                    <input type="password" name="whatsapp_api_token" placeholder="{{ ($settings['whatsapp_api_token']->value ?? '') ? 'Laisser vide pour conserver' : 'EAAxxxxxxx...' }}"
+                        class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1.5">Phone Number ID</label>
+                    <input type="text" name="whatsapp_phone_number_id" value="{{ $settings['whatsapp_phone_number_id']->value ?? '' }}" placeholder="Ex: 123456789012345"
+                        class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                </div>
+            </div>
+            <p class="text-xs text-gray-500">Le code est envoyé au numéro de téléphone renseigné sur le profil de l'utilisateur (format international, ex: 225 07 01 02 03 04).</p>
+        </div>
+
+        <button type="submit"
+            class="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl text-sm transition flex items-center gap-2">
+            <i class="fas fa-save"></i> Enregistrer
+        </button>
+    </form>
+</div>
+@if($otpScopeValue === '')
+<script>
+(function () {
+    const OTP_CHANNEL_MAP = @json($otpChannelMap);
+    const scopeSelect = document.getElementById('otpAdminScopeSelect');
+    const channelSelect = document.getElementById('otpChannelSelect');
+    scopeSelect.addEventListener('change', function () {
+        const value = OTP_CHANNEL_MAP[this.value] || OTP_CHANNEL_MAP[''] || 'email';
+        channelSelect.value = value;
+        document.getElementById('whatsappOtpConfig').classList.toggle('hidden', value !== 'whatsapp');
+    });
+})();
+</script>
+@endif
+
 {{-- ══════ PARAMÈTRES DU CHAT ══════ --}}
 <div class="mt-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
     <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-3">

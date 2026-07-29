@@ -3462,6 +3462,7 @@ class AdminController extends Controller
         'theme_primary_color', 'theme_secondary_color', 'theme_logo',
         'courrier_archival_days',
         'email_notifications_enabled', 'email_notifications_from',
+        'otp_channel', 'whatsapp_api_token', 'whatsapp_phone_number_id',
     ];
 
     public function updateSettings(Request $request)
@@ -3478,6 +3479,32 @@ class AdminController extends Controller
             if (array_key_exists($urlKey, $data) && is_string($data[$urlKey])) {
                 $data[$urlKey] = preg_replace('/\s+/', '', trim($data[$urlKey]));
             }
+        }
+
+        // Ne pas écraser le token WhatsApp s'il est laissé vide
+        if (array_key_exists('whatsapp_api_token', $data) && trim((string) $data['whatsapp_api_token']) === '') {
+            unset($data['whatsapp_api_token']);
+        }
+
+        // Canal OTP : stocké par administration (otp_channel:{type}:{id}) ou global (otp_channel)
+        if ($request->filled('otp_channel')) {
+            unset($data['otp_channel']);
+            $channel = $request->input('otp_channel') === 'whatsapp' ? 'whatsapp' : 'email';
+
+            $scopeInput = (string) $request->input('otp_admin_scope', '');
+            $actorScope = $this->resolveAdminScope();
+            if ($actorScope) {
+                // Admin d'administration : périmètre forcé sur sa propre administration
+                $scopeInput = $actorScope['type'] . ':' . $actorScope['id'];
+            } elseif ($scopeInput !== '' && !preg_match('/^(emitter|recipient):[0-9a-fA-F-]{36}$/', $scopeInput)) {
+                $scopeInput = '';
+            }
+
+            $key = $scopeInput !== '' ? 'otp_channel:' . $scopeInput : 'otp_channel';
+            AppSetting::updateOrCreate(
+                ['key' => $key],
+                ['value' => $channel, 'description' => 'Canal d\'envoi du code OTP de connexion']
+            );
         }
 
         foreach ($data as $key => $value) {

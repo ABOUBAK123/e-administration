@@ -30,6 +30,11 @@ Route::middleware('guest')->group(function () {
     Route::post('/login',   [AuthController::class, 'login']);
     Route::get('/mot-de-passe-oublie',  [AuthController::class, 'showForgotPassword'])->name('password.request');
     Route::post('/mot-de-passe-oublie', [AuthController::class, 'sendResetLink'])->name('password.email');
+
+    // Double authentification (OTP par email)
+    Route::get('/verification-otp',  [AuthController::class, 'showTwoFactorForm'])->name('2fa.show');
+    Route::post('/verification-otp', [AuthController::class, 'verifyTwoFactor'])->name('2fa.verify');
+    Route::post('/verification-otp/renvoyer', [AuthController::class, 'resendTwoFactor'])->name('2fa.resend');
 });
 
 // Changement de langue public (accessible sans authentification)
