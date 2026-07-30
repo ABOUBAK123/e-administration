@@ -13,10 +13,12 @@ use App\Services\WhatsAppService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
+use Throwable;
 use Illuminate\Database\QueryException;
 use Illuminate\Validation\ValidationException;
 
@@ -175,22 +177,47 @@ class AuthController extends Controller
             // Échec WhatsApp : repli sur l'email
         }
 
-        $smtp = $this->resolveOtpSmtpSetting($user);
-        if ($smtp && $smtp->mail_host && $smtp->mail_from_address) {
-            config([
-                'mail.default'                 => 'smtp',
-                'mail.mailers.smtp.host'       => $smtp->mail_host,
-                'mail.mailers.smtp.port'       => $smtp->mail_port ?? 587,
-                'mail.mailers.smtp.username'   => $smtp->mail_username,
-                'mail.mailers.smtp.password'   => $smtp->mail_password,
-                'mail.mailers.smtp.encryption' => $smtp->mail_encryption ?: null,
-                'mail.mailers.smtp.timeout'    => 10,
-                'mail.from.address'            => $smtp->mail_from_address,
-                'mail.from.name'               => $smtp->mail_from_name ?? config('app.name'),
+        try {
+            $smtp = $this->resolveOtpSmtpSetting($user);
+            if ($smtp && $smtp->mail_host && $smtp->mail_from_address) {
+                config([
+                    'mail.default'                 => 'smtp',
+                    'mail.mailers.smtp.host'       => $smtp->mail_host,
+                    'mail.mailers.smtp.port'       => $smtp->mail_port ?? 587,
+                    'mail.mailers.smtp.username'   => $smtp->mail_username,
+                    'mail.mailers.smtp.password'   => $smtp->mail_password,
+                    'mail.mailers.smtp.encryption' => $smtp->mail_encryption ?: null,
+                    'mail.mailers.smtp.timeout'    => 10,
+                    'mail.from.address'            => $smtp->mail_from_address,
+                    'mail.from.name'               => $smtp->mail_from_name ?? config('app.name'),
+                ]);
+            }
+        } catch (Throwable $e) {
+            Log::warning('OTP SMTP scope configuration failed, fallback to default mail config.', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
             ]);
         }
 
-        Mail::to($user->email)->send(new TwoFactorCodeMail($code, $user->name));
+        try {
+            Mail::to($user->email)->send(new TwoFactorCodeMail($code, $user->name));
+        } catch (Throwable $e) {
+            Log::error('OTP email delivery failed.', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'error' => $e->getMessage(),
+            ]);
+
+            $user->forceFill([
+                'two_factor_code' => null,
+                'two_factor_expires_at' => null,
+            ])->save();
+
+            throw ValidationException::withMessages([
+                'email' => 'Impossible d\'envoyer le code OTP. Vérifiez la configuration SMTP puis réessayez.',
+            ]);
+        }
+
         $request->session()->put('2fa:channel', 'email');
     }
 
