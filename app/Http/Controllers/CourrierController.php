@@ -444,9 +444,42 @@ class CourrierController extends Controller
      * Retourne la date de seuil d'archivage (les courriers créés avant cette date sont archivés).
      * Retourne null si l'archivage n'est pas configuré.
      */
+    private function archivalScopeKeySuffix(): ?string
+    {
+        $user = Auth::user();
+        if (!$user || !$user->profile_id) {
+            return null;
+        }
+
+        $profile = $user->profile;
+        if (!$profile || !$profile->administration_id) {
+            return null;
+        }
+
+        $type = ($profile->effective_administration_type ?? $profile->administration_type ?? 'emitter') === 'recipient'
+            ? 'recipient'
+            : 'emitter';
+
+        return $type . ':' . $profile->administration_id;
+    }
+
+    private function archivalDays(string $baseKey): int
+    {
+        $scopeSuffix = $this->archivalScopeKeySuffix();
+
+        if ($scopeSuffix) {
+            $scopedSetting = AppSetting::where('key', $baseKey . ':' . $scopeSuffix)->first();
+            if ($scopedSetting) {
+                return max(0, (int) $scopedSetting->value);
+            }
+        }
+
+        return max(0, (int) AppSetting::where('key', $baseKey)->value('value'));
+    }
+
     private function archivalThreshold(): ?\Carbon\Carbon
     {
-        $days = (int) AppSetting::where('key', 'courrier_archival_days')->value('value');
+        $days = $this->archivalDays('courrier_archival_days');
         if ($days <= 0) {
             return null;
         }
@@ -954,7 +987,7 @@ class CourrierController extends Controller
                             ),
         ])->values()->toArray();
 
-        $archivalDays = (int) AppSetting::where('key', 'courrier_archival_days')->value('value');
+        $archivalDays = $this->archivalDays('courrier_archival_days');
 
         return view('courrier.index', [
             'subtab'       => 'archives',

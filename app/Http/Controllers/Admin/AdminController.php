@@ -3510,6 +3510,35 @@ class AdminController extends Controller
             );
         }
 
+        // Archivage courrier/réception : stocké par administration (xxx:{type}:{id}) ou global.
+        if ($request->has('courrier_archival_days') || $request->has('reception_archival_days')) {
+            unset($data['courrier_archival_days'], $data['reception_archival_days']);
+
+            $scopeInput = (string) $request->input('archival_admin_scope', '');
+            $actorScope = $this->resolveAdminScope();
+            if ($actorScope) {
+                // Admin d'administration : périmètre forcé sur sa propre administration
+                $scopeInput = $actorScope['type'] . ':' . $actorScope['id'];
+            } elseif ($scopeInput !== '' && !preg_match('/^(emitter|recipient):[0-9a-fA-F-]{36}$/', $scopeInput)) {
+                $scopeInput = '';
+            }
+
+            foreach (['courrier_archival_days', 'reception_archival_days'] as $settingBaseKey) {
+                if (!$request->has($settingBaseKey)) {
+                    continue;
+                }
+
+                $raw = trim((string) $request->input($settingBaseKey, ''));
+                $normalizedDays = $raw === '' ? 0 : max(0, (int) $raw);
+                $key = $scopeInput !== '' ? $settingBaseKey . ':' . $scopeInput : $settingBaseKey;
+
+                AppSetting::updateOrCreate(
+                    ['key' => $key],
+                    ['value' => (string) $normalizedDays]
+                );
+            }
+        }
+
         foreach ($data as $key => $value) {
             AppSetting::updateOrCreate(['key' => $key], ['value' => $value]);
         }

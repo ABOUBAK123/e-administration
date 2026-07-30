@@ -10416,18 +10416,65 @@ function instrSearch(q) {
 {{-- ══════════════════ ARCHIVAGE COURRIER ══════════════════ --}}
 @elseif($tab === 'courrier-archiving')
 @php
-    $archivalDays = $courrierArchivalDays ?? 0;
-  $receptionArchivalDaysValue = $receptionArchivalDays ?? 0;
+  $archivalScopeValue = '';
+  $archivalScopeType = null;
+  $archivalScopeId = null;
+
+  if (isset($adminScope) && $adminScope) {
+    $archivalScopeType = $adminScope['type'];
+    $archivalScopeId = $adminScope['id'];
+    $archivalScopeValue = $archivalScopeType . ':' . $archivalScopeId;
+  } else {
+    $requestedArchivalScope = (string) request('archival_admin_scope', '');
+    if (preg_match('/^(emitter|recipient):[0-9a-fA-F-]{36}$/', $requestedArchivalScope)) {
+      [$archivalScopeType, $archivalScopeId] = explode(':', $requestedArchivalScope, 2);
+      $archivalScopeValue = $requestedArchivalScope;
+    }
+  }
+
+  $archivalScopeLabel = 'Globale (toutes administrations)';
+  if ($archivalScopeType === 'emitter' && $archivalScopeId) {
+    $archivalScopeLabel = ($emitters->firstWhere('id', $archivalScopeId)->name ?? $archivalScopeId) . ' (Émettrice)';
+  } elseif ($archivalScopeType === 'recipient' && $archivalScopeId) {
+    $archivalScopeLabel = ($recipients->firstWhere('id', $archivalScopeId)->name ?? $archivalScopeId) . ' (Destinataire)';
+  }
+
+  $resolveArchivalDays = function (string $baseKey) use ($settings, $archivalScopeValue) {
+    if ($archivalScopeValue !== '') {
+      $scopedKey = $baseKey . ':' . $archivalScopeValue;
+      if ($settings->has($scopedKey)) {
+        return max(0, (int) ($settings->get($scopedKey)->value ?? 0));
+      }
+    }
+    return max(0, (int) ($settings->get($baseKey)->value ?? 0));
+  };
+
+  $archivalDays = $resolveArchivalDays('courrier_archival_days');
+  $receptionArchivalDaysValue = $resolveArchivalDays('reception_archival_days');
+
+  $courrierStatsQuery = \App\Models\Courrier::query();
+  if ($archivalScopeId) {
+    $courrierStatsQuery->where('administration_id', $archivalScopeId);
+  }
+
     $archivalThresholdDate = $archivalDays > 0 ? now()->subDays($archivalDays) : null;
     $archivedCount = $archivalThresholdDate
-        ? \App\Models\Courrier::where('created_at', '<', $archivalThresholdDate)->count()
+    ? (clone $courrierStatsQuery)->where('created_at', '<', $archivalThresholdDate)->count()
         : 0;
-    $totalCount = \App\Models\Courrier::count();
+  $totalCount = (clone $courrierStatsQuery)->count();
+
+  $receptionStatsQuery = \App\Models\DocumentShare::query();
+  if ($archivalScopeType === 'recipient' && $archivalScopeId) {
+    $receptionStatsQuery->where('recipient_administration_id', $archivalScopeId);
+  } elseif ($archivalScopeType === 'emitter') {
+    $receptionStatsQuery->whereRaw('1 = 0');
+  }
+
   $receptionArchivalThresholdDate = $receptionArchivalDaysValue > 0 ? now()->subDays($receptionArchivalDaysValue) : null;
   $receptionArchivedCount = $receptionArchivalThresholdDate
-    ? \App\Models\DocumentShare::where('created_at', '<', $receptionArchivalThresholdDate)->distinct('document_id')->count('document_id')
+    ? (clone $receptionStatsQuery)->where('created_at', '<', $receptionArchivalThresholdDate)->distinct('document_id')->count('document_id')
     : 0;
-  $receptionTotalCount = \App\Models\DocumentShare::query()->distinct('document_id')->count('document_id');
+  $receptionTotalCount = (clone $receptionStatsQuery)->distinct('document_id')->count('document_id');
 @endphp
 
 <div class="max-w-3xl mx-auto space-y-5">
@@ -10490,6 +10537,38 @@ function instrSearch(q) {
             @csrf
             @method('PUT')
             <input type="hidden" name="tab" value="courrier-archiving">
+
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">Administration concernée</label>
+            @if(isset($adminScope) && $adminScope)
+              <input type="hidden" name="archival_admin_scope" value="{{ $archivalScopeValue }}">
+              <select disabled
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm bg-gray-100 text-gray-500 cursor-not-allowed">
+                <option selected>{{ $archivalScopeLabel }}</option>
+              </select>
+              <p class="mt-2 text-xs text-gray-400">
+                Ce paramétrage s'applique uniquement à votre administration.
+              </p>
+            @else
+              <select id="archivalScopeSelect" name="archival_admin_scope"
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-stone-400">
+                <option value="" {{ $archivalScopeValue === '' ? 'selected' : '' }}>Globale (toutes administrations)</option>
+                <optgroup label="Administrations émettrices">
+                  @foreach($emitters as $emitter)
+                  <option value="emitter:{{ $emitter->id }}" {{ $archivalScopeValue === 'emitter:' . $emitter->id ? 'selected' : '' }}>{{ $emitter->name }}</option>
+                  @endforeach
+                </optgroup>
+                <optgroup label="Administrations destinataires">
+                  @foreach($recipients as $recipient)
+                  <option value="recipient:{{ $recipient->id }}" {{ $archivalScopeValue === 'recipient:' . $recipient->id ? 'selected' : '' }}>{{ $recipient->name }}</option>
+                  @endforeach
+                </optgroup>
+              </select>
+              <p class="mt-2 text-xs text-gray-400">
+                En tant que SUPER ADMIN, choisissez l'administration sur laquelle appliquer ces paramètres.
+              </p>
+            @endif
+          </div>
 
             <div>
                 <label class="block text-sm font-semibold text-gray-700 mb-2">
@@ -10656,6 +10735,20 @@ if (document.querySelector('[name=courrier_archival_days]')) {
   receptionInput.addEventListener('input', updatePreview);
   updatePreview();
 })();
+}
+
+var archivalScopeSelect = document.getElementById('archivalScopeSelect');
+if (archivalScopeSelect) {
+  archivalScopeSelect.addEventListener('change', function () {
+    var url = new URL(window.location.href);
+    url.searchParams.set('tab', 'courrier-archiving');
+    if (this.value) {
+      url.searchParams.set('archival_admin_scope', this.value);
+    } else {
+      url.searchParams.delete('archival_admin_scope');
+    }
+    window.location.href = url.toString();
+  });
 }
 </script>
 @endpush

@@ -18,13 +18,46 @@ use Illuminate\Support\Facades\Schema;
 
 class ReceptionController extends Controller
 {
+    private function archivalScopeKeySuffix(): ?string
+    {
+        $user = Auth::user();
+        if (!$user || !$user->profile_id) {
+            return null;
+        }
+
+        $profile = $user->profile;
+        if (!$profile || !$profile->administration_id) {
+            return null;
+        }
+
+        $type = ($profile->effective_administration_type ?? $profile->administration_type ?? 'emitter') === 'recipient'
+            ? 'recipient'
+            : 'emitter';
+
+        return $type . ':' . $profile->administration_id;
+    }
+
+    private function archivalDays(string $baseKey): int
+    {
+        $scopeSuffix = $this->archivalScopeKeySuffix();
+
+        if ($scopeSuffix) {
+            $scopedSetting = AppSetting::where('key', $baseKey . ':' . $scopeSuffix)->first();
+            if ($scopedSetting) {
+                return max(0, (int) $scopedSetting->value);
+            }
+        }
+
+        return max(0, (int) AppSetting::where('key', $baseKey)->value('value'));
+    }
+
     public function index(Request $request)
     {
         $search = $request->get('q', '');
         $subtab = in_array($request->get('subtab', 'inbox'), ['inbox', 'archives'], true)
             ? $request->get('subtab', 'inbox')
             : 'inbox';
-        $receptionArchivalDays = (int) AppSetting::where('key', 'reception_archival_days')->value('value');
+        $receptionArchivalDays = $this->archivalDays('reception_archival_days');
         $receptionArchivalThreshold = $receptionArchivalDays > 0 ? now()->subDays($receptionArchivalDays) : null;
         $user = Auth::user();
         $userId = $user?->id;
