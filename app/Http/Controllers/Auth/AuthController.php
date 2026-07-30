@@ -55,7 +55,7 @@ class AuthController extends Controller
         RateLimiter::clear($key);
 
         $user = Auth::user();
-        if ($user && $this->isTwoFactorExempt($user)) {
+        if ($user && ($this->isTwoFactorExempt($user) || !$this->isTwoFactorEnabledForUser($user))) {
             $user->forceFill([
                 'two_factor_code' => null,
                 'two_factor_expires_at' => null,
@@ -235,6 +235,12 @@ class AuthController extends Controller
         $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
 
         return $normalized === 'SUPER ADMIN';
+    }
+
+    private function isTwoFactorEnabledForUser(User $user): bool
+    {
+        // Backward compatibility: if the flag is missing/null, keep 2FA enabled by default.
+        return $user->two_factor_enabled !== false;
     }
 
     private function resolveOtpSmtpSetting(User $user): ?AdministrationSmtpSetting

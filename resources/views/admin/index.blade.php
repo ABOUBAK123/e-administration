@@ -8248,6 +8248,7 @@ function toggleOoSecret() {
           <th class="px-4 py-3 text-left">E-mail</th>
           <th class="px-4 py-3 text-left">Quota</th>
           <th class="px-4 py-3 text-left">Statut</th>
+          <th class="px-4 py-3 text-left">2FA</th>
           <th class="px-4 py-3 text-left">Date création</th>
           <th class="px-4 py-3 text-left">Date modification</th>
           <th class="px-4 py-3 text-left">Actions</th>
@@ -8279,6 +8280,12 @@ function toggleOoSecret() {
             <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold
               {{ $u->status === 'active' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700' }}">
               {{ $u->status === 'active' ? 'Actif' : 'Désactivé' }}
+            </span>
+          </td>
+          <td class="px-4 py-3">
+            @php $twoFactorEnabled = $u->two_factor_enabled !== false; @endphp
+            <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold {{ $twoFactorEnabled ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600' }}">
+              {{ $twoFactorEnabled ? 'Activée' : 'Désactivée' }}
             </span>
           </td>
           <td class="px-4 py-3 text-gray-600 whitespace-nowrap">{{ $u->created_at?->format('d/m/Y H:i') ?? '-' }}</td>
@@ -8325,6 +8332,16 @@ function toggleOoSecret() {
                   <i class="fas {{ $u->status === 'active' ? 'fa-ban' : 'fa-check-circle' }} text-xs"></i>
                 </button>
               </form>
+              {{-- Toggle double authentification --}}
+              <form method="POST" action="{{ route('admin.users-tab.toggle-two-factor', $u) }}" class="inline">
+                @csrf
+                @php $twoFactorEnabled = $u->two_factor_enabled !== false; @endphp
+                <button type="submit"
+                  class="{{ $twoFactorEnabled ? 'text-indigo-600 hover:bg-indigo-50' : 'text-gray-600 hover:bg-gray-100' }} rounded p-1.5 transition"
+                  title="{{ $twoFactorEnabled ? 'Désactiver la double authentification' : 'Activer la double authentification' }}">
+                  <i class="fas {{ $twoFactorEnabled ? 'fa-shield-alt' : 'fa-shield' }} text-xs"></i>
+                </button>
+              </form>
               {{-- Supprimer --}}
               <form method="POST" action="{{ route('admin.users-tab.destroy', $u) }}" onsubmit="return confirm('Supprimer cet utilisateur ?')" class="inline">
                 @csrf @method('DELETE')
@@ -8337,7 +8354,7 @@ function toggleOoSecret() {
         </tr>
         @empty
         <tr>
-          <td colspan="10" class="px-4 py-8 text-center text-gray-400">Aucun utilisateur trouvé.</td>
+          <td colspan="11" class="px-4 py-8 text-center text-gray-400">Aucun utilisateur trouvé.</td>
         </tr>
         @endforelse
       </tbody>

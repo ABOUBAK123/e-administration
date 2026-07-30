@@ -424,6 +424,7 @@ Route::middleware('auth')->group(function () {
         Route::put('/users-tab/{user}',                    [AdminController::class, 'updateUserTab'])->name('users-tab.update');
         Route::delete('/users-tab/{user}',                 [AdminController::class, 'destroyUserTab'])->name('users-tab.destroy');
         Route::post('/users-tab/{user}/toggle-status',     [AdminController::class, 'toggleUserStatusTab'])->name('users-tab.toggle-status');
+        Route::post('/users-tab/{user}/toggle-two-factor', [AdminController::class, 'toggleUserTwoFactorTab'])->name('users-tab.toggle-two-factor');
         Route::post('/users-tab/{user}/notify-account',    [AdminController::class, 'notifyUserAccount'])->name('users-tab.notify-account');
 
         Route::resource('administrations', IssuingAdministrationController::class);

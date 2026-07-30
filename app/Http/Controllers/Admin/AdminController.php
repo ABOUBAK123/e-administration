@@ -5531,6 +5531,36 @@ class AdminController extends Controller
         return redirect()->route('admin.index', ['tab' => 'users'])->with('success', 'Statut mis à jour.');
     }
 
+    public function toggleUserTwoFactorTab(User $user)
+    {
+        $this->guardPermission('administration.users');
+
+        if (!Schema::hasColumn('users', 'two_factor_enabled')) {
+            return redirect()->route('admin.index', ['tab' => 'users'])
+                ->withErrors(['users' => 'Colonne 2FA absente. Exécutez les migrations puis réessayez.']);
+        }
+
+        $enabled = (bool) ($user->two_factor_enabled ?? true);
+
+        $user->forceFill([
+            'two_factor_enabled' => !$enabled,
+        ])->save();
+
+        if ($enabled) {
+            $user->forceFill([
+                'two_factor_code' => null,
+                'two_factor_expires_at' => null,
+            ])->save();
+        }
+
+        return redirect()->route('admin.index', ['tab' => 'users'])->with(
+            'success',
+            !$enabled
+                ? 'Double authentification activée pour cet utilisateur.'
+                : 'Double authentification désactivée pour cet utilisateur.'
+        );
+    }
+
     // ── Enrichissement IA (Ollama) des variables d'un template ─────────────────────
     public function aiEnrichTemplateVars(\App\Models\DocumentTemplate $template)
     {
