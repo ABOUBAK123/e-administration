@@ -51,8 +51,19 @@ class AuthController extends Controller
 
         RateLimiter::clear($key);
 
-        // Identifiants valides : déconnecter et exiger le code OTP envoyé par email
         $user = Auth::user();
+        if ($user && $this->isTwoFactorExempt($user)) {
+            $user->forceFill([
+                'two_factor_code' => null,
+                'two_factor_expires_at' => null,
+            ])->save();
+
+            $request->session()->regenerate();
+
+            return redirect()->intended(route('dashboard'));
+        }
+
+        // Identifiants valides : déconnecter et exiger le code OTP envoyé par email
         Auth::logout();
 
         $this->sendTwoFactorCode($user, $request);
@@ -165,6 +176,22 @@ class AuthController extends Controller
 
         Mail::to($user->email)->send(new TwoFactorCodeMail($code, $user->name));
         $request->session()->put('2fa:channel', 'email');
+    }
+
+    private function isTwoFactorExempt(User $user): bool
+    {
+        $profile = $user->relationLoaded('profile')
+            ? $user->profile
+            : ($user->profile_id ? AdministrationProfile::find($user->profile_id) : null);
+
+        if (!$profile || !is_string($profile->name)) {
+            return false;
+        }
+
+        $normalized = strtoupper(trim(str_replace(['_', '-'], ' ', $profile->name)));
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+
+        return $normalized === 'SUPER ADMIN';
     }
 
     /**
