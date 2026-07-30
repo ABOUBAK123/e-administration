@@ -10416,11 +10416,17 @@ function instrSearch(q) {
 @elseif($tab === 'courrier-archiving')
 @php
     $archivalDays = $courrierArchivalDays ?? 0;
+  $receptionArchivalDaysValue = $receptionArchivalDays ?? 0;
     $archivalThresholdDate = $archivalDays > 0 ? now()->subDays($archivalDays) : null;
     $archivedCount = $archivalThresholdDate
         ? \App\Models\Courrier::where('created_at', '<', $archivalThresholdDate)->count()
         : 0;
     $totalCount = \App\Models\Courrier::count();
+  $receptionArchivalThresholdDate = $receptionArchivalDaysValue > 0 ? now()->subDays($receptionArchivalDaysValue) : null;
+  $receptionArchivedCount = $receptionArchivalThresholdDate
+    ? \App\Models\DocumentShare::where('created_at', '<', $receptionArchivalThresholdDate)->distinct('document_id')->count('document_id')
+    : 0;
+  $receptionTotalCount = \App\Models\DocumentShare::query()->distinct('document_id')->count('document_id');
 @endphp
 
 <div class="max-w-3xl mx-auto space-y-5">
@@ -10502,6 +10508,34 @@ function instrSearch(q) {
                 </p>
             </div>
 
+              <div class="border-t border-gray-100 pt-5">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                  Délai d'archivage des fichiers reçus (Réception)
+                </label>
+                <div class="flex items-center gap-3">
+                  <input type="number" name="reception_archival_days"
+                    value="{{ $receptionArchivalDaysValue > 0 ? $receptionArchivalDaysValue : '' }}"
+                    min="1" max="3650" step="1"
+                    placeholder="ex : 365"
+                    class="w-40 border border-gray-300 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-stone-400 text-center">
+                  <span class="text-sm text-gray-500 font-medium">jours</span>
+                </div>
+                <p class="mt-2 text-xs text-gray-400">
+                  Les documents reçus plus anciens seront masqués de l'onglet Réception et visibles dans son sous-onglet <strong>Archives</strong>.
+                  Laissez vide pour désactiver l'archivage des fichiers reçus.
+                </p>
+                <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div class="bg-red-50 rounded-xl p-3 text-center border border-red-100">
+                    <div class="text-xl font-black text-red-600">{{ number_format($receptionArchivedCount) }}</div>
+                    <div class="text-xs text-red-400 mt-1">Fichiers reçus archivés</div>
+                  </div>
+                  <div class="bg-green-50 rounded-xl p-3 text-center border border-green-100">
+                    <div class="text-xl font-black text-green-600">{{ number_format(max($receptionTotalCount - $receptionArchivedCount, 0)) }}</div>
+                    <div class="text-xs text-green-500 mt-1">Fichiers reçus actifs</div>
+                  </div>
+                </div>
+              </div>
+
             {{-- Suggestions rapides --}}
             <div>
                 <p class="text-xs font-semibold text-gray-500 mb-2">Suggestions rapides :</p>
@@ -10514,11 +10548,24 @@ function instrSearch(q) {
                         {{ $label }}
                     </button>
                     @endforeach
+                      @foreach([30 => 'Réception 1 mois', 90 => 'Réception 3 mois', 180 => 'Réception 6 mois', 365 => 'Réception 1 an'] as $days => $label)
+                      <button type="button"
+                        onclick="document.querySelector('[name=reception_archival_days]').value = '{{ $days }}'"
+                        class="px-3 py-1.5 text-xs rounded-lg border font-semibold transition
+                          {{ $receptionArchivalDaysValue === $days ? 'bg-stone-600 text-white border-stone-600' : 'border-gray-300 text-gray-600 hover:bg-gray-100' }}">
+                        {{ $label }}
+                      </button>
+                      @endforeach
                     <button type="button"
                         onclick="document.querySelector('[name=courrier_archival_days]').value = ''"
                         class="px-3 py-1.5 text-xs rounded-lg border font-semibold transition border-red-200 text-red-500 hover:bg-red-50">
                         Désactiver
                     </button>
+                      <button type="button"
+                        onclick="document.querySelector('[name=reception_archival_days]').value = ''"
+                        class="px-3 py-1.5 text-xs rounded-lg border font-semibold transition border-red-200 text-red-500 hover:bg-red-50">
+                        Désactiver Réception
+                      </button>
                 </div>
             </div>
 
@@ -10527,6 +10574,10 @@ function instrSearch(q) {
                 <i class="fas fa-info-circle text-blue-400 mr-1"></i>
                 <span id="archival-preview-text"></span>
             </div>
+                  <div id="reception-archival-preview" class="p-4 bg-gray-50 rounded-xl border border-gray-200 text-sm text-gray-600 hidden">
+                    <i class="fas fa-info-circle text-blue-400 mr-1"></i>
+                    <span id="reception-archival-preview-text"></span>
+                  </div>
 
             <div class="flex items-center gap-3 pt-2">
                 <button type="submit"
@@ -10553,6 +10604,7 @@ function instrSearch(q) {
             <li class="flex items-center gap-2"><i class="fas fa-spinner text-blue-400 w-4"></i> <strong>En traitement</strong> — les courriers en cours archivés sont masqués</li>
             <li class="flex items-center gap-2"><i class="fas fa-binoculars text-blue-400 w-4"></i> <strong>Suivi imputation</strong> — les courriers traités archivés sont masqués</li>
             <li class="flex items-center gap-2"><i class="fas fa-check-circle text-blue-400 w-4"></i> <strong>Courrier traité</strong> — les courriers traités archivés ne sont plus listés</li>
+          <li class="flex items-center gap-2"><i class="fas fa-inbox text-blue-400 w-4"></i> <strong>Réception</strong> — les anciens fichiers reçus sont déplacés vers le sous-onglet Archives</li>
         </ul>
         <p class="mt-3 text-xs text-blue-600">
             <i class="fas fa-database mr-1"></i>
@@ -10569,18 +10621,39 @@ if (document.querySelector('[name=courrier_archival_days]')) {
     var input = document.querySelector('[name=courrier_archival_days]');
     var preview = document.getElementById('archival-preview');
     var previewText = document.getElementById('archival-preview-text');
-    if (!input || !preview || !previewText) return;
-    function updatePreview() {
-        var days = parseInt(input.value, 10);
-        if (!days || days <= 0) { preview.classList.add('hidden'); return; }
-        var date = new Date();
-        date.setDate(date.getDate() - days);
-        var formatted = date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
-        previewText.textContent = 'Les courriers créés avant le ' + formatted + ' seront archivés et masqués des sous-onglets.';
-        preview.classList.remove('hidden');
-    }
-    input.addEventListener('input', updatePreview);
-    updatePreview();
+  var receptionInput = document.querySelector('[name=reception_archival_days]');
+  var receptionPreview = document.getElementById('reception-archival-preview');
+  var receptionPreviewText = document.getElementById('reception-archival-preview-text');
+  if (!input || !preview || !previewText || !receptionInput || !receptionPreview || !receptionPreviewText) return;
+
+  function updateSinglePreview(field, container, textNode, messagePrefix) {
+    var days = parseInt(field.value, 10);
+    if (!days || days <= 0) { container.classList.add('hidden'); return; }
+    var date = new Date();
+    date.setDate(date.getDate() - days);
+    var formatted = date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+    textNode.textContent = messagePrefix + formatted + '.';
+    container.classList.remove('hidden');
+  }
+
+  function updatePreview() {
+    updateSinglePreview(
+      input,
+      preview,
+      previewText,
+      'Les courriers créés avant le '
+    );
+    updateSinglePreview(
+      receptionInput,
+      receptionPreview,
+      receptionPreviewText,
+      'Les fichiers reçus partagés avant le '
+    );
+  }
+
+  input.addEventListener('input', updatePreview);
+  receptionInput.addEventListener('input', updatePreview);
+  updatePreview();
 })();
 }
 </script>

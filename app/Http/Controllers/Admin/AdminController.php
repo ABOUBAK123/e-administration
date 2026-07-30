@@ -642,6 +642,7 @@ class AdminController extends Controller
         $dirAssignments = collect();
         $sigProviders   = collect();
         $courrierArchivalDays = 0;
+        $receptionArchivalDays = 0;
         $personnelEmployees = collect();
         $personnelEmployeeDirectory = collect();
         $selectedPersonnelEmployee = null;
@@ -823,6 +824,7 @@ class AdminController extends Controller
             $sigProviders = $sigQuery->get()->keyBy('administration_id');
 
             $courrierArchivalDays = (int) AppSetting::where('key', 'courrier_archival_days')->value('value');
+            $receptionArchivalDays = (int) AppSetting::where('key', 'reception_archival_days')->value('value');
 
             // ── Module Gestion du personnel ──────────────────────────────────
             if (Schema::hasTable('personnel_employees')) {
@@ -1075,7 +1077,7 @@ class AdminController extends Controller
             'directionTypes', 'subEntities', 'requestedActs', 'routingRules', 'profiles', 'profilesList',
             'instructions',
             'allUsers', 'shareMap', 'onlyofficeUrl', 'onlyofficeJwt', 'appPublicUrl', 'dirAssignments',
-            'sigProviders', 'courrierArchivalDays', 'adminScope',
+            'sigProviders', 'courrierArchivalDays', 'receptionArchivalDays', 'adminScope',
             'personnelEmployees', 'personnelEmployeeDirectory', 'selectedPersonnelEmployee', 'personnelStats',
             'personnelLeaveTypes', 'personnelLeaveRequests', 'personnelLeaveApprovers', 'personnelJobReferences', 'leaveGlobalVisibility', 'personnelTrainings', 'personnelTrainingEnrollments',
             'personnelEmployeeSkills', 'personnelGoals', 'personnelPerformanceReviews', 'personnelCareerEvents', 'personnelMutationRequests', 'personnelRecentActivity',
@@ -3461,6 +3463,7 @@ class AdminController extends Controller
         'signature_qr_position',
         'theme_primary_color', 'theme_secondary_color', 'theme_logo',
         'courrier_archival_days',
+        'reception_archival_days',
         'email_notifications_enabled', 'email_notifications_from',
         'otp_channel', 'whatsapp_api_token', 'whatsapp_phone_number_id',
     ];

@@ -4,19 +4,43 @@
 @section('page-subtitle', 'Documents reçus depuis d\'autres administrations')
 @section('content')
 
+@php
+    $activeSubtab = $subtab ?? 'inbox';
+@endphp
+
+<div class="mb-4 flex flex-wrap gap-2 bg-white border border-gray-200 rounded-xl p-2 shadow-sm w-fit">
+    <a href="{{ route('reception.index', array_merge(request()->except(['page', 'subtab']), ['subtab' => 'inbox'])) }}"
+        class="px-3 py-2 rounded-lg text-xs font-semibold transition {{ $activeSubtab === 'inbox' ? 'bg-[#2453d6] text-white' : 'text-gray-600 hover:bg-gray-100' }}">
+        <i class="fas fa-inbox mr-1"></i> Réception
+    </a>
+    <a href="{{ route('reception.index', array_merge(request()->except(['page', 'subtab']), ['subtab' => 'archives'])) }}"
+        class="px-3 py-2 rounded-lg text-xs font-semibold transition {{ $activeSubtab === 'archives' ? 'bg-[#2453d6] text-white' : 'text-gray-600 hover:bg-gray-100' }}">
+        <i class="fas fa-archive mr-1"></i> Archives
+    </a>
+</div>
+
+@if($activeSubtab === 'archives')
+<div class="mb-5 p-3 bg-stone-50 border border-stone-200 rounded-xl text-xs text-stone-700">
+    <i class="fas fa-info-circle mr-1"></i>
+    Les documents reçus plus anciens que <strong>{{ (int)($receptionArchivalDays ?? 0) > 0 ? (int)$receptionArchivalDays . ' jour(s)' : 'la période configurée' }}</strong>
+    apparaissent ici.
+</div>
+@endif
+
 {{-- Barre de recherche --}}
 <div class="flex items-center gap-4 mb-6">
     <form method="GET" action="{{ route('reception.index') }}" class="flex-1 max-w-md flex gap-2">
+        <input type="hidden" name="subtab" value="{{ $activeSubtab }}">
         <div class="relative flex-1">
             <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
-            <input type="text" name="q" value="{{ $search }}" placeholder="Rechercher un document reçu…"
+            <input type="text" name="q" value="{{ $search }}" placeholder="{{ $activeSubtab === 'archives' ? 'Rechercher un document archivé…' : 'Rechercher un document reçu…' }}"
                 class="w-full border border-gray-300 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2453d6] bg-white">
         </div>
         <button type="submit" class="px-4 py-2.5 bg-[#2453d6] text-white rounded-xl text-sm font-semibold hover:bg-[#1f47bb] transition">
             Chercher
         </button>
         @if($search)
-            <a href="{{ route('reception.index') }}" class="px-4 py-2.5 border border-gray-300 text-gray-600 rounded-xl text-sm hover:bg-gray-100 transition">
+            <a href="{{ route('reception.index', ['subtab' => $activeSubtab]) }}" class="px-4 py-2.5 border border-gray-300 text-gray-600 rounded-xl text-sm hover:bg-gray-100 transition">
                 <i class="fas fa-times"></i>
             </a>
         @endif
@@ -28,16 +52,19 @@
         <div class="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mb-5">
             <i class="fas fa-inbox text-4xl text-gray-300"></i>
         </div>
-        <h3 class="text-lg font-semibold text-gray-700 mb-1">Aucun document reçu</h3>
+        <h3 class="text-lg font-semibold text-gray-700 mb-1">{{ $activeSubtab === 'archives' ? 'Aucun document archivé' : 'Aucun document reçu' }}</h3>
         <p class="text-sm text-gray-400 max-w-sm">
-            Les documents partagés avec vous par d'autres administrations apparaîtront ici.
+            {{ $activeSubtab === 'archives'
+                ? 'Les documents reçus archivés apparaîtront ici dès qu\'ils dépassent le délai configuré.'
+                : 'Les documents partagés avec vous par d\'autres administrations apparaîtront ici.' }}
         </p>
     </div>
 @else
     <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
-                <i class="fas fa-inbox text-[#2453d6]"></i> Documents reçus
+                <i class="fas {{ $activeSubtab === 'archives' ? 'fa-archive' : 'fa-inbox' }} text-[#2453d6]"></i>
+                {{ $activeSubtab === 'archives' ? 'Archives de réception' : 'Documents reçus' }}
             </h2>
             <span class="text-sm text-gray-500">{{ $documents->total() }} document(s)</span>
         </div>
@@ -136,12 +163,12 @@
                         <div class="flex items-center justify-end gap-2">
                         @if($doc->file_path)
                         <a href="{{ route('documents.download', $doc) }}"
-                            onclick="markDocReceived('{{ $doc->id }}')"
+                            @if($activeSubtab === 'inbox') onclick="markDocReceived('{{ $doc->id }}')" @endif
                             class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-lg transition">
                             <i class="fas fa-download text-xs"></i> Télécharger
                         </a>
                         @endif
-                        @if($subEntities->isNotEmpty())
+                        @if($activeSubtab === 'inbox' && $subEntities->isNotEmpty())
                         <button type="button"
                             id="forward-btn-{{ $doc->id }}"
                             onclick="openForwardModal('{{ $doc->id }}', '{{ addslashes($doc->title) }}')"
@@ -174,6 +201,7 @@
 
 @push('scripts')
 {{-- Modal Transmettre aux entités sous tutelle --}}
+@if($activeSubtab === 'inbox')
 <div id="forwardModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
     <div class="bg-white rounded-2xl shadow-xl w-full max-w-md">
         <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
@@ -319,4 +347,5 @@ document.getElementById('forwardModal').addEventListener('click', function(e) {
     if (e.target === this) closeForwardModal();
 });
 </script>
+@endif
 @endpush

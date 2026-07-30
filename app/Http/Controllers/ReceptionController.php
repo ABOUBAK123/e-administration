@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppSetting;
 use App\Models\Document;
 use App\Models\DocumentShare;
 use App\Models\Notification;
@@ -20,6 +21,11 @@ class ReceptionController extends Controller
     public function index(Request $request)
     {
         $search = $request->get('q', '');
+        $subtab = in_array($request->get('subtab', 'inbox'), ['inbox', 'archives'], true)
+            ? $request->get('subtab', 'inbox')
+            : 'inbox';
+        $receptionArchivalDays = (int) AppSetting::where('key', 'reception_archival_days')->value('value');
+        $receptionArchivalThreshold = $receptionArchivalDays > 0 ? now()->subDays($receptionArchivalDays) : null;
         $user = Auth::user();
         $userId = $user?->id;
         $userEmail = $user?->email;
@@ -72,7 +78,7 @@ class ReceptionController extends Controller
             Log::warning('Reception fallback: document_shares table exists but missing required columns');
         } else {
             try {
-                $sharedDocIds = DocumentShare::query()
+                $sharesQuery = DocumentShare::query()
                     ->where(function ($q) {
                         $q->whereNull('expires_at')
                           ->orWhere('expires_at', '>', now());
@@ -91,7 +97,19 @@ class ReceptionController extends Controller
                         if ($recipientAdminIds->isNotEmpty()) {
                             $q->orWhereIn('recipient_administration_id', $recipientAdminIds);
                         }
-                    })
+                    });
+
+                if ($subtab === 'archives') {
+                    if ($receptionArchivalThreshold !== null) {
+                        $sharesQuery->where('created_at', '<', $receptionArchivalThreshold);
+                    } else {
+                        $sharesQuery->whereRaw('1 = 0');
+                    }
+                } elseif ($receptionArchivalThreshold !== null) {
+                    $sharesQuery->where('created_at', '>=', $receptionArchivalThreshold);
+                }
+
+                $sharedDocIds = $sharesQuery
                     ->pluck('document_id')
                     ->unique()
                     ->values();
@@ -109,7 +127,7 @@ class ReceptionController extends Controller
                 'query' => $request->query(),
             ]);
 
-            return view('reception.index', compact('documents', 'search'));
+            return view('reception.index', compact('documents', 'search', 'subtab', 'receptionArchivalDays'));
         }
 
         $query = Document::with(['owner', 'issuingAdministration'])
@@ -227,7 +245,16 @@ class ReceptionController extends Controller
             }
         }
 
-        return view('reception.index', compact('documents', 'search', 'sharesInfo', 'subEntities', 'receptionStatuses', 'transmissionInfo'));
+        return view('reception.index', compact(
+            'documents',
+            'search',
+            'sharesInfo',
+            'subEntities',
+            'receptionStatuses',
+            'transmissionInfo',
+            'subtab',
+            'receptionArchivalDays'
+        ));
     }
 
     /**
