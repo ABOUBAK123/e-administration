@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Mail\TwoFactorCodeMail;
 use App\Models\AdministrationProfile;
+use App\Models\AdministrationSmtpSetting;
 use App\Models\AppSetting;
 use App\Models\User;
 use App\Models\UserDirectionAssignment;
@@ -174,6 +175,21 @@ class AuthController extends Controller
             // Échec WhatsApp : repli sur l'email
         }
 
+        $smtp = $this->resolveOtpSmtpSetting($user);
+        if ($smtp && $smtp->mail_host && $smtp->mail_from_address) {
+            config([
+                'mail.default'                 => 'smtp',
+                'mail.mailers.smtp.host'       => $smtp->mail_host,
+                'mail.mailers.smtp.port'       => $smtp->mail_port ?? 587,
+                'mail.mailers.smtp.username'   => $smtp->mail_username,
+                'mail.mailers.smtp.password'   => $smtp->mail_password,
+                'mail.mailers.smtp.encryption' => $smtp->mail_encryption ?: null,
+                'mail.mailers.smtp.timeout'    => 10,
+                'mail.from.address'            => $smtp->mail_from_address,
+                'mail.from.name'               => $smtp->mail_from_name ?? config('app.name'),
+            ]);
+        }
+
         Mail::to($user->email)->send(new TwoFactorCodeMail($code, $user->name));
         $request->session()->put('2fa:channel', 'email');
     }
@@ -192,6 +208,25 @@ class AuthController extends Controller
         $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
 
         return $normalized === 'SUPER ADMIN';
+    }
+
+    private function resolveOtpSmtpSetting(User $user): ?AdministrationSmtpSetting
+    {
+        $assignment = UserDirectionAssignment::where('user_id', $user->id)->first();
+        if ($assignment && $assignment->direction_scope_id) {
+            $type = $assignment->direction_scope_type === 'recipient' ? 'recipient' : 'emitter';
+            return AdministrationSmtpSetting::forAdministration($assignment->direction_scope_id, $type);
+        }
+
+        if ($user->profile_id) {
+            $profile = AdministrationProfile::find($user->profile_id);
+            if ($profile && $profile->administration_id) {
+                $type = ($profile->effective_administration_type ?? 'emitter') === 'recipient' ? 'recipient' : 'emitter';
+                return AdministrationSmtpSetting::forAdministration($profile->administration_id, $type);
+            }
+        }
+
+        return null;
     }
 
     /**
