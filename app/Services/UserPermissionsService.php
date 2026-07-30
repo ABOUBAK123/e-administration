@@ -60,6 +60,7 @@ class UserPermissionsService
         'reception'               => ['label' => 'Réception',               'children' => [
             'reception.view'    => 'Voir les courriers reçus',
             'reception.process' => 'Traiter les courriers reçus',
+            'reception.archives' => 'Voir les archives de réception',
         ]],
         'act-requests'            => ['label' => 'Demandes d\'actes',       'children' => [
             'act-requests.view'    => 'Voir les demandes',

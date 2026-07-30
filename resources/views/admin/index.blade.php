@@ -9918,6 +9918,7 @@ $permissionTree = [
     'reception'        => ['label' => 'Réception', 'children' => [
         'reception.view'    => 'Voir les courriers reçus',
         'reception.process' => 'Traiter / accuser réception',
+      'reception.archives' => 'Voir le sous-onglet Archives',
     ]],
     'act-requests'     => ['label' => "Demandes d'actes", 'children' => [
         'act-requests.view'    => 'Voir',
