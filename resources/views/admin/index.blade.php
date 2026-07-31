@@ -4374,7 +4374,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
 
         {{-- Filtre administration --}}
         <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
-            <label class="block text-xs text-gray-500 mb-1">Administration Émettrice concern�e</label>
+          <label class="block text-xs text-gray-500 mb-1">Administration Émettrice concernée</label>
             <select id="tpl-filter-emitter" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-300"
                 onchange="tplFilterEmitter(this.value)">
                 <option value="">Toutes les administrations</option>
@@ -4463,11 +4463,11 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
                 </div>
                 {{-- Conteneur Quill --}}
                 <div id="tpl-quill-editor" style="font-size:13px;background:#fff;"></div>
-                {{-- Champ cach� qui recevra le HTML pour le form POST --}}
+                {{-- Champ caché qui recevra le HTML pour le form POST --}}
                 <textarea id="tpl-content" name="content" class="hidden">{{ old('content', $selectedTplId && request('tpl_action') === 'edit' ? ($selectedTpl->content ?? '') : '') }}</textarea>
             </div>
 
-            {{-- Bouton submit DANS le form, apr�s l'�diteur --}}
+              {{-- Bouton submit DANS le form, après l'éditeur --}}
             <button type="submit"
                     class="w-full bg-blue-600 text-white rounded-lg px-3 py-2.5 text-sm font-bold hover:bg-blue-700 transition flex items-center justify-center gap-2">
                 <i class="fas fa-check-circle"></i>
@@ -4560,7 +4560,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             </div>
             @empty
             <div class="border border-dashed border-gray-300 rounded-lg p-6 text-xs text-gray-400 text-center">
-                Aucun template configur� pour cette administration.
+              Aucun template configuré pour cette administration.
             </div>
             @endforelse
         </div>
@@ -4602,7 +4602,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             </button>
         </form>
 
-        {{-- Liste des variables du template s�lectionn� --}}
+        {{-- Liste des variables du template sélectionné --}}
         <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
             @if($selectedTpl)
                 @forelse($selectedTpl->variables as $variable)
@@ -4636,10 +4636,10 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             @endif
         </div>
 
-        {{-- Partage : liste des utilisateurs ayant acc�s --}}
+        {{-- Partage : liste des utilisateurs ayant accès --}}
         @if($selectedTpl)
         <div class="border-t border-gray-100 pt-4 space-y-2">
-            <h3 class="text-sm font-semibold text-gray-800">Acc�s partag�s</h3>
+          <h3 class="text-sm font-semibold text-gray-800">Accès partagés</h3>
             @php $currentShared = $shareMap[$selectedTpl->id] ?? []; @endphp
             @if(count($currentShared))
             <div class="flex flex-wrap gap-2">
@@ -4769,7 +4769,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold transition shadow-sm">
                 <i class="fas fa-upload text-xs"></i> Importer un fichier
             </button>
-            {{-- Input file cach� --}}
+            {{-- Input file caché --}}
             <input type="file" id="tpl-oo-file-input" accept=".docx,.xlsx,.pptx,.pdf" class="hidden"
                 onchange="tplOoHandleFileSelect(this)">
 
@@ -4976,7 +4976,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     @push('scripts')
 <script>
 (function() {
-    // --- Donn�es PHP → JS -----------------------------------------------------
+  // --- Données PHP → JS -----------------------------------------------------
     var _ooUrl    = @json($onlyofficeUrl);
     var _ooJwt    = @json($onlyofficeJwt);
     var _ooTokenUrl = "{{ route('admin.onlyoffice.token') }}";
@@ -5143,7 +5143,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     window.tplOoCanCloseModal = tplOoCanCloseModal;
 
     // --- Filtrer par administration -------------------------------------------
-    // --- Afficher/Masquer le formulaire de cr�ation de template --------------
+    // --- Afficher/Masquer le formulaire de création de template --------------
     function tplToggleCreateForm() {
         var panel = document.getElementById('tpl-create-panel');
         var btn   = document.getElementById('tpl-create-toggle-btn');
@@ -5159,7 +5159,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             btn.innerHTML = '<i class="fas fa-plus-circle text-xs"></i> Nouveau template';
             btn.classList.replace('bg-gray-500', 'bg-blue-600');
             btn.classList.replace('hover:bg-gray-600', 'hover:bg-blue-700');
-            label.textContent = 'Cliquez pour cr�er un template';
+            label.textContent = 'Cliquez pour créer un template';
         }
     }
     window.tplToggleCreateForm = tplToggleCreateForm;
@@ -5184,7 +5184,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     }
     window.tplFilterEmitter = tplFilterEmitter;
 
-    // --- S�lectionner un template ---------------------------------------------
+    // --- Sélectionner un template ---------------------------------------------
     function tplSelect(id) {
         var url = new URL(window.location.href);
         url.searchParams.set('tab', 'templates');
@@ -5201,7 +5201,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
       // Ouvre le modal d'édition OnlyOffice
         openModal('modal-tpl-oo');
 
-        // Si un template est d�j� s�lectionn�, le charger automatiquement
+        // Si un template est déjà sélectionné, le charger automatiquement
         var tplId = @json($selectedTplId ?? null) || window._ooCurrentTemplateId || null;
       if (!tplId) {
         tplOoShowStatus('Sélectionnez d\'abord un template dans la liste, ou créez-en un nouveau.', 7000);
@@ -5223,7 +5223,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
               if (cfg.warning) { tplOoShowStatus('Avertissement réseau : ' + cfg.warning, 8000); }
               tplOoLoadEditor(cfg);
             })
-            .catch(function(err) { tplOoShowStatus('Erreur r�seau : ' + err.message, 5000); });
+            .catch(function(err) { tplOoShowStatus('Erreur réseau : ' + err.message, 5000); });
         }
     }
     window.tplOpenOnlyOffice = tplOpenOnlyOffice;
@@ -5245,11 +5245,11 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
       _tplOoUploadTargetId = targetTemplateId || null;
         if (uploadPanel) uploadPanel.classList.remove('hidden');
         if (createPanel) createPanel.classList.add('hidden');
-        tplOoShowStatus('S�lectionnez un fichier DOCX, XLSX, PPTX ou PDF � importer comme mod�le.', 0);
+        tplOoShowStatus('Sélectionnez un fichier DOCX, XLSX, PPTX ou PDF à importer comme modèle.', 0);
     }
     window.tplOoOpenUpload = tplOoOpenUpload;
 
-    // --- Stocker le fichier s�lectionn� (utilis� par tplOoSubmitUpload) -------
+    // --- Stocker le fichier sélectionné (utilisé par tplOoSubmitUpload) -------
     window._ooSelectedFile = null;
 
     function tplOoHandleFileSelect(input) {
@@ -5264,7 +5264,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             fsize.textContent = sz < 1024*1024 ? (Math.round(sz/1024)) + ' Ko' : (Math.round(sz/1024/1024*10)/10) + ' Mo';
         }
         if (info) info.classList.remove('hidden');
-        // Pr�remplir le champ nom si vide
+        // Préremplir le champ nom si vide
         var nameInput = document.getElementById('tpl-oo-up-name');
         if (nameInput && !nameInput.value.trim()) {
             nameInput.value = input.files[0].name.replace(/\.[^/.]+$/, '');
@@ -5276,7 +5276,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         var files = event.dataTransfer.files;
         if (!files || !files.length) return;
         var fakeInput = document.getElementById('tpl-oo-file-input');
-        // Cr�er un DataTransfer pour affecter les fichiers � l'input
+        // Créer un DataTransfer pour affecter les fichiers à l'input
         try {
             var dt = new DataTransfer();
             dt.items.add(files[0]);
@@ -5433,7 +5433,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     }
     window.tplOoSubmitUpload = tplOoSubmitUpload;
 
-    // --- D�tection automatique des variables depuis le fichier DOCX -----------
+    // --- Détection automatique des variables depuis le fichier DOCX -----------
     function tplDetectVars(tplId, tplName) {
         var btn = document.getElementById('detect-btn-' + tplId);
         var lbl = document.getElementById('detect-label-' + tplId);
@@ -5447,7 +5447,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (btn) btn.disabled = false;
-            if (lbl) lbl.textContent = data.count > 0 ? data.count + ' vars' : 'D�tecter';
+            if (lbl) lbl.textContent = data.count > 0 ? data.count + ' vars' : 'Détecter';
             if (data.success && data.count > 0) {
                 var varNames = data.variables.slice(0, 5).map(function(v) { return '[' + v.key + ']'; }).join(', ');
                 if (data.count > 5) varNames += ' + ' + (data.count - 5) + ' autres';
@@ -5455,13 +5455,13 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
                   tplNavigate(window.location.pathname + '?tab=templates&selected_template=' + tplId);
                 }
             } else {
-                alert(data.message || 'Aucune variable trouv�e. Utilisez des balises [variable] (ou @{{variable}}).');
+                alert(data.message || 'Aucune variable trouvée. Utilisez des balises [variable] (ou @{{variable}}).');
             }
         })
         .catch(function(err) {
             if (btn) btn.disabled = false;
-            if (lbl) lbl.textContent = 'D�tecter';
-            alert('Erreur r�seau: ' + err.message);
+            if (lbl) lbl.textContent = 'Détecter';
+            alert('Erreur réseau: ' + err.message);
         });
     }
     window.tplDetectVars = tplDetectVars;
@@ -5606,12 +5606,12 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
       .then(function(data) {
         var lbl = document.getElementById('detect-label-' + tplId);
         if (lbl && data && typeof data.count === 'number') {
-          lbl.textContent = data.count > 0 ? data.count + ' vars' : 'D�tecter';
+          lbl.textContent = data.count > 0 ? data.count + ' vars' : 'Détecter';
         }
 
         if (data && data.success && typeof data.count === 'number') {
           if (data.count > 0) {
-            tplOoShowStatus('Variables synchronis�es automatiquement (' + data.count + ').', 3500);
+            tplOoShowStatus('Variables synchronisées automatiquement (' + data.count + ').', 3500);
           } else {
             tplOoShowStatus('Aucune variable détectée après sauvegarde.', 3500);
           }
@@ -5626,7 +5626,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     }
     window.tplAutoSyncVars = tplAutoSyncVars;
 
-    // Charger l'�diteur OO avec une config donn�e (fichier upload� ou nouveau)
+    // Charger l'éditeur OO avec une config donnée (fichier uploadé ou nouveau)
     function tplOoLoadEditor(cfg) {
         var fileType = (cfg.fileType || '').toLowerCase();
         // Les PDF restent en prévisualisation native (OnlyOffice PDF édite mal selon la config serveur).
@@ -5774,13 +5774,13 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         _tplOoZones = [];
         tplOoUpdateBadge();
 
-        // Construire l'URL PDF locale (�vite l'interstitiel ngrok)
+        // Construire l'URL PDF locale (évite l'interstitiel ngrok)
         // On utilise localDocUrl si disponible, sinon on reconstruit depuis storagePubPath
         var pdfUrl = cfg.localDocUrl || cfg.docUrl;
         if (!pdfUrl && cfg.storagePubPath) {
             pdfUrl = window.location.protocol + '//' + window.location.host + cfg.storagePubPath;
         }
-        var dlUrl = cfg.docUrl || pdfUrl; // t�l�chargement via URL publique
+        var dlUrl = cfg.docUrl || pdfUrl; // téléchargement via URL publique
 
         var placeholder = document.getElementById('oo-editor-placeholder');
         if (placeholder) {
@@ -5789,7 +5789,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
                 '<div style="flex-shrink:0;padding:8px 12px;background:#3d4043;display:flex;align-items:center;gap:10px;">' +
                 '<i class="fas fa-file-pdf" style="color:#ef4444;"></i>' +
                 '<span style="color:#fff;font-size:12px;font-weight:600;">' + (cfg.template_name || 'Document PDF') + '</span>' +
-                '<span style="color:#aaa;font-size:11px;margin-left:4px;">� Apercu PDF</span>' +
+                '<span style="color:#aaa;font-size:11px;margin-left:4px;">• Aperçu PDF</span>' +
                 '<a href="' + dlUrl + '" target="_blank" style="margin-left:auto;background:#2453d6;color:#fff;font-size:11px;font-weight:600;padding:4px 12px;border-radius:6px;text-decoration:none;"><i class="fas fa-download" style="margin-right:4px;"></i>Telecharger</a>' +
                 '</div>' +
                 '<iframe src="' + pdfUrl + '" style="flex:1;width:100%;border:none;" allowfullscreen></iframe>' +
@@ -5877,7 +5877,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     }
 
     // ─── Créer une boîte de zone glissable ───────────────────────────────────
-    // --- Cr�er une bo�te de zone glissable -----------------------------------
+    // --- Créer une boîte de zone glissable -----------------------------------
     function tplOoCreateDraggableZone(idx) {
         var container = document.getElementById('oo-iframe-container');
         if (!container) return;
@@ -6014,8 +6014,8 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     window.tplOoRemoveZone = tplOoRemoveZone;
 
     // --- Sceller une zone de signature (verrouille visuellement la position) --
-    // --- Sceller une zone : verrouille d�finitivement drag ET resize ----------
-    // --- Sceller : verrouille drag + resize, appliqu� automatiquement au clic hors zone
+    // --- Sceller une zone : verrouille définitivement drag ET resize ----------
+    // --- Sceller : verrouille drag + resize, appliqué automatiquement au clic hors zone
     function tplOoSealZone(idx) {
         var zone = _tplOoZones[idx];
         if (!zone || !zone.el || zone.el._sealed) return;
@@ -6024,7 +6024,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         zone.el._sealed = true;
         zone.sealed      = true;
 
-        // Style verrouill� : bordure verte pleine, curseur bloqu�
+        // Style verrouillé : bordure verte pleine, curseur bloqué
         zone.el.style.border     = '2.5px solid #16a34a';
         zone.el.style.background = 'rgba(22,163,74,0.13)';
         zone.el.style.cursor     = 'default';
@@ -6033,27 +6033,27 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         var rh = document.getElementById('tpl-zone-resize-' + idx);
         if (rh) rh.style.display = 'none';
 
-        // Mise � jour visuelle : label + hint verts
+        // Mise à jour visuelle : label + hint verts
         var label = zone.el.querySelector('.tpl-zone-label');
         if (label) { label.style.color = '#15803d'; }
         var hint = zone.el.querySelector('.tpl-zone-hint');
         if (hint) {
-            hint.textContent = '\uD83D\uDD12 Position fix�e � cliquez pour repositionner';
+            hint.textContent = '\uD83D\uDD12 Position fixée • cliquez pour repositionner';
             hint.style.color = '#15803d';
         }
 
-        // Permettre de cliquer sur la zone pour la d�bloquer et repositionner
+        // Permettre de cliquer sur la zone pour la débloquer et repositionner
         zone.el.addEventListener('click', function onReopenClick(e) {
             if (e.target.tagName === 'BUTTON') return; // bouton supprimer ? ignorer
             zone.el.removeEventListener('click', onReopenClick);
             tplOoUnsealZone(idx);
         }, { once: true });
 
-        tplOoShowStatus('Zone "Signature ' + (idx + 1) + '" fix�e. Cliquez dessus pour repositionner, ou "Enregistrer les zones".', 5000);
+        tplOoShowStatus('Zone "Signature ' + (idx + 1) + '" fixée. Cliquez dessus pour repositionner, ou "Enregistrer les zones".', 5000);
     }
     window.tplOoSealZone = tplOoSealZone;
 
-    // --- D�bloquer une zone pour la repositionner -----------------------------
+    // --- Débloquer une zone pour la repositionner -----------------------------
     function tplOoUnsealZone(idx) {
         var zone = _tplOoZones[idx];
         if (!zone || !zone.el) return;
@@ -6062,12 +6062,12 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         zone.el._sealed = false;
         zone.sealed      = false;
 
-        // Style libre : bordure bleue pointill�e
+        // Style libre : bordure bleue pointillée
         zone.el.style.border     = '2.5px dashed #2563eb';
         zone.el.style.background = 'rgba(37,99,235,0.10)';
         zone.el.style.cursor     = 'move';
 
-        // R�afficher le handle resize
+        // Réafficher le handle resize
         var rh = document.getElementById('tpl-zone-resize-' + idx);
         if (rh) rh.style.display = '';
 
@@ -6077,7 +6077,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         var hint = zone.el.querySelector('.tpl-zone-hint');
         if (hint) { hint.textContent = 'Cliquez en dehors pour fixer'; hint.style.color = '#3b82f6'; }
 
-        // R�-enregistrer le listener "clic en dehors"
+        // Ré-enregistrer le listener "clic en dehors"
         function onDocMousedown(e) {
             if (zone.el._sealed) return;
             if (zone.el.contains(e.target)) return;
@@ -6086,7 +6086,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         document.addEventListener('mousedown', onDocMousedown);
         zone.el._unsealListener = function() { document.removeEventListener('mousedown', onDocMousedown); };
 
-        tplOoShowStatus('Zone "Signature ' + (idx + 1) + '" d�verrouill�e. Repositionnez-la puis cliquez en dehors.', 4000);
+        tplOoShowStatus('Zone "Signature ' + (idx + 1) + '" déverrouillée. Repositionnez-la puis cliquez en dehors.', 4000);
     }
     window.tplOoUnsealZone = tplOoUnsealZone;
 
@@ -6206,7 +6206,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         div.innerHTML =
             '<div class="mb-2">' +
                 '<p class="text-xs font-semibold text-gray-800 truncate">' + tpl.name + '</p>' +
-                '<p class="text-xs text-gray-500">' + (tpl.file_name || '-') + ' � ' + (tpl.file_type || '').toUpperCase() + '</p>' +
+            '<p class="text-xs text-gray-500">' + (tpl.file_name || '-') + ' • ' + (tpl.file_type || '').toUpperCase() + '</p>' +
                 (tpl.administration ? '<p class="text-xs text-gray-400">' + tpl.administration + '</p>' : '') +
                 '<p class="text-xs text-blue-600 mt-0.5">0 partage(s)</p>' +
             '</div>' +
@@ -6267,7 +6267,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             }
         }).catch(function() {
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-stamp text-xs"></i> Sceller les zones'; }
-            tplOoShowStatus(_tplOoZones.length + ' zone(s) m�moris�e(s) localement (hors-ligne).', 4000);
+          tplOoShowStatus(_tplOoZones.length + ' zone(s) mémorisée(s) localement (hors-ligne).', 4000);
         });
     }
     window.tplOoSave = tplOoSave;
@@ -6427,7 +6427,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             inp.value = tplId;
         });
 
-        // Marquer utilisateurs d�j� partag�s
+        // Marquer utilisateurs déjà partagés
         document.querySelectorAll('.share-toggle-btn').forEach(function(btn) {
             var uid = btn.getAttribute('data-user-id');
             if (shared.indexOf(uid) !== -1) {
@@ -7709,7 +7709,7 @@ document.addEventListener('DOMContentLoaded', function() {
           <tr data-search="{{ strtolower($dt->name . ' ' . ($dt->description ?? '')) }}"
               class="{{ $editDt && $editDt->id === $dt->id ? 'bg-blue-50' : '' }}">
             <td class="px-4 py-3 font-medium text-gray-800">{{ $dt->name }}</td>
-            <td class="px-4 py-3 text-gray-600">{{ $dt->description ?? '�' }}</td>
+            <td class="px-4 py-3 text-gray-600">{{ $dt->description ?? '—' }}</td>
             <td class="px-4 py-3">
               <div class="flex items-center gap-2">
                 <a href="{{ route('admin.index', ['tab' => 'direction-types', 'dt_action' => 'edit', 'selected_dt' => $dt->id]) }}"
@@ -7728,7 +7728,7 @@ document.addEventListener('DOMContentLoaded', function() {
           </tr>
           @empty
           <tr>
-            <td colspan="3" class="px-4 py-8 text-center text-xs text-gray-500">Aucun type de direction enregistr�.</td>
+            <td colspan="3" class="px-4 py-8 text-center text-xs text-gray-500">Aucun type de direction enregistré.</td>
           </tr>
           @endforelse
         </tbody>
@@ -7754,10 +7754,10 @@ function dtSearch(q) {
 @endpush
 @elseif($tab === 'routing')
 <div class="flex items-center justify-between mb-5">
-    <h2 class="text-lg font-bold text-gray-800">R�gles de routage</h2>
+  <h2 class="text-lg font-bold text-gray-800">Règles de routage</h2>
     <button onclick="openModal('modal-routing-create')"
         class="px-4 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-semibold hover:bg-orange-600 transition flex items-center gap-2">
-        <i class="fas fa-plus"></i> Nouvelle r�gle
+    <i class="fas fa-plus"></i> Nouvelle règle
     </button>
 </div>
 <div class="mb-3">
@@ -7772,7 +7772,7 @@ function dtSearch(q) {
                 <th class="text-left px-5 py-3 font-semibold text-gray-600">Template</th>
                 <th class="text-left px-5 py-3 font-semibold text-gray-600">Destinataire</th>
                 <th class="text-left px-5 py-3 font-semibold text-gray-600">Condition</th>
-                <th class="text-left px-5 py-3 font-semibold text-gray-600">Priorit�</th>
+                <th class="text-left px-5 py-3 font-semibold text-gray-600">Priorité</th>
                 <th class="text-left px-5 py-3 font-semibold text-gray-600">Statut</th>
                 <th class="px-5 py-3"></th>
             </tr>
@@ -7800,7 +7800,7 @@ function dtSearch(q) {
                     </span>
                 </td>
                 <td class="px-5 py-3.5 text-right">
-                    <form method="POST" action="{{ route('admin.routing-rules.destroy', $rule) }}" onsubmit="return confirm('Supprimer cette r�gle ?')" class="inline">
+                  <form method="POST" action="{{ route('admin.routing-rules.destroy', $rule) }}" onsubmit="return confirm('Supprimer cette règle ?')" class="inline">
                         @csrf @method('DELETE')
                         <button class="inline-flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded-lg transition">
                             <i class="fas fa-trash-alt text-xs"></i>
@@ -7809,7 +7809,7 @@ function dtSearch(q) {
                 </td>
             </tr>
             @empty
-            <tr><td colspan="6" class="px-5 py-12 text-center text-gray-400">Aucune r�gle de routage configur�e.</td></tr>
+            <tr><td colspan="6" class="px-5 py-12 text-center text-gray-400">Aucune règle de routage configurée.</td></tr>
             @endforelse
         </tbody>
     </table>
@@ -7830,7 +7830,7 @@ function routingSearch(q) {
 <div id="modal-routing-create" class="adm-modal">
     <div class="adm-modal-box">
         <button onclick="closeModal('modal-routing-create')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl"><i class="fas fa-times"></i></button>
-        <h3 class="text-lg font-bold text-gray-800 mb-5">Nouvelle r�gle de routage</h3>
+    <h3 class="text-lg font-bold text-gray-800 mb-5">Nouvelle règle de routage</h3>
         <form method="POST" action="{{ route('admin.routing-rules.store') }}" class="space-y-4">
             @csrf
             <div>
@@ -7857,7 +7857,7 @@ function routingSearch(q) {
                     <input type="text" name="condition_field" placeholder="status" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
                 </div>
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-1">Op�rateur</label>
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">Opérateur</label>
                     <select name="condition_operator" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
                         <option value="=">=</option>
                         <option value="!=">!=</option>
@@ -7870,12 +7870,12 @@ function routingSearch(q) {
                 </div>
             </div>
             <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Priorit�</label>
+              <label class="block text-sm font-semibold text-gray-700 mb-1">Priorité</label>
                 <input type="number" name="priority" value="0" min="0" class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
             </div>
             <div class="pt-2 flex gap-3 justify-end">
                 <button type="button" onclick="closeModal('modal-routing-create')" class="px-5 py-2.5 bg-gray-100 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-200 transition">Annuler</button>
-                <button type="submit" class="px-5 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-semibold hover:bg-orange-600 transition">Cr�er</button>
+              <button type="submit" class="px-5 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-semibold hover:bg-orange-600 transition">Créer</button>
             </div>
         </form>
     </div>
@@ -10940,7 +10940,7 @@ function editModalHandleChild(childCb) {
 @endpush
 
 {{-- -----------------------------------------------------------
-     �DITEUR QUILL � Contenu du template (avec insertion de {{variables}})
+  ÉDITEUR QUILL • Contenu du template (avec insertion de {{variables}})
 ----------------------------------------------------------- --}}
 @push('scripts')
 <link href="{{ asset('vendor/quill/quill.snow.css') }}" rel="stylesheet"
@@ -10948,7 +10948,7 @@ function editModalHandleChild(childCb) {
 <script src="{{ asset('vendor/quill/quill.min.js') }}"
     onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js';"></script>
 <style>
-/* -- Conteneur �diteur ----------------------------------------------- */
+/* -- Conteneur éditeur ----------------------------------------------- */
 #tpl-quill-editor .ql-editor {
     min-height: 280px;
     font-size: 13px;
@@ -10971,7 +10971,7 @@ function editModalHandleChild(childCb) {
     border-color: #cbd5e1;
     font-size: 13px;
 }
-/* -- S�lecteurs police / taille -------------------------------------- */
+/* -- Sélecteurs police / taille -------------------------------------- */
 #tpl-quill-editor .ql-font .ql-picker-label,
 #tpl-quill-editor .ql-size .ql-picker-label {
     font-size: 11px;
@@ -10986,7 +10986,7 @@ function editModalHandleChild(childCb) {
 .ql-font-georgia     { font-family: Georgia, serif; }
 .ql-font-verdana     { font-family: Verdana, sans-serif; }
 .ql-font-tahoma      { font-family: Tahoma, sans-serif; }
-/* -- Rendu des polices dans l'�diteur -------------------------------- */
+/* -- Rendu des polices dans l'éditeur -------------------------------- */
 .ql-editor .ql-font-arial       { font-family: Arial, sans-serif !important; }
 .ql-editor .ql-font-times       { font-family: 'Times New Roman', serif !important; }
 .ql-editor .ql-font-courier     { font-family: 'Courier New', monospace !important; }
@@ -11037,23 +11037,23 @@ function editModalHandleChild(childCb) {
 
         _quill = new Quill('#tpl-quill-editor', {
             theme: 'snow',
-            placeholder: 'R�digez votre template ici� Ex: Je soussign� {{nom}}, n� le {{date_naissance}}, demande�',
+            placeholder: 'Rédigez votre template ici… Ex: Je soussigné {{nom}}, né le {{date_naissance}}, demande…',
             modules: {
                 toolbar: [
-                    /* Ligne 1 � Police, taille, titres */
+                /* Ligne 1 • Police, taille, titres */
                     [
                         { 'font': ['arial','times','courier','georgia','verdana','tahoma'] },
                         { 'size': ['8px','10px','12px','14px','16px','18px','20px','24px','36px','48px'] },
                         { 'header': [1, 2, 3, 4, false] }
                     ],
-                    /* Ligne 2 � Style texte */
+                /* Ligne 2 • Style texte */
                     ['bold', 'italic', 'underline', 'strike'],
                     [{ 'color': [] }, { 'background': [] }],
-                    /* Ligne 3 � Alignement, listes */
+                /* Ligne 3 • Alignement, listes */
                     [{ 'align': [] }],
                     [{ 'list': 'ordered' }, { 'list': 'bullet' }, { 'list': 'check' }],
                     [{ 'indent': '-1' }, { 'indent': '+1' }],
-                    /* Ligne 4 � Divers */
+                /* Ligne 4 • Divers */
                     ['blockquote', 'code-block'],
                     [{ 'script': 'sub' }, { 'script': 'super' }],
                     ['link', 'image'],
@@ -11082,7 +11082,7 @@ function editModalHandleChild(childCb) {
         });
     }
 
-    /* -- Recharger le contenu quand un template est s�lectionn� -- */
+    /* -- Recharger le contenu quand un template est sélectionné -- */
     var _origTplSelect = window.tplSelect;
     window.tplSelect = function(id) {
         if (_origTplSelect) _origTplSelect(id);
@@ -11097,7 +11097,7 @@ function editModalHandleChild(childCb) {
         }, 400);
     };
 
-    /* -- Ins�rer une variable {{}} � la position du curseur ------ */
+    /* -- Insérer une variable {{}} à la position du curseur ------ */
     window.tplQuillInsertVar = function(varText) {
         if (!_quill) return;
         var range = _quill.getSelection(true);
@@ -11108,7 +11108,7 @@ function editModalHandleChild(childCb) {
         _quill.focus();
     };
 
-    /* -- Ins�rer une variable personnalis�e ----------------------- */
+    /* -- Insérer une variable personnalisée ----------------------- */
     window.tplQuillInsertCustomVar = function() {
         var name = prompt('Nom de la variable (ex: nom_directeur, date_signature) :');
         if (!name) return;
@@ -11117,7 +11117,7 @@ function editModalHandleChild(childCb) {
         tplQuillInsertVar('[' + name + ']');
     };
 
-    /* -- Compteur de mots/caract�res ------------------------------- */
+    /* -- Compteur de mots/caractères ------------------------------- */
     window.tplQuillGetStats = function() {
         if (!_quill) return { words: 0, chars: 0 };
         var text = _quill.getText().trim();
