@@ -876,8 +876,14 @@ class DocumentController extends Controller
             }
 
             $adminSector = strtolower((string) ($recipientAdministration->metadata['sector'] ?? ''));
-            if ($adminSector === 'banques' && empty(trim((string) $request->input('applicantRib', '')))) {
-                return response()->json(['ok' => false, 'message' => 'Le RIB est obligatoire pour les établissements bancaires.'], 422);
+            if ($adminSector === 'banques') {
+                $normalizedRib = $this->normalizeBankRib((string) $request->input('applicantRib', ''));
+
+                if ($normalizedRib === '' || !$this->isValidBankRib($normalizedRib)) {
+                    return response()->json(['ok' => false, 'message' => 'veuillez saisir unr RIB corret'], 422);
+                }
+
+                $basePayload['applicant_rib'] = $normalizedRib;
             }
 
             $submissionToUpdate = ActRequestSubmission::query()
@@ -1070,6 +1076,64 @@ class DocumentController extends Controller
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    private function normalizeBankRib(string $rib): string
+    {
+        return strtoupper(preg_replace('/\s+/', '', trim($rib)) ?? '');
+    }
+
+    private function isValidBankRib(string $rib): bool
+    {
+        $rib = $this->normalizeBankRib($rib);
+
+        // Supporte un prefixe pays optionnel (ex: CI) devant le RIB national.
+        if (preg_match('/^[A-Z]{2}[A-Z0-9]{23}$/', $rib) === 1) {
+            $rib = substr($rib, 2);
+        }
+
+        // Format national RIB: 5 banque + 5 guichet + 11 compte + 2 cle.
+        if (preg_match('/^\d{5}\d{5}[A-Z0-9]{11}\d{2}$/', $rib) !== 1) {
+            return false;
+        }
+
+        $bankCode = substr($rib, 0, 5);
+        $branchCode = substr($rib, 5, 5);
+        $accountCode = substr($rib, 10, 11);
+        $ribKey = substr($rib, 21, 2);
+
+        $accountNumeric = '';
+        for ($i = 0; $i < strlen($accountCode); $i++) {
+            $char = $accountCode[$i];
+            if (ctype_digit($char)) {
+                $accountNumeric .= $char;
+                continue;
+            }
+
+            // Conversion officielle RIB des lettres vers chiffres.
+            $map = [
+                'A' => '1', 'B' => '2', 'C' => '3', 'D' => '4', 'E' => '5', 'F' => '6', 'G' => '7', 'H' => '8', 'I' => '9',
+                'J' => '1', 'K' => '2', 'L' => '3', 'M' => '4', 'N' => '5', 'O' => '6', 'P' => '7', 'Q' => '8', 'R' => '9',
+                'S' => '2', 'T' => '3', 'U' => '4', 'V' => '5', 'W' => '6', 'X' => '7', 'Y' => '8', 'Z' => '9',
+            ];
+
+            if (!isset($map[$char])) {
+                return false;
+            }
+
+            $accountNumeric .= $map[$char];
+        }
+
+        $weighted = (89 * (int) $bankCode)
+            + (15 * (int) $branchCode)
+            + (3 * (int) $accountNumeric);
+
+        $expectedKey = 97 - ($weighted % 97);
+        if ($expectedKey === 0) {
+            $expectedKey = 97;
+        }
+
+        return sprintf('%02d', $expectedKey) === $ribKey;
     }
 
     public function lookupActRequestByTracking(Request $request)
