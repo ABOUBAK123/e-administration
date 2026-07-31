@@ -424,6 +424,8 @@ class DocumentController extends Controller
 
             $fromReception = $request->boolean('from_reception');
 
+            $treatedUpdated = false;
+
             foreach ($recipientShares as $share) {
                 $trackingNumber = strtoupper(trim((string) ($share->tracking_number ?? '')));
                 $submission = null;
@@ -449,6 +451,37 @@ class DocumentController extends Controller
                 if ($fromReception && $submission && $submission->status === 'recu') {
                     $submission->status = 'treated';
                     $submission->save();
+                    $treatedUpdated = true;
+                }
+            }
+
+            // Fallback: certains shares utilisateur n'embarquent pas le tracking_number.
+            // On tente alors de retrouver la demande via les shares du document.
+            if ($fromReception && !$treatedUpdated) {
+                $trackingQuery = DocumentShare::query()
+                    ->where('document_id', $document->id)
+                    ->whereNotNull('tracking_number');
+
+                if ($recipientAdminIds->isNotEmpty()) {
+                    $trackingQuery->whereIn('recipient_administration_id', $recipientAdminIds);
+                }
+
+                $fallbackTracking = strtoupper(trim((string) ($trackingQuery->latest()->value('tracking_number') ?? '')));
+
+                if ($fallbackTracking !== '') {
+                    $fallbackSubmissionQuery = ActRequestSubmission::query()
+                        ->whereRaw('UPPER(tracking_number) = ?', [$fallbackTracking]);
+
+                    if ($recipientAdminIds->isNotEmpty()) {
+                        $fallbackSubmissionQuery->whereIn('recipient_administration_id', $recipientAdminIds->all());
+                    }
+
+                    $fallbackSubmission = $fallbackSubmissionQuery->latest('created_at')->first();
+
+                    if ($fallbackSubmission && $fallbackSubmission->status === 'recu') {
+                        $fallbackSubmission->status = 'treated';
+                        $fallbackSubmission->save();
+                    }
                 }
             }
         }

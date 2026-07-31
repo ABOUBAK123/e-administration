@@ -483,25 +483,37 @@ class ReceptionController extends Controller
             if ($userShare) {
                 $userShare->reception_status = 'transmis';
                 $userShare->save();
+            }
 
-                $trackingNumber = strtoupper(trim((string) ($userShare->tracking_number ?? '')));
-                if ($trackingNumber === '') {
-                    $trackingNumber = strtoupper(trim((string) (DocumentShare::query()
-                        ->where('document_id', $document->id)
-                        ->where('recipient_administration_id', $recipientAdminId)
-                        ->whereNotNull('tracking_number')
-                        ->latest()
-                        ->value('tracking_number') ?? '')));
-                }
-                if ($trackingNumber !== '') {
-                    $submission = ActRequestSubmission::query()
-                        ->whereRaw('UPPER(tracking_number) = ?', [$trackingNumber])
-                        ->first();
+            // Le passage de la demande "Envoyee" -> "Recu" doit se faire meme si
+            // le share utilisateur ne porte pas le tracking_number.
+            $trackingNumber = strtoupper(trim((string) ($userShare->tracking_number ?? '')));
+            if ($trackingNumber === '') {
+                $trackingNumber = strtoupper(trim((string) (DocumentShare::query()
+                    ->where('document_id', $document->id)
+                    ->where('recipient_administration_id', $recipientAdminId)
+                    ->whereNotNull('tracking_number')
+                    ->latest()
+                    ->value('tracking_number') ?? '')));
+            }
+            if ($trackingNumber === '') {
+                $trackingNumber = strtoupper(trim((string) (DocumentShare::query()
+                    ->where('document_id', $document->id)
+                    ->whereNotNull('tracking_number')
+                    ->latest()
+                    ->value('tracking_number') ?? '')));
+            }
 
-                    if ($submission && $submission->status === 'sent') {
-                        $submission->status = 'recu';
-                        $submission->save();
-                    }
+            if ($trackingNumber !== '') {
+                $submission = ActRequestSubmission::query()
+                    ->whereRaw('UPPER(tracking_number) = ?', [$trackingNumber])
+                    ->where('recipient_administration_id', $recipientAdminId)
+                    ->latest('created_at')
+                    ->first();
+
+                if ($submission && in_array((string) $submission->status, ['sent', 'in_progress'], true)) {
+                    $submission->status = 'recu';
+                    $submission->save();
                 }
             }
         }
