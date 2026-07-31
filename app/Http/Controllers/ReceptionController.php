@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AppSetting;
+use App\Models\ActRequestSubmission;
 use App\Models\Document;
 use App\Models\DocumentShare;
 use App\Models\Notification;
@@ -482,6 +483,26 @@ class ReceptionController extends Controller
             if ($userShare) {
                 $userShare->reception_status = 'transmis';
                 $userShare->save();
+
+                $trackingNumber = strtoupper(trim((string) ($userShare->tracking_number ?? '')));
+                if ($trackingNumber === '') {
+                    $trackingNumber = strtoupper(trim((string) (DocumentShare::query()
+                        ->where('document_id', $document->id)
+                        ->where('recipient_administration_id', $recipientAdminId)
+                        ->whereNotNull('tracking_number')
+                        ->latest()
+                        ->value('tracking_number') ?? '')));
+                }
+                if ($trackingNumber !== '') {
+                    $submission = ActRequestSubmission::query()
+                        ->whereRaw('UPPER(tracking_number) = ?', [$trackingNumber])
+                        ->first();
+
+                    if ($submission && $submission->status === 'sent') {
+                        $submission->status = 'recu';
+                        $submission->save();
+                    }
+                }
             }
         }
 

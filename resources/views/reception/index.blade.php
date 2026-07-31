@@ -162,7 +162,7 @@
                     <td class="px-5 py-4 text-right">
                         <div class="flex items-center justify-end gap-2">
                         @if($doc->file_path)
-                        <a href="{{ route('documents.download', $doc) }}"
+                        <a href="{{ route('documents.download', ['document' => $doc, 'from_reception' => 1]) }}"
                             @if($activeSubtab === 'inbox') onclick="markDocReceived('{{ $doc->id }}')" @endif
                             class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-lg transition">
                             <i class="fas fa-download text-xs"></i> Télécharger

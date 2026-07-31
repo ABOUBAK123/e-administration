@@ -422,6 +422,8 @@ class DocumentController extends Controller
                 })
                 ->get(['tracking_number', 'recipient_administration_id', 'applicant_email', 'applicant_full_name']);
 
+            $fromReception = $request->boolean('from_reception');
+
             foreach ($recipientShares as $share) {
                 $trackingNumber = strtoupper(trim((string) ($share->tracking_number ?? '')));
                 $submission = null;
@@ -442,7 +444,9 @@ class DocumentController extends Controller
                         ->first();
                 }
 
-                if ($submission && $submission->status !== 'treated') {
+                // La demande passe a "terminee" uniquement lors d'un telechargement
+                // effectue depuis l'onglet Reception, et uniquement depuis l'etat "recu".
+                if ($fromReception && $submission && $submission->status === 'recu') {
                     $submission->status = 'treated';
                     $submission->save();
                 }
@@ -904,11 +908,12 @@ class DocumentController extends Controller
 
                 if ($submission) {
                     try {
-                        // Conserver une valeur de statut généralement admise sur tous les schémas existants.
-                        $submission->status = 'in_progress';
+                        // Lors du partage a l'administration destinataire avec numero de suivi,
+                        // la demande passe de "en cours" a "envoyee".
+                        $submission->status = 'sent';
                         $submission->save();
                         $updatedTrackingStatus = true;
-                        Log::info('DocumentController@share submission status set to in_progress', ['submission_id' => $submission->id]);
+                        Log::info('DocumentController@share submission status set to sent', ['submission_id' => $submission->id]);
                     } catch (\Throwable $e) {
                         Log::warning('DocumentController@share unable to update submission status', [
                             'submission_id' => (string) $submission->id,
