@@ -423,7 +423,7 @@
                     <label class="block text-xs font-semibold text-gray-700 mb-1">
                         RIB <span class="text-red-500">*</span>
                     </label>
-                    <input type="text" id="shareApplicantRib" placeholder="Ex: CI12345 00001 00000000000 00"
+                      <input type="text" id="shareApplicantRib" placeholder="Ex: CI650 01001 010485800008 06" oninput="formatShareRib(this)" onblur="formatShareRib(this)"
                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono tracking-wide">
                     <p class="text-xs text-gray-400 mt-1">Obligatoire pour les établissements bancaires.</p>
                 </div>
@@ -550,6 +550,37 @@ function toggleRibField() {
     const isBanque = sector === 'banques';
     wrapper.classList.toggle('hidden', !isBanque);
     if (!isBanque) document.getElementById('shareApplicantRib').value = '';
+}
+
+function formatShareRib(input) {
+    if (!input) return;
+
+    const raw = String(input.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!raw) {
+        input.value = '';
+        return;
+    }
+
+    // Masque attendu: CI + 3 chiffres + 5 chiffres + 12 chiffres + 2 chiffres.
+    let normalized = raw;
+    if (normalized.startsWith('CI')) {
+        const digits = normalized.slice(2).replace(/\D/g, '').slice(0, 22);
+        const p1 = digits.slice(0, 3);
+        const p2 = digits.slice(3, 8);
+        const p3 = digits.slice(8, 20);
+        const p4 = digits.slice(20, 22);
+
+        const parts = [];
+        if (p1) parts.push('CI' + p1);
+        if (p2) parts.push(p2);
+        if (p3) parts.push(p3);
+        if (p4) parts.push(p4);
+        input.value = parts.join(' ');
+        return;
+    }
+
+    // Fallback pendant la saisie si le préfixe CI n'est pas encore saisi.
+    input.value = normalized.slice(0, 24);
 }
 
 function filterRecipientAdministrations() {
