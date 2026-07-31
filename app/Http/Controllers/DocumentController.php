@@ -718,6 +718,7 @@ class DocumentController extends Controller
 
         $createdShares = collect();
         $updatedTrackingStatus = false;
+        $submissionToUpdate = null;
 
         if ($mode === 'internal') {
             $targetType = (string) $request->input('internalTargetType', 'user');
@@ -846,6 +847,19 @@ class DocumentController extends Controller
                 return response()->json(['ok' => false, 'message' => 'Le RIB est obligatoire pour les établissements bancaires.'], 422);
             }
 
+            $submissionToUpdate = ActRequestSubmission::query()
+                ->whereRaw('UPPER(tracking_number) = ?', [$trackingNumber])
+                ->where('recipient_administration_id', $recipientAdministrationId)
+                ->latest('created_at')
+                ->first();
+
+            if (!$submissionToUpdate) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Numero de suivi introuvable pour cette administration destinataire.',
+                ], 422);
+            }
+
             // Trace de partage administration (audit)
             $createdShares->push(DocumentShare::create($this->filterDocumentSharePayload($basePayload + [
                 'recipient_name' => 'admin:' . $recipientAdministration->id,
@@ -895,33 +909,26 @@ class DocumentController extends Controller
                 ]);
             }
 
-            if ($trackingNumber !== '') {
-                $submission = ActRequestSubmission::query()
-                    ->whereRaw('UPPER(tracking_number) = ?', [$trackingNumber])
-                    ->first();
+            try {
+                // Lors du partage a l'administration destinataire avec numero de suivi,
+                // la demande passe de "en cours" a "envoyee".
+                $submissionToUpdate->status = 'sent';
+                $submissionToUpdate->save();
+                $updatedTrackingStatus = true;
 
-                Log::info('DocumentController@share tracking lookup', [
-                    'tracking_number_searched' => $trackingNumber,
-                    'submission_found' => $submission ? $submission->id : null,
+                Log::info('DocumentController@share submission status set to sent', [
+                    'submission_id' => $submissionToUpdate->id,
+                    'tracking_number' => $trackingNumber,
+                    'recipient_administration_id' => $recipientAdministrationId,
                     'document_id' => (string) $document->id,
                 ]);
-
-                if ($submission) {
-                    try {
-                        // Lors du partage a l'administration destinataire avec numero de suivi,
-                        // la demande passe de "en cours" a "envoyee".
-                        $submission->status = 'sent';
-                        $submission->save();
-                        $updatedTrackingStatus = true;
-                        Log::info('DocumentController@share submission status set to sent', ['submission_id' => $submission->id]);
-                    } catch (\Throwable $e) {
-                        Log::warning('DocumentController@share unable to update submission status', [
-                            'submission_id' => (string) $submission->id,
-                            'tracking_number' => $trackingNumber,
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
-                }
+            } catch (\Throwable $e) {
+                Log::warning('DocumentController@share unable to update submission status', [
+                    'submission_id' => (string) ($submissionToUpdate->id ?? ''),
+                    'tracking_number' => $trackingNumber,
+                    'recipient_administration_id' => $recipientAdministrationId,
+                    'error' => $e->getMessage(),
+                ]);
             }
 
             // Le document est considere comme envoye a l'administration destinataire.
