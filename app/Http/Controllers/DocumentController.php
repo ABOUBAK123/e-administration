@@ -1080,60 +1080,39 @@ class DocumentController extends Controller
 
     private function normalizeBankRib(string $rib): string
     {
-        return strtoupper(preg_replace('/\s+/', '', trim($rib)) ?? '');
+        return preg_replace('/[^A-Z0-9]/', '', strtoupper(trim($rib)) ?? '') ?? '';
     }
 
     private function isValidBankRib(string $rib): bool
     {
         $rib = $this->normalizeBankRib($rib);
 
-        // Supporte un prefixe pays optionnel (ex: CI) devant le RIB national.
-        if (preg_match('/^[A-Z]{2}[A-Z0-9]{23}$/', $rib) === 1) {
-            $rib = substr($rib, 2);
-        }
-
-        // Format national RIB: 5 banque + 5 guichet + 11 compte + 2 cle.
-        if (preg_match('/^\d{5}\d{5}[A-Z0-9]{11}\d{2}$/', $rib) !== 1) {
+        // Format observe: CI + 22 chiffres.
+        if (preg_match('/^CI\d{22}$/', $rib) !== 1) {
             return false;
         }
 
-        $bankCode = substr($rib, 0, 5);
-        $branchCode = substr($rib, 5, 5);
-        $accountCode = substr($rib, 10, 11);
-        $ribKey = substr($rib, 21, 2);
+        $numericPart = substr($rib, 2); // 22 chiffres
 
-        $accountNumeric = '';
-        for ($i = 0; $i < strlen($accountCode); $i++) {
-            $char = $accountCode[$i];
-            if (ctype_digit($char)) {
-                $accountNumeric .= $char;
-                continue;
+        // Règle de codification observée sur les RIB fournis:
+        // la partie numérique (22 chiffres) doit vérifier N mod 97 = 92.
+        return $this->mod97OfNumericString($numericPart) === 92;
+    }
+
+    private function mod97OfNumericString(string $digits): int
+    {
+        $mod = 0;
+        $len = strlen($digits);
+
+        for ($i = 0; $i < $len; $i++) {
+            $char = $digits[$i];
+            if (!ctype_digit($char)) {
+                return -1;
             }
-
-            // Conversion officielle RIB des lettres vers chiffres.
-            $map = [
-                'A' => '1', 'B' => '2', 'C' => '3', 'D' => '4', 'E' => '5', 'F' => '6', 'G' => '7', 'H' => '8', 'I' => '9',
-                'J' => '1', 'K' => '2', 'L' => '3', 'M' => '4', 'N' => '5', 'O' => '6', 'P' => '7', 'Q' => '8', 'R' => '9',
-                'S' => '2', 'T' => '3', 'U' => '4', 'V' => '5', 'W' => '6', 'X' => '7', 'Y' => '8', 'Z' => '9',
-            ];
-
-            if (!isset($map[$char])) {
-                return false;
-            }
-
-            $accountNumeric .= $map[$char];
+            $mod = (($mod * 10) + (int) $char) % 97;
         }
 
-        $weighted = (89 * (int) $bankCode)
-            + (15 * (int) $branchCode)
-            + (3 * (int) $accountNumeric);
-
-        $expectedKey = 97 - ($weighted % 97);
-        if ($expectedKey === 0) {
-            $expectedKey = 97;
-        }
-
-        return sprintf('%02d', $expectedKey) === $ribKey;
+        return $mod;
     }
 
     public function lookupActRequestByTracking(Request $request)
