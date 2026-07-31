@@ -420,6 +420,13 @@ class ReceptionController extends Controller
             return response()->json(['ok' => false, 'message' => 'Aucun utilisateur actif trouvé pour cette entité sous tutelle.'], 422);
         }
 
+        $sourceTrackingNumber = strtoupper(trim((string) (DocumentShare::query()
+            ->where('document_id', $document->id)
+            ->where('recipient_administration_id', $recipientAdminId)
+            ->whereNotNull('tracking_number')
+            ->latest()
+            ->value('tracking_number') ?? '')));
+
         $created = 0;
         foreach ($targetUsers as $targetUser) {
             // Éviter les doublons
@@ -436,6 +443,8 @@ class ReceptionController extends Controller
                     'has_delay'     => false,
                     'recipient_name'  => 'sub_entity:' . $subEntityCode,
                     'recipient_email' => $targetUser->email,
+                    'recipient_administration_id' => $recipientAdminId,
+                    'tracking_number' => $sourceTrackingNumber !== '' ? $sourceTrackingNumber : null,
                 ]);
 
                 Notification::create([
