@@ -7770,7 +7770,7 @@ function dtSearch(q) {
         <thead class="bg-gray-50 border-b border-gray-100">
             <tr>
                 <th class="text-left px-5 py-3 font-semibold text-gray-600">Template</th>
-                <th class="text-left px-5 py-3 font-semibold text-gray-600">Destinataire</th>
+              <th class="text-left px-5 py-3 font-semibold text-gray-600">Cible</th>
                 <th class="text-left px-5 py-3 font-semibold text-gray-600">Condition</th>
                 <th class="text-left px-5 py-3 font-semibold text-gray-600">Priorité</th>
                 <th class="text-left px-5 py-3 font-semibold text-gray-600">Statut</th>
@@ -7779,10 +7779,18 @@ function dtSearch(q) {
         </thead>
         <tbody class="divide-y divide-gray-50" id="routing-tbody">
             @forelse($routingRules as $rule)
-            <tr data-search="{{ strtolower(($rule->template?->name ?? '') . ' ' . ($rule->recipient?->name ?? '') . ' ' . ($rule->condition_field ?? '') . ' ' . ($rule->condition_value ?? '')) }}"
+            <tr data-search="{{ strtolower(($rule->template?->name ?? '') . ' ' . ($rule->recipient?->name ?? '') . ' ' . ($rule->targetUser?->name ?? '') . ' ' . ($rule->condition_field ?? '') . ' ' . ($rule->condition_value ?? '')) }}"
                 class="hover:bg-gray-50/50 transition">
                 <td class="px-5 py-3.5 font-medium text-gray-800">{{ $rule->template?->name ?? '—' }}</td>
-                <td class="px-5 py-3.5 text-gray-600">{{ $rule->recipient?->name ?? '—' }}</td>
+              <td class="px-5 py-3.5 text-gray-600">
+                @if(($rule->target_type ?? 'recipient') === 'user')
+                  <div class="font-medium text-gray-700">{{ $rule->targetUser?->name ?? '—' }}</div>
+                  <div class="text-xs text-gray-500">Utilisateur</div>
+                @else
+                  <div class="font-medium text-gray-700">{{ $rule->recipient?->name ?? '—' }}</div>
+                  <div class="text-xs text-gray-500">Administration destinataire</div>
+                @endif
+              </td>
                 <td class="px-5 py-3.5 text-xs text-gray-500">
                     @if($rule->condition_field)
                         <code class="bg-gray-100 px-1.5 py-0.5 rounded">{{ $rule->condition_field }}</code>
@@ -7825,6 +7833,33 @@ function routingSearch(q) {
         row.style.display = (!q || row.dataset.search.includes(q)) ? '' : 'none';
     });
 }
+
+function toggleRoutingTargetFields(targetType) {
+  var recipientWrap = document.getElementById('routing-target-recipient-wrap');
+  var userWrap = document.getElementById('routing-target-user-wrap');
+  var recipientSelect = document.getElementById('routing-recipient-id');
+  var userSelect = document.getElementById('routing-target-user-id');
+
+  var isUser = (targetType === 'user');
+
+  if (recipientWrap) recipientWrap.style.display = isUser ? 'none' : '';
+  if (userWrap) userWrap.style.display = isUser ? '' : 'none';
+
+  if (recipientSelect) {
+    recipientSelect.required = !isUser;
+    if (isUser) recipientSelect.value = '';
+  }
+
+  if (userSelect) {
+    userSelect.required = isUser;
+    if (!isUser) userSelect.value = '';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  var targetTypeSelect = document.getElementById('routing-target-type');
+  toggleRoutingTargetFields(targetTypeSelect ? targetTypeSelect.value : 'recipient');
+});
 </script>
 @endpush
 <div id="modal-routing-create" class="adm-modal">
@@ -7843,14 +7878,31 @@ function routingSearch(q) {
                 </select>
             </div>
             <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Destinataire <span class="text-red-500">*</span></label>
-                <select name="recipient_id" required class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">Type de cible <span class="text-red-500">*</span></label>
+                  <select id="routing-target-type" name="target_type" onchange="toggleRoutingTargetFields(this.value)" class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                    <option value="recipient">Administration destinataire</option>
+                    <option value="user">Utilisateur (même administration)</option>
+                </select>
+            </div>
+                <div id="routing-target-recipient-wrap">
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">Administration destinataire <span class="text-red-500">*</span></label>
+                  <select id="routing-recipient-id" name="recipient_id" required class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
                     <option value="">« Sélectionner »</option>
                     @foreach($recipients as $recip)
                     <option value="{{ $recip->id }}">{{ $recip->name }}</option>
                     @endforeach
-                </select>
-            </div>
+                  </select>
+                </div>
+                <div id="routing-target-user-wrap" style="display:none;">
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">Utilisateur (même administration) <span class="text-red-500">*</span></label>
+                  <select id="routing-target-user-id" name="target_user_id" class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                    <option value="">« Sélectionner »</option>
+                    @foreach($sameAdminRoutingUsers as $routingUser)
+                    <option value="{{ $routingUser->id }}">{{ $routingUser->name }} @if($routingUser->email)({{ $routingUser->email }})@endif</option>
+                    @endforeach
+                  </select>
+                  <p class="mt-1 text-xs text-gray-500">Seuls les utilisateurs affectés à la même administration peuvent être sélectionnés.</p>
+                </div>
             <div class="grid grid-cols-3 gap-3">
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Champ</label>

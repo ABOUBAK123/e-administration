@@ -636,6 +636,7 @@ class AdminController extends Controller
         $profilesList   = collect();
         $instructions   = collect();
         $allUsers       = collect();
+        $sameAdminRoutingUsers = collect();
         $shareMap       = [];
         $onlyofficeUrl  = '';
         $onlyofficeSecret = '';
@@ -708,6 +709,23 @@ class AdminController extends Controller
             }
             $users = $usersQuery->paginate(20, ['*'], 'users_page');
 
+            // Utilisateurs de la même administration pour les cibles de routage.
+            if ($adminScope) {
+                $sameAdminRoutingUserIds = UserDirectionAssignment::query()
+                    ->where('direction_scope_type', $adminScope['type'])
+                    ->where('direction_scope_id', $adminScope['id'])
+                    ->pluck('user_id');
+
+                $sameAdminRoutingUsers = User::query()
+                    ->whereIn('id', $sameAdminRoutingUserIds)
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'email']);
+            } else {
+                $sameAdminRoutingUsers = User::query()
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'email']);
+            }
+
             // ── Templates ────────────────────────────────────────────────────
             $tplQuery = DocumentTemplate::with(['variables', 'administration'])->latest();
             if ($adminScope && $adminScope['type'] === 'emitter') {
@@ -767,12 +785,18 @@ class AdminController extends Controller
             $requestedActs = $actsQuery->get();
 
             // ── Règles de routage ─────────────────────────────────────────────
-            $routingQuery = RoutingRule::with(['template', 'recipient'])->latest();
+            $routingQuery = RoutingRule::with(['template', 'recipient', 'targetUser'])->latest();
             if ($adminScope && $adminScope['type'] === 'emitter') {
                 $scopedTplIds = DocumentTemplate::where('administration_id', $adminScope['id'])->pluck('id');
                 $routingQuery->whereIn('template_id', $scopedTplIds);
             } elseif ($adminScope && $adminScope['type'] === 'recipient') {
-                $routingQuery->where('recipient_id', $adminScope['id']);
+                $routingQuery->where(function ($query) use ($adminScope) {
+                    $query->where('recipient_id', $adminScope['id'])
+                        ->orWhereHas('targetUser.directionAssignments', function ($assignmentQuery) use ($adminScope) {
+                            $assignmentQuery->where('direction_scope_type', $adminScope['type'])
+                                ->where('direction_scope_id', $adminScope['id']);
+                        });
+                });
             }
             $routingRules = $routingQuery->paginate(15, ['*'], 'routing_page');
 
@@ -1077,6 +1101,7 @@ class AdminController extends Controller
             'directionTypes', 'subEntities', 'requestedActs', 'routingRules', 'profiles', 'profilesList',
             'instructions',
             'allUsers', 'shareMap', 'onlyofficeUrl', 'onlyofficeJwt', 'appPublicUrl', 'dirAssignments',
+            'sameAdminRoutingUsers',
             'sigProviders', 'courrierArchivalDays', 'receptionArchivalDays', 'adminScope',
             'personnelEmployees', 'personnelEmployeeDirectory', 'selectedPersonnelEmployee', 'personnelStats',
             'personnelLeaveTypes', 'personnelLeaveRequests', 'personnelLeaveApprovers', 'personnelJobReferences', 'leaveGlobalVisibility', 'personnelTrainings', 'personnelTrainingEnrollments',
@@ -5031,13 +5056,77 @@ class AdminController extends Controller
     {
         $data = $request->validate([
             'template_id'        => 'required|exists:document_templates,id',
-            'recipient_id'       => 'required|exists:recipient_administrations,id',
+            'target_type'        => 'nullable|in:recipient,user',
+            'recipient_id'       => 'nullable|exists:recipient_administrations,id',
+            'target_user_id'     => 'nullable|exists:users,id',
             'condition_field'    => 'nullable|string|max:100',
             'condition_operator' => 'nullable|string|max:20',
             'condition_value'    => 'nullable|string|max:255',
             'priority'           => 'integer|min:0',
         ]);
-        RoutingRule::create(['id' => Str::uuid(), 'is_active' => true] + $data);
+
+        $targetType = (string) ($data['target_type'] ?? 'recipient');
+        $recipientId = $data['recipient_id'] ?? null;
+        $targetUserId = $data['target_user_id'] ?? null;
+
+        if ($targetType === 'recipient' && !$recipientId) {
+            throw ValidationException::withMessages([
+                'recipient_id' => 'Veuillez sélectionner une administration destinataire.',
+            ]);
+        }
+
+        if ($targetType === 'user' && !$targetUserId) {
+            throw ValidationException::withMessages([
+                'target_user_id' => 'Veuillez sélectionner un utilisateur de la même administration.',
+            ]);
+        }
+
+        $adminScope = $this->resolveAdminScope();
+        $template = DocumentTemplate::query()->select(['id', 'administration_id'])->findOrFail($data['template_id']);
+
+        if ($adminScope && $adminScope['type'] === 'recipient' && $targetType === 'recipient' && $recipientId !== $adminScope['id']) {
+            throw ValidationException::withMessages([
+                'recipient_id' => 'Cette règle doit cibler votre administration.',
+            ]);
+        }
+
+        if ($targetType === 'user') {
+            $assignmentQuery = UserDirectionAssignment::query()->where('user_id', $targetUserId);
+
+            if ($adminScope) {
+                $assignmentQuery
+                    ->where('direction_scope_type', $adminScope['type'])
+                    ->where('direction_scope_id', $adminScope['id']);
+            } elseif (!empty($template->administration_id)) {
+                $assignmentQuery
+                    ->where('direction_scope_type', 'emitter')
+                    ->where('direction_scope_id', $template->administration_id);
+            }
+
+            if (!$assignmentQuery->exists()) {
+                throw ValidationException::withMessages([
+                    'target_user_id' => 'L\'utilisateur sélectionné n\'appartient pas à la même administration.',
+                ]);
+            }
+
+            $recipientId = null;
+        } else {
+            $targetUserId = null;
+        }
+
+        RoutingRule::create([
+            'id' => Str::uuid(),
+            'template_id' => $data['template_id'],
+            'target_type' => $targetType,
+            'recipient_id' => $recipientId,
+            'target_user_id' => $targetUserId,
+            'condition_field' => $data['condition_field'] ?? null,
+            'condition_operator' => $data['condition_operator'] ?? null,
+            'condition_value' => $data['condition_value'] ?? null,
+            'priority' => (int) ($data['priority'] ?? 0),
+            'is_active' => true,
+        ]);
+
         return back()->with('success', 'Règle de routage créée.')->withInput(['tab' => 'routing']);
     }
 
