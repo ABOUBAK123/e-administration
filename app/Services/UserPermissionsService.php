@@ -30,6 +30,8 @@ class UserPermissionsService
         ]],
         'courrier'                => ['label' => 'Gestion Courrier',       'children' => [
             'courrier.enregistrement'   => 'Enregistrement',
+            'courrier.envoi'            => 'Envoi',
+            'courrier.reception'        => 'Réception',
             'courrier.liste'            => 'Liste des courriers',
             'courrier.imputation'       => 'Imputation',
             'courrier.en-traitement'    => 'En traitement',
