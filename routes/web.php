@@ -178,6 +178,8 @@ Route::middleware('auth')->group(function () {
     // Gestion Courrier
     Route::prefix('courrier')->name('courrier.')->group(function () {
         Route::get('/enregistrement',   [CourrierController::class, 'enregistrement'])->name('enregistrement');
+        Route::get('/envoi',            [CourrierController::class, 'envoi'])->name('envoi');
+        Route::get('/reception',        [CourrierController::class, 'reception'])->name('reception');
         Route::get('/liste',            [CourrierController::class, 'liste'])->name('liste');
         Route::get('/imputation',       [CourrierController::class, 'imputation'])->name('imputation');
         Route::get('/en-traitement',    [CourrierController::class, 'enTraitement'])->name('en-traitement');
@@ -186,6 +188,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/archives',         [CourrierController::class, 'archives'])->name('archives');
         Route::get('/visualiser',       [CourrierController::class, 'visualiser'])->name('visualiser');
         Route::post('/store',           [CourrierController::class, 'store'])->name('store');
+        Route::put('/{courrier}',       [CourrierController::class, 'update'])->name('update');
         Route::post('/scan-ocr',        [CourrierController::class, 'scanOcr'])->name('scan-ocr');
         Route::post('/imputer',         [CourrierController::class, 'imputer'])->name('imputer');
         Route::post('/traiter',         [CourrierController::class, 'traiter'])->name('traiter');

@@ -23,6 +23,10 @@ class Courrier extends Model
         'statut',
         'enregistre_par',
         'administration_id',
+        'emetteur_administration_id',
+        'destinataire_administration_id',
+        'source_document_id',
+        'is_system_generated',
         'sub_entity_code',
         'impute_a',
         'impute_par',
@@ -47,6 +51,7 @@ class Courrier extends Model
         'delai_traitement' => 'date',
         'workflow_participants' => 'array',
         'traite_le' => 'datetime',
+        'is_system_generated' => 'boolean',
     ];
 
     /** Libellé de priorité */
@@ -79,6 +84,21 @@ class Courrier extends Model
     public function administration()
     {
         return $this->belongsTo(IssuingAdministration::class, 'administration_id');
+    }
+
+    public function emetteurAdministration()
+    {
+        return $this->belongsTo(IssuingAdministration::class, 'emetteur_administration_id');
+    }
+
+    public function destinataireAdministration()
+    {
+        return $this->belongsTo(RecipientAdministration::class, 'destinataire_administration_id');
+    }
+
+    public function sourceDocument()
+    {
+        return $this->belongsTo(Document::class, 'source_document_id');
     }
 
     public function imputePar()

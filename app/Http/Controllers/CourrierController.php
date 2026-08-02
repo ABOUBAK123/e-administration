@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Courrier;
 use App\Models\AppSetting;
 use App\Models\Instruction;
+use App\Models\IssuingAdministration;
 use App\Models\Notification;
+use App\Models\RecipientAdministration;
 use App\Models\SubEntity;
 use App\Models\User;
 use App\Models\UserDirectionAssignment;
@@ -24,6 +26,8 @@ class CourrierController extends Controller
 
     private array $subtabs = [
         'enregistrement'  => ['icon' => 'fas fa-plus-circle',   'label' => 'Enregistrement'],
+        'envoi'           => ['icon' => 'fas fa-paper-plane',   'label' => 'Envoi'],
+        'reception'       => ['icon' => 'fas fa-inbox',         'label' => 'Réception'],
         'liste'           => ['icon' => 'fas fa-list',           'label' => 'Liste des courriers'],
         'imputation'      => ['icon' => 'fas fa-share',          'label' => 'Imputation'],
         'en-traitement'   => ['icon' => 'fas fa-spinner',        'label' => 'En traitement'],
@@ -34,6 +38,8 @@ class CourrierController extends Controller
 
     private const SUBTAB_PERMISSION = [
         'enregistrement'   => 'courrier.enregistrement',
+        'envoi'            => 'courrier.liste',
+        'reception'        => 'courrier.liste',
         'liste'            => 'courrier.liste',
         'imputation'       => 'courrier.imputation',
         'en-traitement'    => 'courrier.en-traitement',
@@ -580,10 +586,116 @@ class CourrierController extends Controller
         $typeForm = $request->get('type_courrier', 'arrive');
         $scope = $this->currentUserCourrierScope();
         $scopeCode = $scope['sub_entity_code'] ?? null;
+        $recipientAdministrations = RecipientAdministration::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'code']);
+
         return view('courrier.index', [
             'subtab'         => 'enregistrement',
             'subtabs'        => $this->visibleSubtabs(),
             'prochainNumero' => $this->prochainNumero($typeForm, $scopeCode),
+            'recipientAdministrations' => $recipientAdministrations,
+        ]);
+    }
+
+    public function envoi(Request $request)
+    {
+        $this->guardPermission('courrier.liste');
+
+        $search = trim((string) $request->get('q', ''));
+        $adminId = $this->administrationId();
+        $subEntityCode = $this->subEntityCode();
+
+        $query = Courrier::query()
+            ->with(['enregistrePar', 'destinataireAdministration', 'emetteurAdministration'])
+            ->where('type', 'depart')
+            ->when($adminId, fn ($q) => $q->where('administration_id', $adminId))
+            ->when($subEntityCode, fn ($q) => $q->whereRaw('UPPER(sub_entity_code) = ?', [strtoupper((string) $subEntityCode)]))
+            ->when($search !== '', function ($q) use ($search) {
+                $q->where(function ($qq) use ($search) {
+                    $qq->where('numero', 'like', '%' . $search . '%')
+                        ->orWhere('objet', 'like', '%' . $search . '%')
+                        ->orWhere('destinataire', 'like', '%' . $search . '%');
+                });
+            })
+            ->latest();
+
+        $courriers = $query->get()->map(function (Courrier $c) {
+            $firstFile = is_array($c->pieces_jointes) && count($c->pieces_jointes)
+                ? $c->pieces_jointes[0]
+                : ($c->accuse_reception ?? null);
+
+            return [
+                'id' => (string) $c->id,
+                'num' => (string) $c->numero,
+                'objet' => (string) $c->objet,
+                'priorite' => (string) $c->priorite_libelle,
+                'statut' => (string) $c->statut_libelle,
+                'agent' => (string) ($c->enregistrePar?->name ?? '—'),
+                'destinataire' => (string) ($c->destinataire ?? ''),
+                'destinataire_admin' => (string) ($c->destinataireAdministration?->name ?? '—'),
+                'fichier' => $this->resolveFileUrl($firstFile),
+                'date_emission' => optional($c->date_emission)->format('Y-m-d') ?: '',
+                'numero_emission' => (string) ($c->numero_emission ?? ''),
+                'destinataire_administration_id' => (string) ($c->destinataire_administration_id ?? ''),
+            ];
+        })->values()->toArray();
+
+        return view('courrier.index', [
+            'subtab' => 'envoi',
+            'subtabs' => $this->visibleSubtabs(),
+            'courriersEnvoi' => $courriers,
+            'search' => $search,
+        ]);
+    }
+
+    public function reception(Request $request)
+    {
+        $this->guardPermission('courrier.liste');
+
+        $search = trim((string) $request->get('q', ''));
+        $adminId = $this->administrationId();
+
+        $query = Courrier::query()
+            ->with(['enregistrePar', 'destinataireAdministration', 'emetteurAdministration'])
+            ->where('type', 'depart')
+            ->when($adminId, fn ($q) => $q->where('destinataire_administration_id', $adminId))
+            ->when($search !== '', function ($q) use ($search) {
+                $q->where(function ($qq) use ($search) {
+                    $qq->where('numero', 'like', '%' . $search . '%')
+                        ->orWhere('objet', 'like', '%' . $search . '%')
+                        ->orWhere('expediteur', 'like', '%' . $search . '%');
+                });
+            })
+            ->latest();
+
+        $courriers = $query->get()->map(function (Courrier $c) {
+            $firstFile = is_array($c->pieces_jointes) && count($c->pieces_jointes)
+                ? $c->pieces_jointes[0]
+                : ($c->accuse_reception ?? null);
+
+            return [
+                'id' => (string) $c->id,
+                'num' => (string) $c->numero,
+                'objet' => (string) $c->objet,
+                'priorite' => (string) $c->priorite_libelle,
+                'statut' => (string) $c->statut_libelle,
+                'agent' => (string) ($c->enregistrePar?->name ?? '—'),
+                'expediteur' => (string) ($c->expediteur ?? ''),
+                'emetteur_admin' => (string) ($c->emetteurAdministration?->name ?? '—'),
+                'fichier' => $this->resolveFileUrl($firstFile),
+                'date_emission' => optional($c->date_emission)->format('Y-m-d') ?: '',
+                'numero_emission' => (string) ($c->numero_emission ?? ''),
+                'destinataire_administration_id' => (string) ($c->destinataire_administration_id ?? ''),
+            ];
+        })->values()->toArray();
+
+        return view('courrier.index', [
+            'subtab' => 'reception',
+            'subtabs' => $this->visibleSubtabs(),
+            'courriersReception' => $courriers,
+            'search' => $search,
         ]);
     }
 
@@ -606,7 +718,7 @@ class CourrierController extends Controller
         ];
 
         $archivalThreshold = $this->archivalThreshold();
-        $query = Courrier::with('enregistrePar')
+        $query = Courrier::with(['enregistrePar', 'destinataireAdministration'])
             ->where('sub_entity_code', $code)
             ->when($adminId, fn($q) => $q->where('administration_id', $adminId))
             ->when($filtre === 'arrive',  fn($q) => $q->where('type', 'arrive'))
@@ -629,6 +741,7 @@ class CourrierController extends Controller
         $statutLabel  = ['en_attente' => 'En attente', 'en_traitement' => 'En traitement', 'traite' => 'Traité'];
 
         $courriers = $results->map(fn($c) => [
+            'id'         => (string) $c->id,
             'num'        => $c->numero,
             'objet'      => $c->objet,
             'type'       => $typeLabel[$c->type] ?? $c->type,
@@ -636,6 +749,10 @@ class CourrierController extends Controller
             'statut'     => $statutLabel[$c->statut] ?? $c->statut,
             'agent'      => $c->enregistrePar?->name ?? '—',
             'expediteur' => $c->expediteur ?? '',
+            'destinataire' => $c->destinataire ?? '',
+            'date_emission' => optional($c->date_emission)->format('Y-m-d') ?? '',
+            'numero_emission' => (string) ($c->numero_emission ?? ''),
+            'destinataire_administration_id' => (string) ($c->destinataire_administration_id ?? ''),
             // URL du premier fichier disponible (pour le viewer)
             'fichier'    => $this->resolveFileUrl(
                             is_array($c->pieces_jointes) && count($c->pieces_jointes)
@@ -1307,6 +1424,7 @@ class CourrierController extends Controller
             'date_emission'  => 'required|date',
             'expediteur'     => 'nullable|string',
             'destinataire'   => 'nullable|string',
+            'destinataire_administration_id' => 'required_if:type_courrier,depart|nullable|uuid|exists:recipient_administrations,id',
             'numero_emission'=> 'nullable|string|max:100',
             'observations'   => 'nullable|string',
             'pieces_jointes' => 'nullable|array',
@@ -1347,6 +1465,10 @@ class CourrierController extends Controller
             'statut'           => 'en_attente',
             'enregistre_par'   => Auth::id(),
             'administration_id'=> $adminId,
+            'emetteur_administration_id' => $adminId,
+            'destinataire_administration_id' => $type === 'depart'
+                ? ($validated['destinataire_administration_id'] ?? null)
+                : null,
             'sub_entity_code'  => $subEntityCode,
             'pieces_jointes'   => $pjPaths ?: null,
             'accuse_reception' => $accusePath,
@@ -1356,5 +1478,55 @@ class CourrierController extends Controller
 
         return redirect()->route('courrier.enregistrement', ['type_courrier' => $type])
             ->with('success', 'Courrier n° ' . $numero . ' enregistré avec succès.');
+    }
+
+    public function update(Request $request, Courrier $courrier)
+    {
+        $this->guardPermission('courrier.liste');
+
+        $adminId = $this->administrationId();
+        abort_if(!$adminId || (string) $courrier->administration_id !== (string) $adminId, 403);
+
+        $validated = $request->validate([
+            'objet' => 'required|string|max:500',
+            'urgence' => 'required|in:normale,urgent,tres_urgent',
+            'date_emission' => 'nullable|date',
+            'numero_emission' => 'nullable|string|max:100',
+            'expediteur' => 'nullable|string',
+            'destinataire' => 'nullable|string',
+            'destinataire_administration_id' => 'nullable|uuid|exists:recipient_administrations,id',
+            'accuse_reception' => 'nullable|file|max:10240',
+            'fichier' => 'nullable|file|max:10240',
+        ]);
+
+        $updates = [
+            'objet' => $validated['objet'],
+            'urgence' => $validated['urgence'],
+            'date_emission' => $validated['date_emission'] ?? $courrier->date_emission,
+            'numero_emission' => $validated['numero_emission'] ?? null,
+            'expediteur' => $validated['expediteur'] ?? null,
+            'destinataire' => $validated['destinataire'] ?? null,
+        ];
+
+        if ($courrier->type === 'depart') {
+            $updates['destinataire_administration_id'] = $validated['destinataire_administration_id'] ?? $courrier->destinataire_administration_id;
+        }
+
+        if ($request->hasFile('accuse_reception')) {
+            ClamAvScanner::scan($request->file('accuse_reception'), 'courriers');
+            $updates['accuse_reception'] = $request->file('accuse_reception')->store('courriers/accuses', 'public');
+        }
+
+        if ($request->hasFile('fichier')) {
+            ClamAvScanner::scan($request->file('fichier'), 'courriers');
+            $path = $request->file('fichier')->store('courriers/pieces_jointes', 'public');
+            $currentAttachments = is_array($courrier->pieces_jointes) ? $courrier->pieces_jointes : [];
+            array_unshift($currentAttachments, $path);
+            $updates['pieces_jointes'] = array_values(array_unique($currentAttachments));
+        }
+
+        $courrier->update($updates);
+
+        return back()->with('success', 'Courrier n° ' . $courrier->numero . ' mis à jour avec succès.');
     }
 }

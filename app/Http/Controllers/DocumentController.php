@@ -7,6 +7,7 @@ use App\Models\DocumentShare;
 use App\Models\DocumentVersion;
 use App\Models\DocumentUserPreference;
 use App\Models\ActRequestSubmission;
+use App\Models\Courrier;
 use App\Models\Notification;
 use App\Models\RecipientAdministration;
 use App\Models\User;
@@ -33,6 +34,120 @@ use Illuminate\Support\Str;
 class DocumentController extends Controller
 {
     use GuardsPermissions;
+
+    private function isCourrierDepartTagged(Document $document): bool
+    {
+        $haystack = mb_strtolower(
+            trim((string) ($document->title ?? '')) . ' ' . trim((string) ($document->description ?? '')),
+            'UTF-8'
+        );
+
+        if ($haystack === '') {
+            return false;
+        }
+
+        return str_contains($haystack, 'courrier depart')
+            || str_contains($haystack, 'courrier-départ')
+            || str_contains($haystack, '[courrier_depart]')
+            || str_contains($haystack, '#courrier_depart');
+    }
+
+    private function currentUserCourrierScope(): ?array
+    {
+        $user = Auth::user();
+        $adminId = (string) ($user?->profile?->administration_id ?? '');
+        if ($adminId === '') {
+            return null;
+        }
+
+        $subEntityCode = strtoupper(trim((string) (UserDirectionAssignment::query()
+            ->where('user_id', (string) Auth::id())
+            ->value('sub_entity_code') ?? '')));
+
+        if ($subEntityCode === '') {
+            return null;
+        }
+
+        return [
+            'administration_id' => $adminId,
+            'sub_entity_code' => $subEntityCode,
+        ];
+    }
+
+    private function nextCourrierDepartNumber(string $administrationId, string $subEntityCode): string
+    {
+        $year = (int) date('Y');
+
+        $count = Courrier::query()
+            ->where('type', 'depart')
+            ->where('administration_id', $administrationId)
+            ->whereRaw('UPPER(sub_entity_code) = ?', [strtoupper(trim($subEntityCode))])
+            ->whereYear('created_at', $year)
+            ->count();
+
+        $seq = str_pad((string) ($count + 1), 5, '0', STR_PAD_LEFT);
+        return 'D-' . strtoupper(trim($subEntityCode)) . '-' . $seq . '-' . $year;
+    }
+
+    private function upsertSystemCourrierDepartFromDocument(Document $document, string $recipientAdministrationId): ?Courrier
+    {
+        if (!$this->isCourrierDepartTagged($document)) {
+            return null;
+        }
+
+        if (!in_array((string) $document->status, ['signed', 'sent'], true)) {
+            return null;
+        }
+
+        $scope = $this->currentUserCourrierScope();
+        if (!$scope) {
+            return null;
+        }
+
+        $adminId = (string) $scope['administration_id'];
+        $subEntityCode = (string) $scope['sub_entity_code'];
+
+        $existing = Courrier::query()
+            ->where('type', 'depart')
+            ->where('source_document_id', $document->id)
+            ->first();
+
+        $filePath = ltrim(str_replace('/storage/', '', (string) ($document->final_file_path ?: $document->file_path ?: '')), '/');
+        $piecesJointes = $filePath !== '' ? [$filePath] : null;
+
+        if ($existing) {
+            $existing->update([
+                'destinataire_administration_id' => $recipientAdministrationId,
+                'destinataire' => (string) (RecipientAdministration::query()->whereKey($recipientAdministrationId)->value('name') ?? ''),
+                'objet' => (string) ($document->title ?? 'Courrier départ'),
+                'pieces_jointes' => $piecesJointes,
+            ]);
+
+            return $existing;
+        }
+
+        $numero = $this->nextCourrierDepartNumber($adminId, $subEntityCode);
+
+        return Courrier::create([
+            'id' => (string) Str::uuid(),
+            'numero' => $numero,
+            'type' => 'depart',
+            'objet' => (string) ($document->title ?? 'Courrier départ'),
+            'expediteur' => (string) (Auth::user()?->name ?? ''),
+            'destinataire' => (string) (RecipientAdministration::query()->whereKey($recipientAdministrationId)->value('name') ?? ''),
+            'urgence' => 'normale',
+            'date_emission' => now()->toDateString(),
+            'statut' => 'en_attente',
+            'enregistre_par' => (string) Auth::id(),
+            'administration_id' => $adminId,
+            'emetteur_administration_id' => $adminId,
+            'destinataire_administration_id' => $recipientAdministrationId,
+            'source_document_id' => (string) $document->id,
+            'is_system_generated' => true,
+            'sub_entity_code' => $subEntityCode,
+            'pieces_jointes' => $piecesJointes,
+        ]);
+    }
 
     public function index(Request $request)
     {
@@ -93,6 +208,11 @@ class DocumentController extends Controller
             ->orWhereIn('id', $sharedDocumentIds)
             ->latest()
             ->get();
+
+        $courrierScope = $this->currentUserCourrierScope();
+        $nextCourrierDepart = $courrierScope
+            ? $this->nextCourrierDepartNumber((string) $courrierScope['administration_id'], (string) $courrierScope['sub_entity_code'])
+            : null;
 
         $documentAccessPermissions = [];
         foreach ($documents as $document) {
@@ -226,6 +346,7 @@ class DocumentController extends Controller
             'internalSubEntities',
             'onlyofficeUrl',
             'documentAccessPermissions',
+            'nextCourrierDepart',
             'actValidationByDocument'
         ));
     }
@@ -1028,6 +1149,8 @@ class DocumentController extends Controller
             if ($document->status !== 'sent') {
                 $document->update(['status' => 'sent']);
             }
+
+            $this->upsertSystemCourrierDepartFromDocument($document, (string) $recipientAdministration->id);
         }
 
         $sharesTotal = DocumentShare::where('document_id', $document->id)->count();

@@ -20,6 +20,9 @@
         'mime_type'    => $d->mime_type,
         'status'       => $d->status,
         'shares_count' => $sharesCount[$d->id] ?? 0,
+        'is_courrier_depart_tagged' => str_contains(mb_strtolower(trim((string) ($d->title ?? '')) . ' ' . trim((string) ($d->description ?? '')), 'UTF-8'), 'courrier depart')
+            || str_contains(mb_strtolower(trim((string) ($d->title ?? '')) . ' ' . trim((string) ($d->description ?? '')), 'UTF-8'), '[courrier_depart]'),
+        'next_courrier_depart_number' => $nextCourrierDepart ?? null,
         'act_validation' => $actValidationByDocument[(string) $d->id] ?? null,
         'created_at'   => $d->created_at?->toISOString(),
         'updated_at'   => $d->updated_at?->toISOString(),
@@ -879,6 +882,9 @@ function renderTable() {
                     <div class="min-w-0">
                         <span class="font-medium text-gray-800 block truncate">${doc.title}</span>
                         ${canShare ? '' : `<span class="inline-flex items-center rounded-md bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold">Partagé avec moi • ${doc.can_edit_content ? 'Modification' : 'Lecture seule'}</span>`}
+                        ${(doc.is_courrier_depart_tagged && doc.next_courrier_depart_number)
+                            ? `<span class="inline-flex items-center rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 text-[10px] font-semibold mt-1">N° courrier départ disponible: ${doc.next_courrier_depart_number}</span>`
+                            : ''}
                         ${labels.length > 0 ? `<div class="mt-1 flex flex-wrap gap-1">${labelsHtml}</div>` : ''}
                     </div>
                 </div>

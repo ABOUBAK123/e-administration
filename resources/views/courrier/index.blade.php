@@ -146,6 +146,21 @@
                 </div>
             </div>
 
+            @if($typeForm === 'depart')
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Administration destinataire <span class="text-red-500">*</span></label>
+                <select name="destinataire_administration_id" required
+                    class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50">
+                    <option value="">Sélectionner une administration destinataire</option>
+                    @foreach(($recipientAdministrations ?? collect()) as $recipientAdmin)
+                    <option value="{{ $recipientAdmin->id }}">
+                        {{ $recipientAdmin->name }}{{ !empty($recipientAdmin->code) ? ' (' . $recipientAdmin->code . ')' : '' }}
+                    </option>
+                    @endforeach
+                </select>
+            </div>
+            @endif
+
             <div>
                 <label class="block text-xs font-semibold text-gray-700 mb-1">Fichiers joints</label>
                 <div class="border-2 border-dashed border-gray-200 rounded-xl px-4 py-6 text-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer"
@@ -335,6 +350,119 @@ function updateAccuseLabel(input) {
 @endpush
 
 {{-- ─────────────── LISTE DES COURRIERS ─────────────── --}}
+@elseif($subtab === 'envoi')
+@php $rows = $courriersEnvoi ?? []; @endphp
+
+<div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+    <h2 class="text-2xl font-bold text-gray-900">Envoi des Courriers Départ</h2>
+    <span class="text-xs bg-blue-50 text-blue-700 border border-blue-100 px-3 py-1.5 rounded-full font-semibold">{{ count($rows) }} courrier(s)</span>
+</div>
+
+<form method="GET" action="{{ route('courrier.envoi') }}" class="mb-5">
+    <div class="flex flex-wrap gap-3 items-center">
+        <div class="flex-1 min-w-[220px] relative">
+            <input type="text" name="q" value="{{ $search ?? '' }}" placeholder="Rechercher (numéro, objet, destinataire)..."
+                class="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 placeholder-gray-400">
+            <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>
+        </div>
+        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition">Filtrer</button>
+    </div>
+</form>
+
+<div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-gray-200">
+                <th class="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Numéro</th>
+                <th class="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Objet</th>
+                <th class="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Admin destinataire</th>
+                <th class="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Statut</th>
+                <th class="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Agent</th>
+                <th class="text-right px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            @forelse($rows as $c)
+            <tr class="hover:bg-gray-50 transition">
+                <td class="px-6 py-4 font-bold text-gray-900">{{ $c['num'] }}</td>
+                <td class="px-6 py-4 text-gray-700">{{ $c['objet'] }}</td>
+                <td class="px-6 py-4 text-gray-700">{{ $c['destinataire_admin'] ?? '—' }}</td>
+                <td class="px-6 py-4"><span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">{{ $c['statut'] }}</span></td>
+                <td class="px-6 py-4 text-gray-700">{{ $c['agent'] }}</td>
+                <td class="px-6 py-4 text-right">
+                    <div class="flex items-center justify-end gap-2">
+                        <button onclick="openPdfModal('{{ $c['fichier'] ?? '' }}', '{{ addslashes($c['num']) }}')" class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 transition" title="Voir" style="color:#3b82f6;">
+                            <i class="fa-solid fa-eye text-sm"></i>
+                        </button>
+                        <button onclick="openEditModal('{{ $c['id'] }}','{{ $c['num'] }}','{{ addslashes($c['objet']) }}','Départ','{{ $c['priorite'] }}','{{ $c['date_emission'] }}','{{ addslashes($c['numero_emission']) }}','{{ addslashes($c['destinataire'] ?? '') }}','{{ $c['destinataire_administration_id'] ?? '' }}')"
+                            class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-50 hover:bg-amber-100 transition" title="Modifier" style="color:#d97706;">
+                            <i class="fa-solid fa-pen-to-square text-sm"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            @empty
+            <tr>
+                <td colspan="6" class="px-6 py-16 text-center text-gray-400">Aucun courrier départ.</td>
+            </tr>
+            @endforelse
+        </tbody>
+    </table>
+</div>
+
+@elseif($subtab === 'reception')
+@php $rows = $courriersReception ?? []; @endphp
+
+<div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+    <h2 class="text-2xl font-bold text-gray-900">Réception des Courriers Départ</h2>
+    <span class="text-xs bg-indigo-50 text-indigo-700 border border-indigo-100 px-3 py-1.5 rounded-full font-semibold">{{ count($rows) }} courrier(s)</span>
+</div>
+
+<form method="GET" action="{{ route('courrier.reception') }}" class="mb-5">
+    <div class="flex flex-wrap gap-3 items-center">
+        <div class="flex-1 min-w-[220px] relative">
+            <input type="text" name="q" value="{{ $search ?? '' }}" placeholder="Rechercher (numéro, objet, expéditeur)..."
+                class="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 placeholder-gray-400">
+            <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>
+        </div>
+        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition">Filtrer</button>
+    </div>
+</form>
+
+<div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-gray-200">
+                <th class="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Numéro</th>
+                <th class="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Objet</th>
+                <th class="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Admin émettrice</th>
+                <th class="text-left px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Statut</th>
+                <th class="text-right px-6 py-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            @forelse($rows as $c)
+            <tr class="hover:bg-gray-50 transition">
+                <td class="px-6 py-4 font-bold text-gray-900">{{ $c['num'] }}</td>
+                <td class="px-6 py-4 text-gray-700">{{ $c['objet'] }}</td>
+                <td class="px-6 py-4 text-gray-700">{{ $c['emetteur_admin'] ?? '—' }}</td>
+                <td class="px-6 py-4"><span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">{{ $c['statut'] }}</span></td>
+                <td class="px-6 py-4 text-right">
+                    <button onclick="openPdfModal('{{ $c['fichier'] ?? '' }}', '{{ addslashes($c['num']) }}')" class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 transition" title="Voir" style="color:#3b82f6;">
+                        <i class="fa-solid fa-eye text-sm"></i>
+                    </button>
+                </td>
+            </tr>
+            @empty
+            <tr>
+                <td colspan="5" class="px-6 py-16 text-center text-gray-400">Aucun courrier reçu.</td>
+            </tr>
+            @endforelse
+        </tbody>
+    </table>
+</div>
+
+{{-- ─────────────── LISTE DES COURRIERS ─────────────── --}}
 @elseif($subtab === 'liste')
 
 {{-- Header --}}
@@ -445,7 +573,7 @@ function updateAccuseLabel(input) {
                             <i class="fa-solid fa-eye text-sm"></i>
                         </button>
                         @if(($c['statut'] ?? '') !== 'Traité')
-                        <button onclick="openEditModal('{{ $c['num'] }}','{{ addslashes($c['objet']) }}','{{ $c['type'] }}','{{ $c['priorite'] }}','','','{{ addslashes($c['expediteur'] ?? '') }}')"
+                        <button onclick="openEditModal('{{ $c['id'] ?? '' }}','{{ $c['num'] }}','{{ addslashes($c['objet']) }}','{{ $c['type'] }}','{{ $c['priorite'] }}','{{ $c['date_emission'] ?? '' }}','{{ addslashes($c['numero_emission'] ?? '') }}','{{ addslashes(($c['type'] ?? '') === 'Départ' ? ($c['destinataire'] ?? '') : ($c['expediteur'] ?? '')) }}','{{ $c['destinataire_administration_id'] ?? '' }}')"
                             class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-50 hover:bg-amber-100 transition" title="Modifier" style="color:#d97706;">
                             <i class="fa-solid fa-pen-to-square text-sm"></i>
                         </button>
@@ -1178,6 +1306,13 @@ document.addEventListener('keydown', function(e) {
 </div>
 
 {{-- Modal Modifier Courrier --}}
+@php
+    $recipientAdminOptions = \App\Models\RecipientAdministration::query()
+        ->where('is_active', true)
+        ->orderBy('name')
+        ->get(['id', 'name', 'code']);
+@endphp
+
 <div id="modal-edit" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
     <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeEditModal()"></div>
     <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style="max-height:90vh">
@@ -1190,7 +1325,7 @@ document.addEventListener('keydown', function(e) {
                 <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
-        <form method="POST" action="{{ route('courrier.store') }}" enctype="multipart/form-data" class="flex flex-col flex-1 min-h-0">
+        <form method="POST" action="#" id="form-edit-courrier" enctype="multipart/form-data" class="flex flex-col flex-1 min-h-0">
             <div class="overflow-y-auto flex-1 p-5 space-y-4">
             @csrf
             @method('PUT')
@@ -1227,6 +1362,16 @@ document.addEventListener('keydown', function(e) {
                 <label id="edit-expediteur-label" class="block text-xs font-semibold text-gray-700 mb-1">Expéditeur</label>
                 <textarea name="expediteur" id="edit-expediteur" rows="2"
                     class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-gray-50 resize-none"></textarea>
+            </div>
+            <div id="edit-destinataire-admin-block" class="hidden">
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Administration destinataire</label>
+                <select id="edit-destinataire-admin" name="destinataire_administration_id"
+                    class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-gray-50">
+                    <option value="">Sélectionner une administration destinataire</option>
+                    @foreach($recipientAdminOptions as $recipientAdmin)
+                    <option value="{{ $recipientAdmin->id }}">{{ $recipientAdmin->name }}{{ !empty($recipientAdmin->code) ? ' (' . $recipientAdmin->code . ')' : '' }}</option>
+                    @endforeach
+                </select>
             </div>
             <div id="edit-accuse-block" class="hidden">
                 <label class="block text-xs font-semibold text-gray-700 mb-1">Accusé de réception</label>
@@ -1347,6 +1492,7 @@ document.addEventListener('keydown', function(e) {
 
 @push('scripts')
 <script>
+var __courrierUpdateUrlTemplate = @json(url('/courrier/__ID__'));
 /* ── Config viewer (injectée depuis le controller) ── */
 var __ooViewer = @json($ooViewer ?? 'native');
 var __ooUrl    = @json($ooUrl    ?? '');
@@ -1387,8 +1533,11 @@ function closePdfModal() {
     document.body.style.overflow = '';
 }
 /* ── Edit ── */
-function openEditModal(num, objet, type, priorite, dateEmission, numeroEmission, expediteur) {
+function openEditModal(id, num, objet, type, priorite, dateEmission, numeroEmission, expediteur, destinataireAdminId) {
     var isDepart = type === 'Départ';
+    if (id) {
+        document.getElementById('form-edit-courrier').action = __courrierUpdateUrlTemplate.replace('__ID__', id);
+    }
     document.getElementById('edit-num').textContent = num;
     document.getElementById('edit-num-hidden').value = num;
     document.getElementById('edit-objet').value = objet;
@@ -1396,6 +1545,12 @@ function openEditModal(num, objet, type, priorite, dateEmission, numeroEmission,
     document.getElementById('edit-numero-emission').value = numeroEmission || '';
     document.getElementById('edit-expediteur').value = expediteur || '';
     document.getElementById('edit-expediteur-label').textContent = isDepart ? 'Destinataire' : 'Expéditeur';
+    var destAdminBlock = document.getElementById('edit-destinataire-admin-block');
+    var destAdminSelect = document.getElementById('edit-destinataire-admin');
+    destAdminBlock.classList.toggle('hidden', !isDepart);
+    if (isDepart && destAdminSelect) {
+        destAdminSelect.value = destinataireAdminId || '';
+    }
     var accuseBlock = document.getElementById('edit-accuse-block');
     if (isDepart) { accuseBlock.classList.remove('hidden'); }
     else { accuseBlock.classList.add('hidden'); document.getElementById('edit-accuse-input').value = ''; document.getElementById('edit-accuse-label').classList.add('hidden'); }
