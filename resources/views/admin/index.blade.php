@@ -7379,6 +7379,9 @@ document.addEventListener('DOMContentLoaded', function() {
     $editAct    = ($actAction === 'edit' && $selActId) ? $requestedActs->firstWhere('id', $selActId) : null;
     $actAdminId = old('administration_id', $editAct?->administration_id ?? '');
     $actDirCode = old('direction_code',    $editAct?->direction_code    ?? '');
+    $actAutoEnabled = old('auto_generate_enabled', $editAct?->auto_generate_enabled ? '1' : '0') === '1';
+    $actAutoTemplateId = old('auto_template_id', $editAct?->auto_template_id ?? '');
+    $actUniqueKeyField = old('unique_key_field', $editAct?->unique_key_field ?? '');
 @endphp
 
 <div class="grid grid-cols-1 xl:grid-cols-[1fr_1.1fr] gap-5">
@@ -7440,6 +7443,41 @@ document.addEventListener('DOMContentLoaded', function() {
       <input type="text" name="document_name" value="{{ old('document_name', $editAct?->document_name) }}"
         placeholder="Nom du document" required
         class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
+
+      <div class="rounded-xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
+        <div class="flex items-start gap-3">
+          <input type="hidden" name="auto_generate_enabled" value="0">
+          <input type="checkbox" id="act-auto-generate" name="auto_generate_enabled" value="1" {{ $actAutoEnabled ? 'checked' : '' }}
+            onchange="toggleActAutoGenerateFields()"
+            class="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400">
+          <div>
+            <label for="act-auto-generate" class="text-sm font-semibold text-gray-800">Auto-génération à partir de la 2e demande publique</label>
+            <p class="text-xs text-gray-600 mt-0.5">Un utilisateur partagé sur le template pourra valider, et la première validation clôture l'attente.</p>
+          </div>
+        </div>
+
+        <div id="act-auto-fields" class="grid grid-cols-1 md:grid-cols-2 gap-3 {{ $actAutoEnabled ? '' : 'hidden' }}">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Template de génération</label>
+            <select name="auto_template_id" id="act-auto-template"
+              class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
+              <option value="">Sélectionner un template</option>
+              @foreach($requestedActTemplates as $tplOption)
+              <option value="{{ $tplOption->id }}" {{ (string) $actAutoTemplateId === (string) $tplOption->id ? 'selected' : '' }}>{{ $tplOption->name }}</option>
+              @endforeach
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Champ clé unique</label>
+            <input type="text" name="unique_key_field" id="act-unique-key-field"
+              value="{{ $actUniqueKeyField }}"
+              placeholder="Ex: numero_cni ou applicant_email"
+              class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
+            <p class="text-[11px] text-gray-500 mt-1">Utilisez un champ usager (slug) ou un champ de base: applicant_email, applicant_phone.</p>
+          </div>
+        </div>
+      </div>
 
       <div class="space-y-2">
         <label class="text-xs font-semibold text-gray-700">Liste des documents a fournir</label>
@@ -7520,6 +7558,9 @@ document.addEventListener('DOMContentLoaded', function() {
         <p class="text-sm font-semibold text-gray-800">{{ $act->document_name }}</p>
         <p class="text-xs text-gray-600">Administration : {{ $act->administration?->name ?? '&mdash;' }}</p>
         <p class="text-xs text-gray-600">Direction : {{ $act->direction_code ?? '&mdash;' }}</p>
+        @if($act->auto_generate_enabled)
+        <p class="text-xs text-amber-700">Auto-génération active · Template: {{ $act->autoTemplate?->name ?? '—' }} · Clé: {{ $act->unique_key_field ?? '—' }}</p>
+        @endif
         <p class="text-xs text-gray-400">Cree le {{ $act->created_at->format('d/m/Y H:i') }}</p>
         @if(!empty($act->required_documents))
         <div class="pt-1">
@@ -7608,6 +7649,14 @@ function actFilterDirections(adminId) {
     });
     if (sel.value && sel.selectedOptions[0] && sel.selectedOptions[0].dataset.admin !== adminId) sel.value = '';
 }
+
+function toggleActAutoGenerateFields() {
+  var checkbox = document.getElementById('act-auto-generate');
+  var wrapper = document.getElementById('act-auto-fields');
+  if (!checkbox || !wrapper) return;
+  wrapper.classList.toggle('hidden', !checkbox.checked);
+}
+
 function actSearch(q) {
     q = q.toLowerCase().trim();
     var vis = 0, tot = 0;
@@ -7623,6 +7672,7 @@ document.addEventListener('DOMContentLoaded', function() {
     actRenderDocs(); actRenderFields();
     var a = document.getElementById('act-admin-select');
     if (a && a.value) actFilterDirections(a.value);
+    toggleActAutoGenerateFields();
 });
 </script>
 @endpush

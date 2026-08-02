@@ -3,12 +3,20 @@
 namespace App\Http\Controllers;
 
 use App\Models\ActRequestSubmission;
+use App\Models\AppSetting;
+use App\Models\Document;
+use App\Models\DocumentShare;
+use App\Models\DocumentTemplate;
+use App\Models\DocumentVersion;
 use App\Models\IssuingAdministration;
 use App\Models\RecipientAdministration;
 use App\Models\RequestedAct;
 use App\Models\SubEntity;
+use App\Models\User;
+use App\Services\Templates\TemplateGenerationCoreService;
 use App\Services\ClamAvScanner;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class PublicActRequestController extends Controller
@@ -55,6 +63,241 @@ class PublicActRequestController extends Controller
             ->replace("'", '_')
             ->replaceMatches('/[^a-z0-9]+/', '_')
             ->trim('_');
+    }
+
+    private function normalizeUniqueKeyValue(?string $value): ?string
+    {
+        $raw = trim((string) ($value ?? ''));
+        if ($raw === '') {
+            return null;
+        }
+
+        $ascii = Str::of($raw)->ascii()->lower()->toString();
+        $normalized = preg_replace('/[^a-z0-9]+/', '', $ascii) ?: '';
+
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    private function resolveUniqueKeyValue(RequestedAct $requestedAct, Request $request, array $extraPayload): ?string
+    {
+        $configuredField = trim((string) ($requestedAct->unique_key_field ?? ''));
+        if ($configuredField === '') {
+            return null;
+        }
+
+        $configuredSlug = $this->buildDocKey($configuredField);
+
+        $candidates = [
+            $configuredField,
+            $configuredSlug,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if ($candidate === '') {
+                continue;
+            }
+
+            $extraValue = $extraPayload[$candidate] ?? null;
+            if (is_string($extraValue) && trim($extraValue) !== '') {
+                return $this->normalizeUniqueKeyValue($extraValue);
+            }
+
+            $requestValue = $request->input($candidate);
+            if (is_string($requestValue) && trim($requestValue) !== '') {
+                return $this->normalizeUniqueKeyValue($requestValue);
+            }
+        }
+
+        $basePayload = [
+            'applicant_full_name' => (string) $request->input('applicant_full_name', ''),
+            'applicant_email' => (string) $request->input('applicant_email', ''),
+            'applicant_phone' => (string) $request->input('applicant_phone', ''),
+        ];
+
+        if (array_key_exists($configuredSlug, $basePayload)) {
+            return $this->normalizeUniqueKeyValue((string) $basePayload[$configuredSlug]);
+        }
+
+        return null;
+    }
+
+    private function sharedTemplateUserIds(string $templateId): array
+    {
+        $shareMapRaw = AppSetting::where('key', 'template_share_map')->value('value');
+        $shareMap = [];
+        if ($shareMapRaw) {
+            try {
+                $shareMap = json_decode((string) $shareMapRaw, true, 512, JSON_THROW_ON_ERROR);
+            } catch (\Throwable $e) {
+                $shareMap = [];
+            }
+        }
+
+        $raw = (array) ($shareMap[$templateId] ?? []);
+
+        return array_values(array_unique(array_map('strval', array_filter($raw, fn ($id) => trim((string) $id) !== ''))));
+    }
+
+    private function buildTemplateValues(ActRequestSubmission $submission): array
+    {
+        $payload = is_array($submission->applicant_payload) ? $submission->applicant_payload : [];
+
+        return array_merge($payload, [
+            'applicant_full_name' => (string) ($submission->applicant_full_name ?? ''),
+            'applicant_email' => (string) ($submission->applicant_email ?? ''),
+            'applicant_phone' => (string) ($submission->applicant_phone ?? ''),
+            'tracking_number' => (string) ($submission->tracking_number ?? ''),
+            'requested_document_name' => (string) ($submission->requested_document_name ?? ''),
+            'date_du_jour' => now()->locale('fr')->isoFormat('D MMMM YYYY'),
+        ]);
+    }
+
+    private function applyTemplateValues(DocumentTemplate $template, array $values, TemplateGenerationCoreService $core): string
+    {
+        $content = (string) ($template->content ?? '');
+
+        if ($content === '') {
+            return '';
+        }
+
+        $template->loadMissing('variables');
+        $contentVarMap = $core->extractContentVariables($content);
+        $replacements = $core->buildReplacementMap($template, $contentVarMap, []);
+
+        foreach ($replacements as $slug => $original) {
+            $lookupKeys = [$slug, $core->slugify((string) $original)];
+            $replacementValue = '';
+            foreach ($lookupKeys as $lookupKey) {
+                if ($lookupKey !== '' && array_key_exists($lookupKey, $values)) {
+                    $replacementValue = (string) ($values[$lookupKey] ?? '');
+                    break;
+                }
+            }
+
+            $patterns = [
+                '/\{\{\s*' . preg_quote((string) $original, '/') . '\s*\}\}/u',
+                '/\[' . preg_quote((string) $original, '/') . '\]/u',
+            ];
+
+            if ($slug !== (string) $original) {
+                $patterns[] = '/\{\{\s*' . preg_quote((string) $slug, '/') . '\s*\}\}/u';
+                $patterns[] = '/\[' . preg_quote((string) $slug, '/') . '\]/u';
+            }
+
+            foreach ($patterns as $pattern) {
+                $content = preg_replace($pattern, $replacementValue, $content) ?? $content;
+            }
+        }
+
+        return $content;
+    }
+
+    private function generateDocumentForSubmission(RequestedAct $requestedAct, ActRequestSubmission $submission): ?Document
+    {
+        if (!(bool) ($requestedAct->auto_generate_enabled ?? false)) {
+            return null;
+        }
+
+        $templateId = (string) ($requestedAct->auto_template_id ?? '');
+        if ($templateId === '') {
+            return null;
+        }
+
+        $template = DocumentTemplate::query()->with('variables')->find($templateId);
+        if (!$template) {
+            return null;
+        }
+
+        $sharedUserIds = $this->sharedTemplateUserIds((string) $template->id);
+        if (empty($sharedUserIds)) {
+            return null;
+        }
+
+        $usersById = User::query()
+            ->whereIn('id', $sharedUserIds)
+            ->get(['id', 'email'])
+            ->keyBy('id');
+
+        $eligibleUserIds = array_values(array_filter($sharedUserIds, fn ($id) => $usersById->has($id)));
+        if (empty($eligibleUserIds)) {
+            return null;
+        }
+
+        $ownerUserId = (string) $eligibleUserIds[0];
+        $core = app(TemplateGenerationCoreService::class);
+        $values = $this->buildTemplateValues($submission);
+        $rendered = $this->applyTemplateValues($template, $values, $core);
+
+        if (trim(strip_tags($rendered)) === '') {
+            $rendered = '<h2>Demande d\'acte</h2>'
+                . '<p><strong>Document:</strong> ' . e((string) ($submission->requested_document_name ?? '')) . '</p>'
+                . '<p><strong>Demandeur:</strong> ' . e((string) ($submission->applicant_full_name ?? '')) . '</p>'
+                . '<p><strong>Email:</strong> ' . e((string) ($submission->applicant_email ?? '')) . '</p>'
+                . '<p><strong>Téléphone:</strong> ' . e((string) ($submission->applicant_phone ?? '')) . '</p>'
+                . '<p><strong>N° suivi:</strong> ' . e((string) ($submission->tracking_number ?? '')) . '</p>';
+        }
+
+        if (!str_contains(strtolower($rendered), '<html')) {
+            $rendered = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+                . '<title>Acte auto-généré</title>'
+                . '<style>body{font-family:Arial,sans-serif;margin:24px;color:#111827;line-height:1.5;}h2{margin:0 0 12px;}p{margin:6px 0;}</style>'
+                . '</head><body>' . $rendered . '</body></html>';
+        }
+
+        $numbering = $core->reserveDocumentNumber($template, $ownerUserId);
+        $docNumber = $numbering['document_number'] ?? null;
+        $subEntityCode = $numbering['sub_entity_code'] ?? null;
+        $issuingAdministrationId = $numbering['issuing_administration_id'] ?? null;
+
+        $storedFile = 'documents/act-auto-' . $submission->id . '-' . now()->format('YmdHis') . '.html';
+        Storage::disk('public')->put($storedFile, $rendered);
+        $publicPath = '/storage/' . $storedFile;
+
+        $document = Document::create([
+            'id' => (string) Str::uuid(),
+            'title' => 'Acte auto-généré - ' . (string) ($submission->requested_document_name ?? 'Document'),
+            'description' => 'Auto-généré depuis demande publique #' . (string) ($submission->tracking_number ?? $submission->id),
+            'file_path' => $publicPath,
+            'final_file_path' => $publicPath,
+            'file_size' => strlen($rendered),
+            'mime_type' => 'text/html',
+            'status' => 'active',
+            'owner_id' => $ownerUserId,
+            'created_by' => $ownerUserId,
+            'document_number' => $docNumber,
+            'sub_entity_code' => $subEntityCode,
+            'issuing_administration_id' => $issuingAdministrationId,
+        ]);
+
+        DocumentVersion::create([
+            'id' => (string) Str::uuid(),
+            'document_id' => $document->id,
+            'version' => 1,
+            'file_path' => $publicPath,
+            'creator_id' => $ownerUserId,
+            'change_log' => 'Auto-génération depuis demande publique',
+        ]);
+
+        foreach ($eligibleUserIds as $userId) {
+            $recipientEmail = (string) ($usersById->get($userId)->email ?? '');
+
+            DocumentShare::query()->firstOrCreate(
+                [
+                    'document_id' => $document->id,
+                    'mode' => 'internal',
+                    'recipient_name' => 'user:' . $userId,
+                ],
+                [
+                    'id' => (string) Str::uuid(),
+                    'shared_by' => $ownerUserId,
+                    'recipient_email' => $recipientEmail !== '' ? $recipientEmail : null,
+                    'permission' => 'modification',
+                    'has_delay' => false,
+                ]
+            );
+        }
+
+        return $document;
     }
 
     public function index()
@@ -268,10 +511,12 @@ class PublicActRequestController extends Controller
         $directionCode = trim((string) ($requestedAct->direction_code ?: $request->input('direction_code', '')));
         $trackingNumber = $this->generateTrackingNumber();
         $trackingToken = $this->generateTrackingToken();
+        $uniqueKeyValue = $this->resolveUniqueKeyValue($requestedAct, $request, $extraPayload);
 
         $submission = ActRequestSubmission::create([
             'tracking_number'             => $trackingNumber,
             'tracking_token'              => $trackingToken,
+            'unique_key_value'            => $uniqueKeyValue,
             'requested_act_id'            => $requestedAct->id,
             'emitter_administration_id'   => $administration->id,
             'direction_code'              => $directionCode,
@@ -287,6 +532,27 @@ class PublicActRequestController extends Controller
             'attachments'                 => $attachments,
             'status'                      => 'pending',
         ]);
+
+        $isAutoGenerationEnabled = (bool) ($requestedAct->auto_generate_enabled ?? false);
+        if ($isAutoGenerationEnabled && $uniqueKeyValue) {
+            $hasPreviousSubmission = ActRequestSubmission::query()
+                ->where('requested_act_id', $requestedAct->id)
+                ->where('unique_key_value', $uniqueKeyValue)
+                ->where('id', '!=', $submission->id)
+                ->exists();
+
+            if ($hasPreviousSubmission) {
+                $generatedDocument = $this->generateDocumentForSubmission($requestedAct, $submission);
+
+                if ($generatedDocument) {
+                    $submission->update([
+                        'auto_generated_document_id' => $generatedDocument->id,
+                        'auto_generated_at' => now(),
+                        'status' => 'in_progress',
+                    ]);
+                }
+            }
+        }
 
         return redirect()
             ->route('public.act-requests.create', [$administration->id, $requestedAct->id])

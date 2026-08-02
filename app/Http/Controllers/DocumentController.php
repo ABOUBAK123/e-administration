@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -184,6 +185,38 @@ class DocumentController extends Controller
 
         $onlyofficeUrl = AppSetting::where('key', 'onlyoffice_server_url')->value('value') ?: '';
 
+        $actValidationByDocument = [];
+        $documentIds = $documents->pluck('id')->map(fn ($id) => (string) $id)->values();
+        if ($documentIds->isNotEmpty()) {
+            $linkedSubmissions = ActRequestSubmission::query()
+                ->with(['requestedAct'])
+                ->whereIn('auto_generated_document_id', $documentIds)
+                ->get();
+
+            foreach ($linkedSubmissions as $submission) {
+                $documentId = (string) ($submission->auto_generated_document_id ?? '');
+                if ($documentId === '') {
+                    continue;
+                }
+
+                $requestedAct = $submission->requestedAct;
+                $templateId = (string) ($requestedAct?->auto_template_id ?? '');
+                $sharedUsers = $this->sharedTemplateUserIds($templateId);
+                $canValidate = in_array((string) $userId, $sharedUsers, true)
+                    && !empty($templateId)
+                    && in_array((string) $submission->status, ['in_progress', 'sent', 'recu'], true)
+                    && empty($submission->validated_at);
+
+                $actValidationByDocument[$documentId] = [
+                    'submission_id' => (string) $submission->id,
+                    'tracking_number' => (string) ($submission->tracking_number ?? ''),
+                    'status' => (string) ($submission->status ?? ''),
+                    'validated_at' => optional($submission->validated_at)->toISOString(),
+                    'can_validate' => $canValidate,
+                ];
+            }
+        }
+
         return view('documents.index', compact(
             'documents',
             'preferences',
@@ -192,8 +225,29 @@ class DocumentController extends Controller
             'internalUsers',
             'internalSubEntities',
             'onlyofficeUrl',
-            'documentAccessPermissions'
+            'documentAccessPermissions',
+            'actValidationByDocument'
         ));
+    }
+
+    private function sharedTemplateUserIds(string $templateId): array
+    {
+        if ($templateId === '') {
+            return [];
+        }
+
+        $shareMapRaw = AppSetting::where('key', 'template_share_map')->value('value');
+        $shareMap = [];
+        if ($shareMapRaw) {
+            try {
+                $shareMap = json_decode((string) $shareMapRaw, true, 512, JSON_THROW_ON_ERROR);
+            } catch (\Throwable $e) {
+                $shareMap = [];
+            }
+        }
+
+        $raw = (array) ($shareMap[$templateId] ?? []);
+        return array_values(array_unique(array_map('strval', array_filter($raw, fn ($id) => trim((string) $id) !== ''))));
     }
 
     public function create()
@@ -1260,6 +1314,51 @@ class DocumentController extends Controller
         $request->validate(['status' => 'required|in:draft,active,archived']);
         $document->update(['status' => $request->status]);
         return response()->json(['status' => $document->status]);
+    }
+
+    public function validateGeneratedActRequest(Document $document)
+    {
+        $this->guardPermission('documents.view');
+        abort_if(!$this->userCanAccessDocument($document), 403);
+
+        $submission = ActRequestSubmission::query()
+            ->with('requestedAct')
+            ->where('auto_generated_document_id', $document->id)
+            ->firstOrFail();
+
+        $templateId = (string) ($submission->requestedAct?->auto_template_id ?? '');
+        $allowedUserIds = $this->sharedTemplateUserIds($templateId);
+        $currentUserId = (string) Auth::id();
+
+        abort_if($templateId === '' || !in_array($currentUserId, $allowedUserIds, true), 403);
+
+        $updated = false;
+
+        DB::transaction(function () use ($submission, $currentUserId, &$updated): void {
+            /** @var ActRequestSubmission $locked */
+            $locked = ActRequestSubmission::query()->whereKey($submission->id)->lockForUpdate()->firstOrFail();
+
+            if (!empty($locked->validated_at) || (string) $locked->status === 'treated') {
+                $updated = false;
+                return;
+            }
+
+            $locked->update([
+                'validated_by_user_id' => $currentUserId,
+                'validated_at' => now(),
+                'status' => 'treated',
+            ]);
+
+            $updated = true;
+        });
+
+        return response()->json([
+            'ok' => true,
+            'updated' => $updated,
+            'message' => $updated
+                ? 'Validation enregistrée. La demande est maintenant terminée.'
+                : 'Cette demande est déjà validée.',
+        ]);
     }
 
     public function createNew(Request $request)

@@ -20,6 +20,7 @@
         'mime_type'    => $d->mime_type,
         'status'       => $d->status,
         'shares_count' => $sharesCount[$d->id] ?? 0,
+        'act_validation' => $actValidationByDocument[(string) $d->id] ?? null,
         'created_at'   => $d->created_at?->toISOString(),
         'updated_at'   => $d->updated_at?->toISOString(),
     ])->values();
@@ -471,6 +472,7 @@ const ROUTES = {
     uploadAjax:       '{{ url("documents/upload-ajax") }}',
     shareLookupTracking: '{{ route("documents.share.lookupTracking") }}',
     download:         (id) => `${_BASE}/${id}/download`,
+    validateActRequest: (id) => `${_BASE}/${id}/validate-act-request`,
     onlyofficeConfig: '{{ url("documents/onlyoffice-config") }}',
 };
 
@@ -865,6 +867,7 @@ function renderTable() {
         const canManage = !!doc.is_owner;
         const canShare = !!doc.can_share;
         const canConvertPdf = canManage && !isFolder(doc) && ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp'].includes(ext(doc));
+        const canValidateActRequest = !!(doc.act_validation && doc.act_validation.can_validate);
         const labelsHtml = labels.slice(0, 3).map(c =>
             `<span class="inline-flex items-center rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-semibold">${c}</span>`
         ).join('') + (labels.length > 3 ? `<span class="inline-flex items-center rounded-md bg-gray-50 text-gray-600 border border-gray-200 px-1.5 py-0.5 text-[10px] font-semibold">+${labels.length - 3}</span>` : '');
@@ -920,6 +923,10 @@ function renderTable() {
                             <i class="fas fa-folder-open text-gray-400 w-4"></i> Déplacer ou copier
                         </button>
                         <hr class="my-1 border-gray-100">` : ''}
+                        ${canValidateActRequest ? `<button onclick="handleValidateActRequest('${doc.id}')" class="w-full flex items-center gap-3 px-4 py-2 text-sm text-emerald-700 hover:bg-emerald-50">
+                            <i class="fas fa-check-circle text-emerald-500 w-4"></i> Valider la demande d'acte
+                        </button>` : ''}
+                        ${canValidateActRequest ? '<hr class="my-1 border-gray-100">' : ''}
                         <a href="${ROUTES.download(doc.id)}" class="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                             <i class="fas fa-download text-gray-400 w-4"></i> Télécharger
                         </a>
@@ -1024,6 +1031,43 @@ async function handleConvertPdf(id) {
         showToast(data.message || 'Document converti en PDF.');
     } catch (e) {
         showToast('Erreur lors de la conversion PDF.');
+    }
+}
+
+async function handleValidateActRequest(id) {
+    toggleActions(id);
+    const doc = allDocs.find((d) => d.id === id);
+    if (!doc || !doc.act_validation || !doc.act_validation.can_validate) {
+        alert('Vous n\'êtes pas autorisé à valider cette demande.');
+        return;
+    }
+
+    const trackingNumber = doc.act_validation.tracking_number || '';
+    const ask = confirm(`Confirmer la validation de la demande ${trackingNumber ? 'N° ' + trackingNumber : ''} ?`);
+    if (!ask) return;
+
+    try {
+        const resp = await fetch(ROUTES.validateActRequest(id), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': CSRF,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({})
+        });
+
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            throw new Error(data.message || 'La validation a échoué.');
+        }
+
+        doc.act_validation.can_validate = false;
+        doc.act_validation.validated_at = new Date().toISOString();
+        renderTable();
+        alert(data.message || 'Validation enregistrée.');
+    } catch (e) {
+        alert(e.message || 'La validation a échoué.');
     }
 }
 

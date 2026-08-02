@@ -631,6 +631,7 @@ class AdminController extends Controller
         $directionTypes = collect();
         $subEntities    = collect();
         $requestedActs  = collect();
+        $requestedActTemplates = collect();
         $routingRules   = collect();
         $profiles       = collect();
         $profilesList   = collect();
@@ -776,13 +777,23 @@ class AdminController extends Controller
             });
 
             // ── Actes demandés ────────────────────────────────────────────────
-            $actsQuery = RequestedAct::with(['administration', 'recipientAdministration'])->latest();
+            $actsQuery = RequestedAct::with(['administration', 'recipientAdministration', 'autoTemplate'])->latest();
             if ($adminScope && $adminScope['type'] === 'emitter') {
                 $actsQuery->where('administration_id', $adminScope['id']);
             } elseif ($adminScope && $adminScope['type'] === 'recipient') {
                 $actsQuery->where('recipient_administration_id', $adminScope['id']);
             }
             $requestedActs = $actsQuery->get();
+
+            $requestedActTemplatesQuery = DocumentTemplate::query()
+                ->select('id', 'name', 'administration_id')
+                ->orderBy('name');
+            if ($adminScope && $adminScope['type'] === 'emitter') {
+                $requestedActTemplatesQuery->where('administration_id', $adminScope['id']);
+            } elseif ($adminScope && $adminScope['type'] === 'recipient') {
+                $requestedActTemplatesQuery->whereRaw('1 = 0');
+            }
+            $requestedActTemplates = $requestedActTemplatesQuery->get();
 
             // ── Règles de routage ─────────────────────────────────────────────
             $routingQuery = RoutingRule::with(['template', 'recipient', 'targetUser'])->latest();
@@ -1098,7 +1109,7 @@ class AdminController extends Controller
         return view('admin.index', compact(
             'tab', 'stats', 'settings', 'users',
             'templates', 'emitters', 'recipients',
-            'directionTypes', 'subEntities', 'requestedActs', 'routingRules', 'profiles', 'profilesList',
+            'directionTypes', 'subEntities', 'requestedActs', 'requestedActTemplates', 'routingRules', 'profiles', 'profilesList',
             'instructions',
             'allUsers', 'shareMap', 'onlyofficeUrl', 'onlyofficeJwt', 'appPublicUrl', 'dirAssignments',
             'sameAdminRoutingUsers',
@@ -5242,12 +5253,36 @@ class AdminController extends Controller
             'document_name'      => 'required|string|max:255',
             'required_documents' => 'nullable|string',
             'applicant_fields'   => 'nullable|string',
+            'auto_generate_enabled' => 'nullable|boolean',
+            'auto_template_id' => 'nullable|string|exists:document_templates,id',
+            'unique_key_field' => 'nullable|string|max:120',
         ]);
         // Forcer l'administration si l'utilisateur est scoped
         $adminScope = $this->resolveAdminScope();
         if ($adminScope && $adminScope['type'] === 'emitter') {
             $data['administration_id'] = $adminScope['id'];
         }
+
+        $autoGenerateEnabled = $request->boolean('auto_generate_enabled');
+        $data['auto_generate_enabled'] = $autoGenerateEnabled;
+        $data['auto_template_id'] = $autoGenerateEnabled ? ($data['auto_template_id'] ?? null) : null;
+        $data['unique_key_field'] = $autoGenerateEnabled ? trim((string) ($data['unique_key_field'] ?? '')) : null;
+
+        if ($autoGenerateEnabled && empty($data['auto_template_id'])) {
+            return back()->withErrors(['auto_template_id' => 'Veuillez sélectionner un template pour l\'auto-génération.'])->withInput();
+        }
+
+        if ($autoGenerateEnabled && $data['unique_key_field'] === '') {
+            return back()->withErrors(['unique_key_field' => 'Veuillez saisir le champ clé unique.'])->withInput();
+        }
+
+        if ($autoGenerateEnabled && !empty($data['administration_id'])) {
+            $templateAdminId = (string) (DocumentTemplate::query()->whereKey($data['auto_template_id'])->value('administration_id') ?? '');
+            if ($templateAdminId !== '' && $templateAdminId !== (string) $data['administration_id']) {
+                return back()->withErrors(['auto_template_id' => 'Le template sélectionné doit appartenir à la même administration.'])->withInput();
+            }
+        }
+
         $data['required_documents'] = json_decode($data['required_documents'] ?? '[]', true) ?: [];
         $data['applicant_fields']   = json_decode($data['applicant_fields']   ?? '[]', true) ?: [];
         RequestedAct::create($data);
@@ -5262,7 +5297,31 @@ class AdminController extends Controller
             'document_name'      => 'required|string|max:255',
             'required_documents' => 'nullable|string',
             'applicant_fields'   => 'nullable|string',
+            'auto_generate_enabled' => 'nullable|boolean',
+            'auto_template_id' => 'nullable|string|exists:document_templates,id',
+            'unique_key_field' => 'nullable|string|max:120',
         ]);
+
+        $autoGenerateEnabled = $request->boolean('auto_generate_enabled');
+        $data['auto_generate_enabled'] = $autoGenerateEnabled;
+        $data['auto_template_id'] = $autoGenerateEnabled ? ($data['auto_template_id'] ?? null) : null;
+        $data['unique_key_field'] = $autoGenerateEnabled ? trim((string) ($data['unique_key_field'] ?? '')) : null;
+
+        if ($autoGenerateEnabled && empty($data['auto_template_id'])) {
+            return back()->withErrors(['auto_template_id' => 'Veuillez sélectionner un template pour l\'auto-génération.'])->withInput();
+        }
+
+        if ($autoGenerateEnabled && $data['unique_key_field'] === '') {
+            return back()->withErrors(['unique_key_field' => 'Veuillez saisir le champ clé unique.'])->withInput();
+        }
+
+        if ($autoGenerateEnabled) {
+            $templateAdminId = (string) (DocumentTemplate::query()->whereKey($data['auto_template_id'])->value('administration_id') ?? '');
+            if ($templateAdminId !== '' && $templateAdminId !== (string) $data['administration_id']) {
+                return back()->withErrors(['auto_template_id' => 'Le template sélectionné doit appartenir à la même administration.'])->withInput();
+            }
+        }
+
         $data['required_documents'] = json_decode($data['required_documents'] ?? '[]', true) ?: [];
         $data['applicant_fields']   = json_decode($data['applicant_fields']   ?? '[]', true) ?: [];
         $requestedAct->update($data);
