@@ -13,6 +13,8 @@ use App\Models\RecipientAdministration;
 use App\Models\User;
 use App\Models\UserDirectionAssignment;
 use App\Models\AppSetting;
+use App\Models\AdministrationProfile;
+use App\Models\AdministrationSmtpSetting;
 use App\Services\ClamAvScanner;
 use App\Services\NotificationService;
 use Dompdf\Dompdf;
@@ -927,6 +929,12 @@ class DocumentController extends Controller
         $mode = $request->input('mode') === 'recipient_administration' ? 'admin' : $request->input('mode');
 
         try {
+        if (in_array($mode, ['internal', 'external'], true)) {
+            $smtpError = $this->configureShareMailerForCurrentUser();
+            if ($smtpError !== null) {
+                return response()->json(['ok' => false, 'message' => $smtpError], 422);
+            }
+        }
 
         $hasDelay = $request->boolean('hasDelay') || $request->boolean('has_delay');
         $delayValue = (int) ($request->input('delayValue', $request->input('delay_value', 0)) ?: 0);
@@ -958,6 +966,7 @@ class DocumentController extends Controller
         ];
 
         $createdShares = collect();
+        $failedInternalEmailRecipients = [];
         $updatedTrackingStatus = false;
         $submissionToUpdate = null;
 
@@ -989,7 +998,9 @@ class DocumentController extends Controller
                     'is_read' => false,
                 ]);
 
-                $this->sendInternalShareEmail($targetUser->email, $document->title);
+                if (!$this->sendInternalShareEmail($targetUser->email, $document->title)) {
+                    $failedInternalEmailRecipients[] = $targetUser->email;
+                }
             } else {
                 $subEntityCode = strtoupper(trim((string) $request->input('internalSubEntityCode', '')));
                 if ($subEntityCode === '') {
@@ -1035,7 +1046,9 @@ class DocumentController extends Controller
                         'is_read' => false,
                     ]);
 
-                    $this->sendInternalShareEmail($targetUser->email, $document->title);
+                    if (!$this->sendInternalShareEmail($targetUser->email, $document->title)) {
+                        $failedInternalEmailRecipients[] = $targetUser->email;
+                    }
                 }
             }
         } elseif ($mode === 'external') {
@@ -1053,19 +1066,20 @@ class DocumentController extends Controller
             $linkExpiry = $share->expires_at ?: now()->addDays(7);
             $downloadLink = URL::temporarySignedRoute('documents.shared-download', $linkExpiry, ['share' => $share->id]);
 
-            try {
-                Mail::raw(
-                    "Bonjour,\n\nUn document vous a ete partage.\nTitre: {$document->title}\nLien de telechargement: {$downloadLink}\n\nCe lien est securise et peut expirer.",
-                    function ($message) use ($recipientEmail, $document) {
-                        $message->to($recipientEmail)->subject('Partage de document: ' . $document->title);
-                    }
-                );
-            } catch (\Throwable $e) {
-                Log::error('Echec envoi email partage externe', [
-                    'document_id' => (string) $document->id,
-                    'recipient_email' => $recipientEmail,
-                    'error' => $e->getMessage(),
-                ]);
+            if (!$this->sendExternalShareEmail($recipientEmail, $document->title, $downloadLink)) {
+                try {
+                    $share->delete();
+                } catch (\Throwable $e) {
+                    Log::warning('Impossible de supprimer le partage externe apres echec email', [
+                        'share_id' => (string) $share->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+
+                return response()->json([
+                    'ok' => false,
+                    'message' => "Le document n'a pas ete partage: echec de l'envoi de l'email externe.",
+                ], 500);
             }
         } else {
             $recipientAdministrationId = (string) $request->input('recipientAdministrationId', '');
@@ -1193,6 +1207,10 @@ class DocumentController extends Controller
         // NotificationService::documentShared($document, $share, Auth::user()->name);
 
         $message = 'Document partagé avec succès.';
+        if (!empty($failedInternalEmailRecipients)) {
+            $failedCount = count(array_unique($failedInternalEmailRecipients));
+            $message .= " ({$failedCount} email(s) interne(s) non envoye(s), consultez les logs)";
+        }
         if ($mode === 'admin' && !$updatedTrackingStatus) {
             $message .= ' (Statut de la demande non mis à jour — numéro de suivi introuvable)';
         }
@@ -1223,10 +1241,10 @@ class DocumentController extends Controller
         }
     }
 
-    private function sendInternalShareEmail(string $recipientEmail, string $documentTitle): void
+    private function sendInternalShareEmail(string $recipientEmail, string $documentTitle): bool
     {
         if ($recipientEmail === '' || !filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
-            return;
+            return false;
         }
 
         $documentsUrl = route('documents.index');
@@ -1238,13 +1256,89 @@ class DocumentController extends Controller
                     $message->to($recipientEmail)->subject('Nouveau document partage: ' . $documentTitle);
                 }
             );
+            return true;
         } catch (\Throwable $e) {
             Log::error('Echec envoi email partage interne', [
                 'recipient_email' => $recipientEmail,
                 'document_title' => $documentTitle,
                 'error' => $e->getMessage(),
             ]);
+            return false;
         }
+    }
+
+    private function sendExternalShareEmail(string $recipientEmail, string $documentTitle, string $downloadLink): bool
+    {
+        try {
+            Mail::raw(
+                "Bonjour,\n\nUn document vous a ete partage.\nTitre: {$documentTitle}\nLien de telechargement: {$downloadLink}\n\nCe lien est securise et peut expirer.",
+                function ($message) use ($recipientEmail, $documentTitle) {
+                    $message->to($recipientEmail)->subject('Partage de document: ' . $documentTitle);
+                }
+            );
+            return true;
+        } catch (\Throwable $e) {
+            Log::error('Echec envoi email partage externe', [
+                'recipient_email' => $recipientEmail,
+                'document_title' => $documentTitle,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
+    private function resolveShareSmtpSetting(User $user): ?AdministrationSmtpSetting
+    {
+        $assignment = UserDirectionAssignment::where('user_id', $user->id)->first();
+        if ($assignment && $assignment->direction_scope_id) {
+            $type = $assignment->direction_scope_type === 'recipient' ? 'recipient' : 'emitter';
+            return AdministrationSmtpSetting::forAdministration($assignment->direction_scope_id, $type);
+        }
+
+        if ($user->profile_id) {
+            $profile = AdministrationProfile::find($user->profile_id);
+            if ($profile && $profile->administration_id) {
+                $type = ($profile->effective_administration_type ?? 'emitter') === 'recipient' ? 'recipient' : 'emitter';
+                return AdministrationSmtpSetting::forAdministration($profile->administration_id, $type);
+            }
+        }
+
+        return null;
+    }
+
+    private function applyShareScopedSmtpConfiguration(AdministrationSmtpSetting $smtp): void
+    {
+        config([
+            'mail.default'                 => 'smtp',
+            'mail.mailers.smtp.host'       => $smtp->mail_host,
+            'mail.mailers.smtp.port'       => $smtp->mail_port ?? 587,
+            'mail.mailers.smtp.username'   => $smtp->mail_username,
+            'mail.mailers.smtp.password'   => $smtp->mail_password,
+            'mail.mailers.smtp.encryption' => $smtp->mail_encryption ?: null,
+            'mail.mailers.smtp.timeout'    => 10,
+            'mail.from.address'            => $smtp->mail_from_address,
+            'mail.from.name'               => $smtp->mail_from_name ?? config('app.name'),
+        ]);
+    }
+
+    private function configureShareMailerForCurrentUser(): ?string
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return 'Utilisateur non authentifie.';
+        }
+
+        $smtp = $this->resolveShareSmtpSetting($user);
+        if (!$smtp) {
+            return "Aucune configuration SMTP d'administration n'a ete trouvee pour votre profil.";
+        }
+
+        if (!$smtp->mail_host || !$smtp->mail_from_address) {
+            return "La configuration SMTP d'administration est incomplete (hote ou expediteur manquant).";
+        }
+
+        $this->applyShareScopedSmtpConfiguration($smtp);
+        return null;
     }
 
     private function filterDocumentSharePayload(array $payload): array
