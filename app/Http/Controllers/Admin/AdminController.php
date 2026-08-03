@@ -5540,7 +5540,19 @@ class AdminController extends Controller
                 ]);
             }
 
-            $this->sendAccountCreationEmail($user);
+            try {
+                $this->sendAccountCreationEmail($user);
+            } catch (\Throwable $e) {
+                Log::error('storeUserTab account creation email failed', [
+                    'user_id' => (string) $user->id,
+                    'email' => $user->email,
+                    'message' => $e->getMessage(),
+                ]);
+
+                return redirect()
+                    ->route('admin.index', ['tab' => 'users'])
+                    ->withErrors(['users' => 'Utilisateur créé, mais l\'e-mail de notification n\'a pas pu être envoyé : ' . $e->getMessage()]);
+            }
 
             return redirect()->route('admin.index', ['tab' => 'users'])->with('success', 'Utilisateur créé avec succès.');
         } catch (\Throwable $e) {
@@ -6139,39 +6151,89 @@ class AdminController extends Controller
     public function notifyUserAccount(User $user): \Illuminate\Http\RedirectResponse
     {
         $this->guardPermission('administration.users');
-        $this->sendAccountCreationEmail($user);
-        return redirect()->back()->with('success', "Notification de compte envoyée à {$user->email}.");
+        try {
+            $this->sendAccountCreationEmail($user);
+            return redirect()->back()->with('success', "Notification de compte envoyée à {$user->email}.");
+        } catch (\Throwable $e) {
+            Log::error('notifyUserAccount failed', [
+                'user_id' => (string) $user->id,
+                'email' => $user->email,
+                'message' => $e->getMessage(),
+            ]);
+
+            return redirect()->back()->withErrors([
+                'users' => "Échec d'envoi de l'e-mail de notification pour {$user->email} : {$e->getMessage()}",
+            ]);
+        }
+    }
+
+    private function resolveAccountSmtpSetting(User $user): ?AdministrationSmtpSetting
+    {
+        $assignment = UserDirectionAssignment::where('user_id', $user->id)->first();
+        if ($assignment && $assignment->direction_scope_id) {
+            $type = $this->normalizeAdministrationType($assignment->direction_scope_type);
+            return AdministrationSmtpSetting::forAdministration($assignment->direction_scope_id, $type);
+        }
+
+        if ($user->profile_id) {
+            $profile = AdministrationProfile::find($user->profile_id);
+            if ($profile && $profile->administration_id) {
+                $type = $this->normalizeAdministrationType($profile->effective_administration_type ?? 'emitter');
+                return AdministrationSmtpSetting::forAdministration($profile->administration_id, $type);
+            }
+        }
+
+        return null;
+    }
+
+    private function applyScopedSmtpConfiguration(AdministrationSmtpSetting $smtp): void
+    {
+        config([
+            'mail.default'                 => 'smtp',
+            'mail.mailers.smtp.host'       => $smtp->mail_host,
+            'mail.mailers.smtp.port'       => $smtp->mail_port ?? 587,
+            'mail.mailers.smtp.username'   => $smtp->mail_username,
+            'mail.mailers.smtp.password'   => $smtp->mail_password,
+            'mail.mailers.smtp.encryption' => $smtp->mail_encryption ?: null,
+            'mail.mailers.smtp.timeout'    => 10,
+            'mail.from.address'            => $smtp->mail_from_address,
+            'mail.from.name'               => $smtp->mail_from_name ?? config('app.name'),
+        ]);
     }
 
     private function sendAccountCreationEmail(User $user): void
     {
-        try {
-            $appName = config('app.name', 'E-Parapheur');
-            $appUrl  = rtrim(config('app.url', url('/')), '/');
-            $displayName = trim((string) ($user->full_name ?? $user->name ?? '')) ?: $user->email;
+        $smtp = $this->resolveAccountSmtpSetting($user);
 
-            $body = "Bonjour {$displayName},\n\n"
-                . "Votre compte utilisateur sur la plateforme {$appName} a été créé avec succès.\n\n"
-                . "═══════════════════════════════\n"
-                . "INFORMATIONS DE CONNEXION\n"
-                . "═══════════════════════════════\n"
-                . "  • Identifiant (email) : {$user->email}\n"
-                . "  • Lien d'accès        : {$appUrl}\n"
-                . "═══════════════════════════════\n\n"
-                . "Pour obtenir votre mot de passe, veuillez contacter l'administrateur de la plateforme.\n\n"
-                . "Cordialement,\n"
-                . "L'équipe {$appName}";
-
-            \Illuminate\Support\Facades\Mail::raw($body, function ($message) use ($user, $appName) {
-                $message->to($user->email, $user->full_name ?: $user->name)
-                        ->subject("Création de votre compte — {$appName}");
-            });
-        } catch (\Throwable $e) {
-            Log::warning('sendAccountCreationEmail failed', [
-                'user_id' => (string) $user->id,
-                'email'   => $user->email,
-                'error'   => $e->getMessage(),
-            ]);
+        if (!$smtp) {
+            throw new \RuntimeException("Aucune configuration SMTP d'administration n'a été trouvée pour cet utilisateur.");
         }
+
+        if (!$smtp->mail_host || !$smtp->mail_from_address) {
+            throw new \RuntimeException("La configuration SMTP d'administration est incomplète (hôte ou expéditeur manquant).");
+        }
+
+        $this->applyScopedSmtpConfiguration($smtp);
+
+        $appName = config('app.name', 'E-Parapheur');
+        $appUrl  = rtrim(config('app.url', url('/')), '/');
+        $displayName = trim((string) ($user->full_name ?? $user->name ?? '')) ?: $user->email;
+
+        $body = "Bonjour {$displayName},\n\n"
+            . "Votre compte utilisateur sur la plateforme {$appName} a été créé avec succès.\n\n"
+            . "═══════════════════════════════\n"
+            . "INFORMATIONS DE CONNEXION\n"
+            . "═══════════════════════════════\n"
+            . "  • Identifiant (email) : {$user->email}\n"
+            . "  • Lien d'accès        : {$appUrl}\n"
+            . "═══════════════════════════════\n\n"
+            . "Pour obtenir votre mot de passe, veuillez contacter l'administrateur de la plateforme.\n\n"
+            . "Cordialement,\n"
+            . "L'équipe {$appName}";
+
+        \Illuminate\Support\Facades\Mail::raw($body, function ($message) use ($user, $appName) {
+            $message->to($user->email, $user->full_name ?: $user->name)
+                ->subject("Création de votre compte — {$appName}");
+        });
     }
 }
