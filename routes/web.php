@@ -121,6 +121,16 @@ Route::post('/e-administration_laravel/public/api/oo-callback/document/{document
 Route::post('/public/api/oo-callback/document/{document}', [DocumentController::class, 'onlyofficeCallback'])
     ->name('oo.document.callback.web.public');
 
+// URL signée de fichier document pour téléchargement par OnlyOffice (sans session)
+Route::get('/api/oo-file/document/{document}', [DocumentController::class, 'onlyofficeFile'])
+    ->name('oo.document.file.web');
+Route::get('/e-administration_laravel/api/oo-file/document/{document}', [DocumentController::class, 'onlyofficeFile'])
+    ->name('oo.document.file.web.subdir');
+Route::get('/e-administration_laravel/public/api/oo-file/document/{document}', [DocumentController::class, 'onlyofficeFile'])
+    ->name('oo.document.file.web.subdir.public');
+Route::get('/public/api/oo-file/document/{document}', [DocumentController::class, 'onlyofficeFile'])
+    ->name('oo.document.file.web.public');
+
 Route::post('/api/oo-callback/template/{templateId}', [AdminController::class, 'ooTemplateCallback'])
     ->name('oo.template.callback.web');
 Route::post('/e-administration_laravel/api/oo-callback/template/{templateId}', [AdminController::class, 'ooTemplateCallback'])

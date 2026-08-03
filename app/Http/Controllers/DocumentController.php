@@ -732,6 +732,13 @@ class DocumentController extends Controller
         $access  = (string) $request->query('access', '');
 
         if ($expires <= 0 || $expires < time()) {
+            Log::warning('OnlyOffice file access rejected: expired link', [
+                'document_id' => (string) $document->id,
+                'expires' => $expires,
+                'now' => time(),
+                'ip' => $request->ip(),
+                'ua' => (string) $request->userAgent(),
+            ]);
             abort(403, 'Lien expiré ou invalide');
         }
 
@@ -739,6 +746,11 @@ class DocumentController extends Controller
         $expected = hash_hmac('sha256', $document->id . '|' . $expires, $signKey);
 
         if (!hash_equals($expected, $access)) {
+            Log::warning('OnlyOffice file access rejected: bad signature', [
+                'document_id' => (string) $document->id,
+                'ip' => $request->ip(),
+                'ua' => (string) $request->userAgent(),
+            ]);
             abort(403, 'Lien expiré ou invalide');
         }
 
@@ -746,6 +758,10 @@ class DocumentController extends Controller
         $ext  = pathinfo((string) $document->file_path, PATHINFO_EXTENSION) ?: 'bin';
 
         if ($path === '' || !Storage::disk('public')->exists($path)) {
+            Log::warning('OnlyOffice file access rejected: source not found', [
+                'document_id' => (string) $document->id,
+                'path' => $path,
+            ]);
             abort(404, 'Fichier introuvable');
         }
 
@@ -760,7 +776,24 @@ class DocumentController extends Controller
             'Content-Type' => $document->mime_type ?: 'application/octet-stream',
             'Content-Disposition' => 'inline; filename="' . addslashes($name) . '"',
             'Cache-Control' => 'no-store',
+            'Access-Control-Allow-Origin' => '*',
         ]);
+    }
+
+    private function resolveOnlyOfficePublicBaseUrl(Request $request): string
+    {
+        $candidate = trim((string) AppSetting::where('key', 'onlyoffice_app_base_url')->value('value'));
+        if ($candidate === '') {
+            $candidate = trim((string) AppSetting::where('key', 'app_public_url')->value('value'));
+        }
+        if ($candidate === '') {
+            $candidate = trim((string) config('app.url'));
+        }
+        if ($candidate === '') {
+            $candidate = $request->getSchemeAndHttpHost();
+        }
+
+        return rtrim($candidate, '/');
     }
 
     /**
@@ -1603,18 +1636,15 @@ class DocumentController extends Controller
         // Token d'accès temporaire indépendant du host (proxy/ngrok).
         $expires = now()->addHours(8)->timestamp;
         $access  = hash_hmac('sha256', $doc->id . '|' . $expires, (string) config('app.key'));
-        $signedUrl = route('documents.onlyofficeFile', [
+        $signedUrl = route('oo.document.file.web', [
             'document' => $doc->id,
             'expires'  => $expires,
             'access'   => $access,
         ], false);
 
-        if ($appPublicUrl) {
-            // On respecte exactement la base publique configurée (y compris un éventuel /public).
-            $docUrl = rtrim($appPublicUrl, '/') . $signedUrl;
-        } else {
-            $docUrl = url($signedUrl);
-        }
+        // Base URL dédiée aux appels serveur-à-serveur OnlyOffice.
+        $publicBaseUrl = $this->resolveOnlyOfficePublicBaseUrl($request);
+        $docUrl = $publicBaseUrl . $signedUrl;
 
         $fileExt = strtolower(pathinfo(parse_url($doc->file_path, PHP_URL_PATH), PATHINFO_EXTENSION) ?: 'docx');
         $docType = match($fileExt) {
@@ -1631,11 +1661,19 @@ class DocumentController extends Controller
             'cb|' . $doc->id . '|' . $callbackCanEdit . '|' . $callbackExpires,
             (string) config('app.key')
         );
-        $callbackUrl = ($appPublicUrl ? rtrim($appPublicUrl, '/') : rtrim(config('app.url'), '/'))
+        $callbackUrl = $publicBaseUrl
             . '/api/oo-callback/document/' . $doc->id
             . '?access=' . $callbackAccess
             . '&can_edit=' . $callbackCanEdit
             . '&expires=' . $callbackExpires;
+
+        Log::info('OnlyOffice config URLs resolved', [
+            'document_id' => (string) $doc->id,
+            'doc_url' => $docUrl,
+            'callback_url' => $callbackUrl,
+            'public_base_url' => $publicBaseUrl,
+            'app_public_url' => $appPublicUrl,
+        ]);
 
         $payload = [
             'document' => [
