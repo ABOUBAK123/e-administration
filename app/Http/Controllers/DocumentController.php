@@ -1869,32 +1869,70 @@ class DocumentController extends Controller
 
     private function convertOfficeToPdf(string $absOfficePath): ?string
     {
+        $tmpOutDir = storage_path('app/tmp/pdf-convert');
+        if (!is_dir($tmpOutDir)) {
+            @mkdir($tmpOutDir, 0755, true);
+        }
+
         foreach (['soffice', 'libreoffice'] as $bin) {
-            @exec('where ' . $bin . ' 2>NUL', $out, $rc);
-            if ($rc !== 0) {
-                @exec('which ' . $bin . ' 2>/dev/null', $out2, $rc2);
-                $rc = $rc2;
+            $isWindows = DIRECTORY_SEPARATOR === '\\';
+            $resolverCmd = $isWindows
+                ? ('where ' . $bin . ' 2>NUL')
+                : ('command -v ' . $bin . ' 2>/dev/null');
+
+            $resolved = [];
+            $resolveRc = 1;
+            @exec($resolverCmd, $resolved, $resolveRc);
+
+            if ($resolveRc !== 0) {
+                continue;
             }
-            if ($rc === 0) {
-                $tmpOutDir = storage_path('app/tmp/pdf-convert');
-                if (!is_dir($tmpOutDir)) {
-                    @mkdir($tmpOutDir, 0755, true);
+
+            $binPath = trim((string) ($resolved[0] ?? $bin));
+            if ($binPath === '') {
+                $binPath = $bin;
+            }
+
+            $cmdOutput = [];
+            $code = 1;
+
+            if ($isWindows) {
+                $cmd = escapeshellarg($binPath)
+                    . ' --headless --nologo --convert-to pdf --outdir '
+                    . escapeshellarg($tmpOutDir) . ' ' . escapeshellarg($absOfficePath) . ' 2>&1';
+            } else {
+                $tmpProfileBase = storage_path('app/tmp/lo-profile-' . bin2hex(random_bytes(8)));
+                @mkdir($tmpProfileBase, 0755, true);
+                $userInstall = 'file://' . str_replace('\\', '/', $tmpProfileBase . '/profile');
+
+                $cmd = 'HOME=' . escapeshellarg($tmpProfileBase)
+                    . ' ' . escapeshellarg($binPath)
+                    . ' -env:UserInstallation=' . escapeshellarg($userInstall)
+                    . ' --headless --nologo --nodefault --nolockcheck --norestore'
+                    . ' --convert-to pdf --outdir ' . escapeshellarg($tmpOutDir)
+                    . ' ' . escapeshellarg($absOfficePath) . ' 2>&1';
+            }
+
+            @exec($cmd, $cmdOutput, $code);
+
+            if ($code === 0) {
+                $pdfFile = $tmpOutDir . DIRECTORY_SEPARATOR . pathinfo($absOfficePath, PATHINFO_FILENAME) . '.pdf';
+                if (file_exists($pdfFile)) {
+                    return $pdfFile;
                 }
-                @exec($bin . ' --headless --nologo --convert-to pdf --outdir '
-                    . escapeshellarg($tmpOutDir) . ' ' . escapeshellarg($absOfficePath),
-                    $o, $code);
-                if ($code === 0) {
-                    $pdfFile = $tmpOutDir . DIRECTORY_SEPARATOR . pathinfo($absOfficePath, PATHINFO_FILENAME) . '.pdf';
-                    if (file_exists($pdfFile)) {
-                        return $pdfFile;
-                    }
-                    $candidates = glob($tmpOutDir . DIRECTORY_SEPARATOR . '*.pdf') ?: [];
-                    if (!empty($candidates)) {
-                        usort($candidates, fn($a, $b) => filemtime($b) <=> filemtime($a));
-                        return $candidates[0];
-                    }
+                $candidates = glob($tmpOutDir . DIRECTORY_SEPARATOR . '*.pdf') ?: [];
+                if (!empty($candidates)) {
+                    usort($candidates, fn($a, $b) => filemtime($b) <=> filemtime($a));
+                    return $candidates[0];
                 }
             }
+
+            Log::warning('Local LibreOffice conversion attempt failed', [
+                'bin' => $bin,
+                'binPath' => $binPath,
+                'code' => $code,
+                'output' => implode("\n", array_slice($cmdOutput, -20)),
+            ]);
         }
 
         try {
