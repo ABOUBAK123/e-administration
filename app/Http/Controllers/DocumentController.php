@@ -1454,10 +1454,55 @@ class DocumentController extends Controller
                 'recipient_administration_name' => (string) ($submission->recipientAdministration?->name ?? ''),
                 'recipient_administration_code' => (string) ($submission->recipientAdministration?->code ?? ''),
                 'applicant_full_name' => (string) ($submission->applicant_full_name ?? ''),
+                'applicant_matricule' => $this->resolveSubmissionApplicantMatricule($submission),
                 'applicant_email' => (string) ($submission->applicant_email ?? ''),
                 'applicant_phone' => (string) ($submission->applicant_phone ?? ''),
             ],
         ]);
+    }
+
+    private function resolveSubmissionApplicantMatricule(ActRequestSubmission $submission): string
+    {
+        $directMatricule = trim((string) ($submission->applicant_matricule ?? ''));
+        if ($directMatricule !== '') {
+            return $directMatricule;
+        }
+
+        $payload = is_array($submission->applicant_payload) ? $submission->applicant_payload : [];
+
+        $candidateKeys = [
+            'applicant_matricule',
+            'matricule',
+            'numero_matricule',
+            'num_matricule',
+            'matricule_demandeur',
+        ];
+
+        foreach ($candidateKeys as $candidateKey) {
+            $value = trim((string) ($payload[$candidateKey] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        foreach ($payload as $key => $value) {
+            $normalizedKey = (string) Str::of((string) $key)
+                ->ascii()
+                ->lower()
+                ->replaceMatches('/[^a-z0-9]+/', '_')
+                ->trim('_');
+
+            if (!str_contains($normalizedKey, 'matricule')) {
+                continue;
+            }
+
+            $matriculeValue = trim((string) $value);
+            if ($matriculeValue !== '') {
+                return $matriculeValue;
+            }
+        }
+
+        return '';
     }
 
     private function userCanAccessDocument(Document $document): bool

@@ -652,6 +652,7 @@ async function lookupShareByTrackingNumber() {
         filterRecipientAdministrations();
         adminSelect.value = result.recipient_administration_id || '';
         document.getElementById('shareFullName').value = result.applicant_full_name || '';
+        document.getElementById('shareMatricule').value = result.applicant_matricule || '';
         document.getElementById('shareApplicantEmail').value = result.applicant_email || '';
         document.getElementById('shareApplicantPhone').value = result.applicant_phone || '';
 
@@ -1660,4 +1661,3 @@ maybeOpenOnlyOfficeFromQuery();
 </div>
 
 @endsection
-
