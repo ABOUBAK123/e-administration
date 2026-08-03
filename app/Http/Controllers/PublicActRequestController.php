@@ -121,6 +121,112 @@ class PublicActRequestController extends Controller
         return null;
     }
 
+    private function resolveDirectionCode(RequestedAct $requestedAct, string $administrationId, ?string $recipientAdministrationId): ?string
+    {
+        $candidates = [];
+
+        $actDirectionCode = trim((string) ($requestedAct->direction_code ?? ''));
+        if ($actDirectionCode !== '') {
+            $candidates[] = $actDirectionCode;
+        }
+
+        $directionMapRaw = AppSetting::query()->where('key', 'act_request_direction_map')->value('value');
+        $directionMap = [];
+        if (is_string($directionMapRaw) && trim($directionMapRaw) !== '') {
+            try {
+                $directionMap = json_decode($directionMapRaw, true, 512, JSON_THROW_ON_ERROR);
+            } catch (\Throwable $e) {
+                $directionMap = [];
+            }
+        }
+
+        if (!empty($directionMap)) {
+            $actMap = (array) ($directionMap['requested_act'] ?? []);
+            $recipientMap = (array) ($directionMap['recipient'] ?? []);
+            $recipientByEmitterMap = (array) ($directionMap['recipient_by_emitter'] ?? []);
+
+            $mappedByAct = trim((string) ($actMap[(string) $requestedAct->id] ?? ''));
+            if ($mappedByAct !== '') {
+                $candidates[] = $mappedByAct;
+            }
+
+            if ($recipientAdministrationId !== null && $recipientAdministrationId !== '') {
+                $mappedByRecipient = trim((string) ($recipientMap[$recipientAdministrationId] ?? ''));
+                if ($mappedByRecipient !== '') {
+                    $candidates[] = $mappedByRecipient;
+                }
+
+                $mappedByEmitterAndRecipient = trim((string) (($recipientByEmitterMap[$administrationId] ?? [])[$recipientAdministrationId] ?? ''));
+                if ($mappedByEmitterAndRecipient !== '') {
+                    $candidates[] = $mappedByEmitterAndRecipient;
+                }
+            }
+        }
+
+        if ($recipientAdministrationId !== null && $recipientAdministrationId !== '') {
+            $recipient = RecipientAdministration::query()->find($recipientAdministrationId);
+            if ($recipient) {
+                $metadata = is_array($recipient->metadata) ? $recipient->metadata : [];
+
+                $directMetadataKeys = [
+                    'direction_code',
+                    'sub_entity_code',
+                    'default_direction_code',
+                    'default_sub_entity_code',
+                ];
+
+                foreach ($directMetadataKeys as $key) {
+                    $value = trim((string) ($metadata[$key] ?? ''));
+                    if ($value !== '') {
+                        $candidates[] = $value;
+                    }
+                }
+
+                $metaByEmitter = (array) (($metadata['direction_by_emitter'] ?? $metadata['direction_map'] ?? []));
+                $emitterMapping = $metaByEmitter[$administrationId] ?? null;
+
+                if (is_array($emitterMapping)) {
+                    $mapped = trim((string) ($emitterMapping['direction_code'] ?? $emitterMapping['sub_entity_code'] ?? ''));
+                    if ($mapped !== '') {
+                        $candidates[] = $mapped;
+                    }
+                } elseif (is_string($emitterMapping)) {
+                    $mapped = trim($emitterMapping);
+                    if ($mapped !== '') {
+                        $candidates[] = $mapped;
+                    }
+                }
+            }
+        }
+
+        $seen = [];
+        foreach ($candidates as $candidate) {
+            $normalized = trim((string) $candidate);
+            if ($normalized === '') {
+                continue;
+            }
+
+            $dedupeKey = strtoupper($normalized);
+            if (isset($seen[$dedupeKey])) {
+                continue;
+            }
+            $seen[$dedupeKey] = true;
+
+            $matchedCode = SubEntity::query()
+                ->where('scope_type', 'emitter')
+                ->where('scope_id', $administrationId)
+                ->where('is_active', true)
+                ->whereRaw('UPPER(code) = ?', [$dedupeKey])
+                ->value('code');
+
+            if (is_string($matchedCode) && trim($matchedCode) !== '') {
+                return trim($matchedCode);
+            }
+        }
+
+        return null;
+    }
+
     private function sharedTemplateUserIds(string $templateId): array
     {
         $shareMapRaw = AppSetting::where('key', 'template_share_map')->value('value');
@@ -418,7 +524,6 @@ class PublicActRequestController extends Controller
             'applicant_full_name'        => 'required|string|max:255',
             'applicant_email'            => 'required|email|max:255',
             'applicant_phone'            => 'nullable|string|max:50',
-            'direction_code'             => 'nullable|string|max:100',
             'recipient_administration_id'=> 'nullable|exists:recipient_administrations,id',
             'motif'                      => 'nullable|string|max:2000',
             'note'                       => 'nullable|string|max:2000',
@@ -508,7 +613,12 @@ class PublicActRequestController extends Controller
                 ->withInput();
         }
 
-        $directionCode = trim((string) ($requestedAct->direction_code ?: $request->input('direction_code', '')));
+        $recipientAdministrationId = trim((string) ($request->input('recipient_administration_id') ?: $requestedAct->recipient_administration_id ?: ''));
+        $directionCode = $this->resolveDirectionCode(
+            $requestedAct,
+            (string) $administration->id,
+            $recipientAdministrationId !== '' ? $recipientAdministrationId : null
+        );
         $trackingNumber = $this->generateTrackingNumber();
         $trackingToken = $this->generateTrackingToken();
         $uniqueKeyValue = $this->resolveUniqueKeyValue($requestedAct, $request, $extraPayload);
@@ -520,7 +630,7 @@ class PublicActRequestController extends Controller
             'requested_act_id'            => $requestedAct->id,
             'emitter_administration_id'   => $administration->id,
             'direction_code'              => $directionCode,
-            'recipient_administration_id' => $request->input('recipient_administration_id') ?: null,
+            'recipient_administration_id' => $recipientAdministrationId !== '' ? $recipientAdministrationId : null,
             'motif'                       => trim((string) $request->input('motif', '')),
             'requested_document_name'     => (string) $requestedAct->document_name,
             'applicant_full_name'         => (string) $request->input('applicant_full_name'),

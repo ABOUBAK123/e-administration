@@ -150,25 +150,6 @@
                                placeholder="Votre téléphone"
                                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
                     </div>
-                    @if(!$requestedAct->direction_code && $directions->isNotEmpty())
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Direction</label>
-                        <select name="direction_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
-                            <option value="">Aucune</option>
-                            @foreach($directions as $dir)
-                                <option value="{{ $dir->code }}" {{ old('direction_code') === $dir->code ? 'selected' : '' }}>
-                                    {{ $dir->code }} – {{ $dir->name }}
-                                </option>
-                            @endforeach
-                        </select>
-                    </div>
-                    @elseif($requestedAct->direction_code)
-                        @php
-                            $fixedDir = $directions->firstWhere('code', $requestedAct->direction_code);
-                            $fixedDirLabel = $fixedDir ? ($fixedDir->code . ' – ' . $fixedDir->name) : $requestedAct->direction_code;
-                        @endphp
-                        <input type="hidden" name="direction_code" value="{{ $requestedAct->direction_code }}">
-                    @endif
                 </div>
 
                 @php
