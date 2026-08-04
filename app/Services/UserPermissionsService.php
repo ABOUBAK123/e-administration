@@ -29,6 +29,7 @@ class UserPermissionsService
             'templates-shared.view' => 'Voir les templates partagés',
         ]],
         'courrier'                => ['label' => 'Gestion Courrier',       'children' => [
+            'courrier.tableau-de-bord'  => 'Tableau de bord',
             'courrier.enregistrement'   => 'Enregistrement',
             'courrier.envoi'            => 'Envoi',
             'courrier.reception'        => 'Réception',

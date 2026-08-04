@@ -17,8 +17,139 @@
     @endforeach
 </div>
 
+{{-- ─────────────── TABLEAU DE BORD ─────────────── --}}
+@if($subtab === 'tableau-de-bord')
+
+@php
+    $s = $stats ?? [];
+    $totalDb        = $s['total'] ?? 0;
+    $enAttenteDb    = $s['en_attente'] ?? 0;
+    $enTraitementDb = $s['en_traitement'] ?? 0;
+    $traiteDb       = $s['traite'] ?? 0;
+    $imputesDb      = $s['imputes'] ?? 0;
+    $arrivesDb      = $s['arrives'] ?? 0;
+    $departsDb      = $s['departs'] ?? 0;
+    $urgentsDb      = $s['urgents'] ?? 0;
+    $pct = fn($n) => $totalDb > 0 ? round(($n / $totalDb) * 100) : 0;
+@endphp
+
+<div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+    <h2 class="text-2xl font-bold text-gray-900">Tableau de bord — Gestion Courrier</h2>
+
+    {{-- Filtre période --}}
+    <form method="GET" action="{{ route('courrier.tableau-de-bord') }}" class="flex gap-2">
+        @foreach(['7'=>'7 jours','30'=>'30 jours','90'=>'90 jours','tous'=>'Tout'] as $val=>$label)
+        <button type="submit" name="periode" value="{{ $val }}"
+            class="{{ ($periode??'30')===$val ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50' }} px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition">
+            {{ $label }}
+        </button>
+        @endforeach
+    </form>
+</div>
+
+{{-- KPI Cards --}}
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+        <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Enregistrés</span>
+            <span class="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600"><i class="fas fa-inbox"></i></span>
+        </div>
+        <p class="text-3xl font-bold text-gray-900">{{ $totalDb }}</p>
+        <p class="text-xs text-gray-400 mt-1">{{ $arrivesDb }} arrivé(s) · {{ $departsDb }} départ(s)</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+        <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Imputés</span>
+            <span class="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600"><i class="fas fa-share"></i></span>
+        </div>
+        <p class="text-3xl font-bold text-gray-900">{{ $imputesDb }}</p>
+        <p class="text-xs text-gray-400 mt-1">{{ $pct($imputesDb) }}% du total · {{ $enAttenteDb }} en attente d'imputation</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+        <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">En traitement</span>
+            <span class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600"><i class="fas fa-spinner"></i></span>
+        </div>
+        <p class="text-3xl font-bold text-gray-900">{{ $enTraitementDb }}</p>
+        <p class="text-xs text-gray-400 mt-1">{{ $pct($enTraitementDb) }}% du total · {{ $urgentsDb }} urgent(s)</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+        <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Traités</span>
+            <span class="w-9 h-9 rounded-xl bg-green-50 flex items-center justify-center text-green-600"><i class="fas fa-check-circle"></i></span>
+        </div>
+        <p class="text-3xl font-bold text-gray-900">{{ $traiteDb }}</p>
+        <p class="text-xs text-gray-400 mt-1">{{ $pct($traiteDb) }}% du total</p>
+    </div>
+</div>
+
+{{-- Répartition par statut --}}
+<div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 mb-6">
+    <h3 class="text-sm font-semibold text-gray-700 mb-3">Répartition par statut</h3>
+    <div class="w-full h-4 rounded-full overflow-hidden bg-gray-100 flex">
+        <div class="h-full bg-yellow-400" style="width: {{ $pct($enAttenteDb) }}%" title="En attente ({{ $enAttenteDb }})"></div>
+        <div class="h-full bg-blue-500" style="width: {{ $pct($enTraitementDb) }}%" title="En traitement ({{ $enTraitementDb }})"></div>
+        <div class="h-full bg-green-500" style="width: {{ $pct($traiteDb) }}%" title="Traité ({{ $traiteDb }})"></div>
+    </div>
+    <div class="flex flex-wrap gap-4 mt-3 text-xs text-gray-500">
+        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-yellow-400"></span> En attente d'imputation ({{ $enAttenteDb }})</span>
+        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span> En traitement ({{ $enTraitementDb }})</span>
+        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-green-500"></span> Traité ({{ $traiteDb }})</span>
+    </div>
+</div>
+
+{{-- Courriers récents --}}
+<div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+        <h3 class="text-sm font-semibold text-gray-700">Derniers courriers enregistrés</h3>
+    </div>
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-gray-200">
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Numéro</th>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Objet</th>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Type</th>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Statut</th>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Agent</th>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Date</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            @forelse(($courriersRecents ?? []) as $c)
+            <tr class="hover:bg-gray-50 transition">
+                <td class="px-6 py-3 font-bold text-gray-900 whitespace-nowrap">{{ $c['num'] }}</td>
+                <td class="px-6 py-3 text-gray-700">{{ $c['objet'] }}</td>
+                <td class="px-6 py-3">
+                    <span class="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full {{ $c['type']==='Arrivé' ? 'bg-indigo-50 text-indigo-700' : 'bg-orange-50 text-orange-700' }}">
+                        {{ $c['type'] }}
+                    </span>
+                </td>
+                <td class="px-6 py-3">
+                    @php $badgeClass = match($c['statut']) {
+                        'En attente'    => 'bg-yellow-100 text-yellow-700',
+                        'En traitement' => 'bg-blue-100 text-blue-700',
+                        'Traité'        => 'bg-green-100 text-green-700',
+                        default         => 'bg-gray-100 text-gray-600',
+                    }; @endphp
+                    <span class="{{ $badgeClass }} px-3 py-1 rounded-full text-xs font-semibold">{{ $c['statut'] }}</span>
+                </td>
+                <td class="px-6 py-3 text-gray-700">{{ $c['agent'] }}</td>
+                <td class="px-6 py-3 text-gray-400 whitespace-nowrap">{{ $c['date'] }}</td>
+            </tr>
+            @empty
+            <tr>
+                <td colspan="6" class="px-6 py-16 text-center text-gray-400">
+                    <i class="fas fa-inbox text-4xl text-gray-200 mb-3 block"></i>
+                    Aucun courrier enregistré pour cette période.
+                </td>
+            </tr>
+            @endforelse
+        </tbody>
+    </table>
+</div>
+
 {{-- ─────────────── ENREGISTREMENT ─────────────── --}}
-@if($subtab === 'enregistrement')
+@elseif($subtab === 'enregistrement')
 @php $typeForm = request('type_courrier', 'arrive'); @endphp
 @php $prochainNumero = $prochainNumero ?? (($typeForm === 'arrive' ? 'A' : 'D') . '-0001-DIR001-' . date('Y')); @endphp
 

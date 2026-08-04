@@ -187,6 +187,7 @@ Route::middleware('auth')->group(function () {
 
     // Gestion Courrier
     Route::prefix('courrier')->name('courrier.')->group(function () {
+        Route::get('/tableau-de-bord',  [CourrierController::class, 'tableauDeBord'])->name('tableau-de-bord');
         Route::get('/enregistrement',   [CourrierController::class, 'enregistrement'])->name('enregistrement');
         Route::get('/envoi',            [CourrierController::class, 'envoi'])->name('envoi');
         Route::get('/reception',        [CourrierController::class, 'reception'])->name('reception');
