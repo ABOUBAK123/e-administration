@@ -167,6 +167,20 @@
                     <p class="text-[11px] text-gray-500 mt-1">Les templates Office sont convertis automatiquement en PDF pour le circuit de signature. La source editable est conservee dans les versions si la conversion reussit.</p>
                 </div>
 
+                <div class="mb-4">
+                    <label for="gen-folder" class="block text-xs font-semibold text-gray-700 mb-1">Dossier de destination</label>
+                    <select id="gen-folder" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#2453d6] outline-none bg-white transition">
+                        <option value="">Aucun (racine de Mes Documents)</option>
+                        @foreach($folders ?? [] as $folderName)
+                            <option value="{{ $folderName }}">{{ $folderName }}</option>
+                        @endforeach
+                        <option value="__new__">+ Nouveau dossier…</option>
+                    </select>
+                    <input id="gen-folder-new" type="text" placeholder="Nom du nouveau dossier"
+                        class="hidden mt-2 w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#2453d6] outline-none bg-white transition">
+                    <p class="text-[11px] text-gray-500 mt-1">Le document généré sera placé dans ce dossier de "Mes Documents".</p>
+                </div>
+
                 <div id="gen-fields-container" class="space-y-4"></div>
                 <div id="gen-no-fields" class="hidden text-center py-10">
                     <div class="w-16 h-16 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-4">
@@ -375,6 +389,11 @@
             outputFormatEl.value = 'pdf';
         }
 
+        var folderEl = document.getElementById('gen-folder');
+        var folderNewEl = document.getElementById('gen-folder-new');
+        if (folderEl) { folderEl.value = ''; }
+        if (folderNewEl) { folderNewEl.value = ''; folderNewEl.classList.add('hidden'); }
+
         var fileType = String(tpl.file_type || '').toLowerCase();
         var isOffice = ['docx', 'xlsx', 'pptx'].indexOf(fileType) !== -1;
         var docxVars = Array.isArray(tpl.docx_vars) ? tpl.docx_vars : [];
@@ -453,6 +472,18 @@
 
         if (miss.length > 0) { showFb('error', 'Champs obligatoires : ' + miss.join(', ')); return; }
 
+        var folderEl = document.getElementById('gen-folder');
+        var folderNewEl = document.getElementById('gen-folder-new');
+        var folderValue = '';
+        if (folderEl) {
+            if (folderEl.value === '__new__') {
+                folderValue = folderNewEl ? folderNewEl.value.trim() : '';
+                if (!folderValue) { showFb('error', 'Veuillez saisir un nom de dossier.'); return; }
+            } else {
+                folderValue = folderEl.value;
+            }
+        }
+
         hideFb(); btn.disabled = true; prog.classList.remove('hidden');
         var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 
@@ -462,6 +493,7 @@
             body: JSON.stringify({
                 values: vals,
                 output_format: outputFormatEl ? outputFormatEl.value : 'pdf',
+                folder: folderValue,
             }),
         })
         .then(function(r) { return r.json(); })
@@ -481,6 +513,16 @@
     }
 
     document.addEventListener('DOMContentLoaded', function() {
+
+        /* Bascule vers le champ texte libre quand "+ Nouveau dossier…" est choisi */
+        var folderSelectEl = document.getElementById('gen-folder');
+        var folderNewInputEl = document.getElementById('gen-folder-new');
+        if (folderSelectEl && folderNewInputEl) {
+            folderSelectEl.addEventListener('change', function() {
+                folderNewInputEl.classList.toggle('hidden', folderSelectEl.value !== '__new__');
+                if (folderSelectEl.value === '__new__') { folderNewInputEl.focus(); }
+            });
+        }
 
         /* Délégation : clic sur .js-open-generate */
         document.addEventListener('click', function(e) {
