@@ -49,7 +49,7 @@ class SharedTemplateController extends Controller
         $allowedIds = $this->allowedSharedTemplateIdsForUser((string) $user->id);
 
         if (empty($allowedIds)) {
-            return view('shared-templates.index', ['templates' => collect(), 'search' => $search]);
+            return view('shared-templates.index', ['templates' => collect(), 'search' => $search, 'folders' => collect()]);
         }
 
         $query = DocumentTemplate::with(['variables', 'administration'])->whereIn('id', $allowedIds);
@@ -59,6 +59,13 @@ class SharedTemplateController extends Controller
         }
 
         $templates = $query->latest()->get();
+
+        // Dossiers existants de l'utilisateur (convention mime_type = application/x-folder)
+        // pour proposer un choix de destination lors de la génération d'un document.
+        $folders = Document::where('owner_id', $user->id)
+            ->where('mime_type', 'application/x-folder')
+            ->orderBy('title')
+            ->pluck('title');
 
         // Pour les templates docx sans variables BDD, extraire les {{ }} depuis le XML du fichier
         $templates->each(function ($tpl) {
@@ -75,7 +82,7 @@ class SharedTemplateController extends Controller
             }
         });
 
-        return view('shared-templates.index', compact('templates', 'search'));
+        return view('shared-templates.index', compact('templates', 'search', 'folders'));
     }
 
     /* ══════════════════════════════════════════════════════════
@@ -97,6 +104,7 @@ class SharedTemplateController extends Controller
             'values'   => 'nullable|array',
             'values.*' => 'nullable|string|max:5000',
             'output_format' => 'nullable|in:source,pdf',
+            'folder'   => 'nullable|string|max:255',
         ]);
 
         $coreService = app(TemplateGenerationCoreService::class);
@@ -104,6 +112,7 @@ class SharedTemplateController extends Controller
 
         $values = $request->input('values', []);
         $outputFormat = (string) $request->input('output_format', 'pdf');
+        $folder = trim((string) $request->input('folder', ''));
         $generationWarning = null;
 
         // Convertir les dates ISO (YYYY-MM-DD) en format français (ex: "29 avril 2026")
@@ -554,10 +563,11 @@ class SharedTemplateController extends Controller
         $docId    = (string) Str::uuid();
         $title    = ($docNumber ? '[' . $docNumber . '] ' : '') . $template->name . ' — ' . now()->format('d/m/Y H:i');
 
-        $description = 'Généré depuis : ' . $template->name;
-        if ($sourceStoragePath && $sourceStoragePath !== $storagePath) {
-            $description .= ' (source editable conservee dans les versions)';
-        }
+        // Le champ `description` sert exclusivement de marqueur de dossier dans
+        // "Mes Documents" (convention "Dossier: {nom}" — voir DocumentController).
+        // L'origine du document (template source) est déjà tracée dans le
+        // `change_log` des DocumentVersion créées ci-dessous.
+        $description = $folder !== '' ? "Dossier: {$folder}" : null;
 
         $document = Document::create([
             'id'                     => $docId,
