@@ -692,6 +692,7 @@ const getFolder = (doc) => {
     const m = doc.description.match(/^Dossier:\s*(.+)$/i);
     return m ? m[1].trim() : null;
 };
+const escAttr = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 const getFavoriteIds = () => prefs.filter(p => p.isFavorite).map(p => p.documentId);
 const getLabels = (id) => (prefs.find(p => p.documentId === id) || {}).labelCodes || [];
 const isFav = (id) => prefs.some(p => p.documentId === id && p.isFavorite);
@@ -740,6 +741,105 @@ function post(url, body = {}) {
         headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF, Accept: 'application/json' },
         body: JSON.stringify(body),
     }).then(r => r.json());
+}
+
+// ---- Glisser-déposer : déplacer un fichier vers un dossier ----
+let _draggedDocId = null;
+
+async function moveDocumentToFolder(docId, folderName) {
+    const doc = allDocs.find(d => d.id === docId);
+    if (!doc) return;
+    if (isFolder(doc)) return; // pas de dossiers imbriqués via glisser-déposer
+    if (!doc.is_owner) {
+        showToast('Vous ne pouvez déplacer que vos propres documents.');
+        return;
+    }
+    const dest = folderName || '';
+    if ((getFolder(doc) || '') === dest) return; // déjà à cet endroit
+
+    try {
+        await post(ROUTES.move(docId), { folder: dest });
+        doc.description = dest ? `Dossier: ${dest}` : null;
+        renderTable();
+        showToast(dest ? `« ${doc.title} » déplacé vers « ${dest} »` : `« ${doc.title} » déplacé à la racine`);
+    } catch (e) {
+        showToast('Erreur lors du déplacement du document.');
+    }
+}
+
+function initDragAndDrop() {
+    const tbody = document.getElementById('docTableBody');
+    const rootTab = document.getElementById('tab-root');
+    const tabsContainer = document.getElementById('folderTabsContainer');
+
+    tbody.addEventListener('dragstart', (e) => {
+        const row = e.target.closest('tr[data-doc-id]');
+        if (!row || row.dataset.draggable !== 'true') { e.preventDefault(); return; }
+        _draggedDocId = row.dataset.docId;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', _draggedDocId);
+        row.classList.add('opacity-50');
+    });
+
+    tbody.addEventListener('dragend', (e) => {
+        const row = e.target.closest('tr[data-doc-id]');
+        if (row) row.classList.remove('opacity-50');
+        document.querySelectorAll('.folder-drop-active').forEach(el => el.classList.remove('folder-drop-active', 'bg-blue-50', 'ring-2', 'ring-blue-400'));
+        _draggedDocId = null;
+    });
+
+    tbody.addEventListener('dragover', (e) => {
+        const row = e.target.closest('tr[data-folder-target="true"]');
+        if (!row) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        row.classList.add('folder-drop-active', 'bg-blue-50');
+    });
+
+    tbody.addEventListener('dragleave', (e) => {
+        const row = e.target.closest('tr[data-folder-target="true"]');
+        if (row) row.classList.remove('folder-drop-active', 'bg-blue-50');
+    });
+
+    tbody.addEventListener('drop', (e) => {
+        const row = e.target.closest('tr[data-folder-target="true"]');
+        if (!row) return;
+        e.preventDefault();
+        row.classList.remove('folder-drop-active', 'bg-blue-50');
+        const docId = e.dataTransfer.getData('text/plain') || _draggedDocId;
+        const folderName = row.dataset.folderName;
+        if (docId && folderName) moveDocumentToFolder(docId, folderName);
+    });
+
+    // Onglet « Racine » comme zone de dépôt (retour à la racine)
+    rootTab.addEventListener('dragover', (e) => { e.preventDefault(); rootTab.classList.add('folder-drop-active', 'ring-2', 'ring-blue-400'); });
+    rootTab.addEventListener('dragleave', () => rootTab.classList.remove('folder-drop-active', 'ring-2', 'ring-blue-400'));
+    rootTab.addEventListener('drop', (e) => {
+        e.preventDefault();
+        rootTab.classList.remove('folder-drop-active', 'ring-2', 'ring-blue-400');
+        const docId = e.dataTransfer.getData('text/plain') || _draggedDocId;
+        if (docId) moveDocumentToFolder(docId, '');
+    });
+
+    // Onglets de dossiers (créés dynamiquement) comme zones de dépôt
+    tabsContainer.addEventListener('dragover', (e) => {
+        const btn = e.target.closest('.folder-tab');
+        if (!btn) return;
+        e.preventDefault();
+        btn.classList.add('folder-drop-active', 'ring-2', 'ring-blue-400');
+    });
+    tabsContainer.addEventListener('dragleave', (e) => {
+        const btn = e.target.closest('.folder-tab');
+        if (btn) btn.classList.remove('folder-drop-active', 'ring-2', 'ring-blue-400');
+    });
+    tabsContainer.addEventListener('drop', (e) => {
+        const btn = e.target.closest('.folder-tab');
+        if (!btn) return;
+        e.preventDefault();
+        btn.classList.remove('folder-drop-active', 'ring-2', 'ring-blue-400');
+        const docId = e.dataTransfer.getData('text/plain') || _draggedDocId;
+        if (docId) moveDocumentToFolder(docId, btn.dataset.folder);
+    });
 }
 
 // ---- Onglets dossiers ----
@@ -876,7 +976,12 @@ function renderTable() {
             `<span class="inline-flex items-center rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-semibold">${c}</span>`
         ).join('') + (labels.length > 3 ? `<span class="inline-flex items-center rounded-md bg-gray-50 text-gray-600 border border-gray-200 px-1.5 py-0.5 text-[10px] font-semibold">+${labels.length - 3}</span>` : '');
 
-        return `<tr class="border-b hover:bg-gray-50 cursor-pointer" ondblclick="handleDblClick(event, '${doc.id}')">
+        return `<tr class="border-b hover:bg-gray-50 cursor-pointer" ondblclick="handleDblClick(event, '${doc.id}')"
+            data-doc-id="${doc.id}"
+            data-draggable="${canManage && !isFolder(doc) ? 'true' : 'false'}"
+            draggable="${canManage && !isFolder(doc) ? 'true' : 'false'}"
+            ${isFolder(doc) ? `data-folder-target="true" data-folder-name="${escAttr(doc.title)}"` : ''}
+        >
             <td class="py-3 px-4">
                 <div class="flex items-center gap-3">
                     <i class="${iconClass(doc)} text-lg"></i>
@@ -1647,6 +1752,7 @@ function maybeOpenOnlyOfficeFromQuery() {
 
 // Init
 renderTable();
+initDragAndDrop();
 maybeOpenOnlyOfficeFromQuery();
 </script>
 
