@@ -10003,6 +10003,7 @@ function sigToggleApiKey() {
 $permissionTree = [
     'dashboard'        => ['label' => 'Tableau de bord', 'children' => []],
     'courrier'         => ['label' => 'Gestion Courrier', 'children' => [
+        'courrier.tableau-de-bord'  => 'Tableau de bord',
         'courrier.enregistrement'   => 'Enregistrement',
       'courrier.envoi'            => 'Envoi',
       'courrier.reception'        => 'Réception',
