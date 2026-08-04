@@ -27,6 +27,7 @@ class CourrierController extends Controller
     use GuardsPermissions;
 
     private array $subtabs = [
+        'tableau-de-bord' => ['icon' => 'fas fa-chart-pie',      'label' => 'Tableau de bord'],
         'enregistrement'  => ['icon' => 'fas fa-plus-circle',   'label' => 'Enregistrement'],
         'envoi'           => ['icon' => 'fas fa-paper-plane',   'label' => 'Envoi'],
         'reception'       => ['icon' => 'fas fa-inbox',         'label' => 'Réception'],
@@ -39,6 +40,7 @@ class CourrierController extends Controller
     ];
 
     private const SUBTAB_PERMISSION = [
+        'tableau-de-bord'  => 'courrier.tableau-de-bord',
         'enregistrement'   => 'courrier.enregistrement',
         'envoi'            => 'courrier.liste',
         'reception'        => 'courrier.liste',
@@ -664,6 +666,73 @@ class CourrierController extends Controller
 
         $seq = str_pad($count + 1, 5, '0', STR_PAD_LEFT);
         return $prefix . '-' . $code . '-' . $seq . '-' . $annee;
+    }
+
+    /**
+     * Tableau de bord : visibilité synthétique des courriers de l'entité de
+     * l'utilisateur connecté (enregistrés, imputés, en traitement, traités).
+     */
+    public function tableauDeBord(Request $request)
+    {
+        $this->guardPermission('courrier.tableau-de-bord');
+
+        $code    = $this->subEntityCode();
+        $adminId = $this->administrationId();
+        $periode = $request->get('periode', '30'); // jours, 'tous' = sans limite
+
+        $archivalThreshold = $this->archivalThreshold();
+
+        $baseQuery = fn () => Courrier::query()
+            ->where('sub_entity_code', $code)
+            ->when($adminId, fn ($q) => $q->where('administration_id', $adminId))
+            ->when($archivalThreshold !== null, fn ($q) => $q->where('created_at', '>=', $archivalThreshold))
+            ->when($periode !== 'tous' && ctype_digit((string) $periode),
+                fn ($q) => $q->where('created_at', '>=', now()->subDays((int) $periode)));
+
+        $total         = (clone $baseQuery())->count();
+        $enAttente     = (clone $baseQuery())->where('statut', 'en_attente')->count();
+        $enTraitement  = (clone $baseQuery())->where('statut', 'en_traitement')->count();
+        $traite        = (clone $baseQuery())->where('statut', 'traite')->count();
+        $imputes       = (clone $baseQuery())->whereNotNull('impute_par')->count();
+
+        $arrives       = (clone $baseQuery())->where('type', 'arrive')->count();
+        $departs       = (clone $baseQuery())->where('type', 'depart')->count();
+
+        $urgents       = (clone $baseQuery())->whereIn('urgence', ['urgent', 'tres_urgent'])->count();
+
+        $recents = (clone $baseQuery())
+            ->with(['enregistrePar'])
+            ->latest()
+            ->limit(8)
+            ->get()
+            ->map(fn ($c) => [
+                'id'      => (string) $c->id,
+                'num'     => $c->numero,
+                'objet'   => $c->objet,
+                'type'    => $c->type === 'arrive' ? 'Arrivé' : 'Départ',
+                'statut'  => $c->statut_libelle,
+                'agent'   => $c->enregistrePar?->name ?? '—',
+                'date'    => optional($c->created_at)->format('d/m/Y H:i') ?? '',
+            ])
+            ->values()
+            ->toArray();
+
+        return view('courrier.index', [
+            'subtab'    => 'tableau-de-bord',
+            'subtabs'   => $this->visibleSubtabs(),
+            'periode'   => $periode,
+            'stats'     => [
+                'total'         => $total,
+                'en_attente'    => $enAttente,
+                'en_traitement' => $enTraitement,
+                'traite'        => $traite,
+                'imputes'       => $imputes,
+                'arrives'       => $arrives,
+                'departs'       => $departs,
+                'urgents'       => $urgents,
+            ],
+            'courriersRecents' => $recents,
+        ]);
     }
 
     public function enregistrement(Request $request)
