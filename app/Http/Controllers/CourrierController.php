@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AdministrationProfile;
+use App\Models\AdministrationSmtpSetting;
 use App\Models\Courrier;
 use App\Models\AppSetting;
 use App\Models\Instruction;
@@ -327,6 +329,65 @@ class CourrierController extends Controller
             });
     }
 
+    /**
+     * Résout la configuration SMTP d'administration à utiliser pour l'envoi
+     * des emails de notification courrier, en s'appuyant sur l'utilisateur
+     * qui déclenche l'action (agent enregistrant ou imputant le courrier).
+     */
+    private function resolveCourrierSmtpSetting(User $user): ?AdministrationSmtpSetting
+    {
+        $assignment = UserDirectionAssignment::where('user_id', $user->id)->first();
+        if ($assignment && $assignment->direction_scope_id) {
+            $type = $assignment->direction_scope_type === 'recipient' ? 'recipient' : 'emitter';
+            return AdministrationSmtpSetting::forAdministration($assignment->direction_scope_id, $type);
+        }
+
+        if ($user->profile_id) {
+            $profile = AdministrationProfile::find($user->profile_id);
+            if ($profile && $profile->administration_id) {
+                $type = ($profile->effective_administration_type ?? 'emitter') === 'recipient' ? 'recipient' : 'emitter';
+                return AdministrationSmtpSetting::forAdministration($profile->administration_id, $type);
+            }
+        }
+
+        return null;
+    }
+
+    private function applyCourrierScopedSmtpConfiguration(AdministrationSmtpSetting $smtp): void
+    {
+        config([
+            'mail.default'                 => 'smtp',
+            'mail.mailers.smtp.host'       => $smtp->mail_host,
+            'mail.mailers.smtp.port'       => $smtp->mail_port ?? 587,
+            'mail.mailers.smtp.username'   => $smtp->mail_username,
+            'mail.mailers.smtp.password'   => $smtp->mail_password,
+            'mail.mailers.smtp.encryption' => $smtp->mail_encryption ?: null,
+            'mail.mailers.smtp.timeout'    => 10,
+            'mail.from.address'            => $smtp->mail_from_address,
+            'mail.from.name'               => $smtp->mail_from_name ?? config('app.name'),
+        ]);
+    }
+
+    /**
+     * Configure le mailer courant sur la config SMTP de l'administration
+     * de l'utilisateur passé en paramètre. Retourne un message d'erreur
+     * explicite si aucune configuration n'est trouvée ou incomplète.
+     */
+    private function configureCourrierMailerFor(User $user): ?string
+    {
+        $smtp = $this->resolveCourrierSmtpSetting($user);
+        if (!$smtp) {
+            return "Aucune configuration SMTP d'administration n'a ete trouvee pour l'utilisateur {$user->id}.";
+        }
+
+        if (!$smtp->mail_host || !$smtp->mail_from_address) {
+            return "La configuration SMTP d'administration est incomplete (hote ou expediteur manquant) pour l'utilisateur {$user->id}.";
+        }
+
+        $this->applyCourrierScopedSmtpConfiguration($smtp);
+        return null;
+    }
+
     private function sendImputationEmailToTargetResponsible(Courrier $courrier, ?string $targetSubEntityCode): void
     {
         if ($courrier->type !== 'arrive') {
@@ -355,6 +416,19 @@ class CourrierController extends Controller
 
         $recipientEmail = trim((string) $responsibleUser->email);
         if ($recipientEmail === '') {
+            return;
+        }
+
+        $currentUser = Auth::user();
+        $smtpError = $currentUser ? $this->configureCourrierMailerFor($currentUser) : "Utilisateur non authentifie.";
+        if ($smtpError !== null) {
+            Log::error('Echec envoi email d\'imputation a l\'entite cible: configuration SMTP indisponible.', [
+                'courrier_id' => (string) $courrier->id,
+                'recipient_id' => (string) $responsibleUser->id,
+                'recipient_email' => $recipientEmail,
+                'target_sub_entity_code' => strtoupper(trim((string) $targetSubEntityCode)),
+                'error' => $smtpError,
+            ]);
             return;
         }
 
@@ -409,6 +483,18 @@ class CourrierController extends Controller
 
         $recipientEmail = trim((string) $responsibleUser->email);
         if ($recipientEmail === '') {
+            return;
+        }
+
+        $currentUser = Auth::user();
+        $smtpError = $currentUser ? $this->configureCourrierMailerFor($currentUser) : "Utilisateur non authentifie.";
+        if ($smtpError !== null) {
+            Log::error('Echec envoi email courrier en attente d\'imputation: configuration SMTP indisponible.', [
+                'courrier_id' => (string) $courrier->id,
+                'recipient_id' => (string) $responsibleUser->id,
+                'recipient_email' => $recipientEmail,
+                'error' => $smtpError,
+            ]);
             return;
         }
 

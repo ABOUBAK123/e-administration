@@ -12,15 +12,26 @@ return new class extends Migration
      */
     public function up(): void
     {
-        try {
-            DB::statement('ALTER TABLE `sub_entities` DROP INDEX `sub_entities_code_unique`');
-        } catch (\Throwable $e) {
-            // Index absent: nothing to drop.
+        if (DB::connection()->getDriverName() === 'mysql') {
+            try {
+                DB::statement('ALTER TABLE `sub_entities` DROP INDEX `sub_entities_code_unique`');
+            } catch (\Throwable $e) {
+                // Index absent: nothing to drop.
+            }
+
+            DB::statement(
+                'ALTER TABLE `sub_entities` ADD UNIQUE `sub_entities_scope_type_scope_id_code_unique` (`scope_type`(50), `scope_id`(50), `code`(50))'
+            );
+
+            return;
         }
 
-        DB::statement(
-            'ALTER TABLE `sub_entities` ADD UNIQUE `sub_entities_scope_type_scope_id_code_unique` (`scope_type`(50), `scope_id`(50), `code`(50))'
-        );
+        // Pilotes non-MySQL (ex: sqlite pour les tests): index de longueur de prefixe
+        // non supporte, on retombe sur un index unique compose classique.
+        Schema::table('sub_entities', function (Blueprint $table) {
+            $table->dropUnique('sub_entities_code_unique');
+            $table->unique(['scope_type', 'scope_id', 'code'], 'sub_entities_scope_type_scope_id_code_unique');
+        });
     }
 
     /**
@@ -28,13 +39,22 @@ return new class extends Migration
      */
     public function down(): void
     {
-        try {
-            DB::statement('ALTER TABLE `sub_entities` DROP INDEX `sub_entities_scope_type_scope_id_code_unique`');
-        } catch (\Throwable $e) {
-            // Index absent: nothing to drop.
+        if (DB::connection()->getDriverName() === 'mysql') {
+            try {
+                DB::statement('ALTER TABLE `sub_entities` DROP INDEX `sub_entities_scope_type_scope_id_code_unique`');
+            } catch (\Throwable $e) {
+                // Index absent: nothing to drop.
+            }
+
+            Schema::table('sub_entities', function (Blueprint $table) {
+                $table->unique('code', 'sub_entities_code_unique');
+            });
+
+            return;
         }
 
         Schema::table('sub_entities', function (Blueprint $table) {
+            $table->dropUnique('sub_entities_scope_type_scope_id_code_unique');
             $table->unique('code', 'sub_entities_code_unique');
         });
     }
