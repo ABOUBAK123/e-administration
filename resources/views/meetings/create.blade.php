@@ -31,19 +31,19 @@
             <select name="meeting_room_id" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 <option value="">Sélectionner</option>
                 @foreach($rooms as $room)
-                <option value="{{ $room->id }}">{{ $room->name }} ({{ $room->location }})</option>
+                <option value="{{ $room->id }}" {{ old('meeting_room_id', $prefillRoomId ?? '') === (string) $room->id ? 'selected' : '' }}>{{ $room->name }} ({{ $room->location }})</option>
                 @endforeach
             </select>
         </div>
 
         <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Début</label>
-            <input type="datetime-local" name="starts_at" value="{{ old('starts_at') }}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <input type="datetime-local" name="starts_at" value="{{ old('starts_at', $prefillStartsAt ?? '') }}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
         </div>
 
         <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Fin</label>
-            <input type="datetime-local" name="ends_at" value="{{ old('ends_at') }}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <input type="datetime-local" name="ends_at" value="{{ old('ends_at', $prefillEndsAt ?? '') }}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
         </div>
 
         <div>

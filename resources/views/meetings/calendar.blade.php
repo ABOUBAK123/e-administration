@@ -29,22 +29,28 @@
            class="px-3 py-2 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50">Aujourd'hui</a>
     </div>
 
-    <form method="GET" class="flex items-center gap-2 flex-wrap">
-        <select name="room_id" onchange="this.form.submit()"
-                class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2453d6]">
-            <option value="">Toutes les salles</option>
-            @foreach($rooms as $room)
-                <option value="{{ $room->id }}" {{ $roomId === (string) $room->id ? 'selected' : '' }}>{{ $room->name }}</option>
-            @endforeach
-        </select>
-        <label class="flex items-center gap-1.5 text-sm text-gray-600 px-2">
-            <input type="checkbox" name="mine" value="1" onchange="this.form.submit()" {{ $mineOnly ? 'checked' : '' }}
-                   class="rounded border-gray-300 text-[#2453d6] focus:ring-[#2453d6]">
-            Mes réunions
-        </label>
-        <input type="hidden" name="year" value="{{ $year }}">
-        <input type="hidden" name="month" value="{{ $month }}">
-    </form>
+    <div class="flex items-center gap-2 flex-wrap">
+        <form method="GET" class="flex items-center gap-2 flex-wrap">
+            <select name="room_id" onchange="this.form.submit()"
+                    class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2453d6]">
+                <option value="">Toutes les salles</option>
+                @foreach($rooms as $room)
+                    <option value="{{ $room->id }}" {{ $roomId === (string) $room->id ? 'selected' : '' }}>{{ $room->name }}</option>
+                @endforeach
+            </select>
+            <label class="flex items-center gap-1.5 text-sm text-gray-600 px-2">
+                <input type="checkbox" name="mine" value="1" onchange="this.form.submit()" {{ $mineOnly ? 'checked' : '' }}
+                       class="rounded border-gray-300 text-[#2453d6] focus:ring-[#2453d6]">
+                Mes réunions
+            </label>
+            <input type="hidden" name="year" value="{{ $year }}">
+            <input type="hidden" name="month" value="{{ $month }}">
+        </form>
+        <a href="{{ route('meetings.create', ['date' => now()->format('Y-m-d'), 'room_id' => $roomId]) }}"
+           class="px-3 py-2 rounded-lg text-sm font-semibold bg-[#2453d6] text-white hover:bg-[#1f47bb] flex items-center gap-1.5">
+            <i class="fas fa-plus"></i> Nouvelle réunion
+        </a>
+    </div>
 </div>
 
 <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -58,8 +64,12 @@
             @php
                 $isWeekend = $day['date']->isWeekend();
             @endphp
-            <div class="min-h-[110px] border-b border-r border-gray-100 p-1.5 align-top
+            <div class="group relative min-h-[110px] border-b border-r border-gray-100 p-1.5 align-top
                         {{ $day['inMonth'] ? '' : 'bg-gray-50/60' }} {{ $isWeekend ? 'bg-gray-50/30' : '' }}">
+                <a href="{{ route('meetings.create', ['date' => $day['date']->format('Y-m-d'), 'room_id' => $roomId]) }}"
+                   title="Créer une réunion le {{ $day['date']->format('d/m/Y') }}"
+                   class="absolute top-1 left-1 w-5 h-5 rounded-full bg-[#2453d6] text-white text-xs leading-5 text-center
+                          opacity-0 group-hover:opacity-100 hover:bg-[#1f47bb] transition-opacity z-10">+</a>
                 <div class="flex justify-end mb-1">
                     <span class="text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full
                                  {{ $day['isToday'] ? 'bg-[#2453d6] text-white' : ($day['inMonth'] ? 'text-gray-700' : 'text-gray-300') }}">
