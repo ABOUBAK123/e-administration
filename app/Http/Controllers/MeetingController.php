@@ -9,6 +9,7 @@ use App\Models\MeetingMinutesVersion;
 use App\Models\MeetingParticipant;
 use App\Models\MeetingRoom;
 use App\Models\User;
+use Carbon\Carbon;
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Writer\PngWriter;
 use Illuminate\Http\Request;
@@ -52,6 +53,84 @@ class MeetingController extends Controller
             ->appends(['q' => $q]);
 
         return view('meetings.index', compact('meetings', 'q'));
+    }
+
+    public function calendar(Request $request)
+    {
+        $this->guardPermission('meetings.view');
+        if (!$this->isMeetingsModuleReady()) {
+            return redirect()->route('dashboard')
+                ->with('error', 'Le module Reunions n\'est pas encore initialise sur ce serveur. Lancez les migrations.');
+        }
+
+        $scope = $this->resolveCurrentUserScope();
+
+        $year = (int) ($request->get('year') ?: now()->year);
+        $month = (int) ($request->get('month') ?: now()->month);
+        if ($month < 1 || $month > 12) {
+            $month = now()->month;
+        }
+
+        $roomId = trim((string) $request->get('room_id', ''));
+        $mineOnly = (bool) $request->boolean('mine');
+
+        $monthStart = Carbon::create($year, $month, 1)->startOfMonth();
+        $monthEnd = $monthStart->copy()->endOfMonth();
+        $gridStart = $monthStart->copy()->startOfWeek(Carbon::MONDAY);
+        $gridEnd = $monthEnd->copy()->endOfWeek(Carbon::SUNDAY);
+
+        $meetings = Meeting::with(['room', 'organizer'])
+            ->when($scope !== null, function ($query) use ($scope) {
+                $query->where('issuing_administration_id', $scope['administration_id'])
+                    ->where('sub_entity_code', $scope['sub_entity_code']);
+            }, function ($query) {
+                // Fallback de securite: sans scope, l'utilisateur ne voit que ses reunions.
+                $query->where('organizer_id', Auth::id());
+            })
+            ->when($roomId !== '', function ($query) use ($roomId) {
+                $query->where('meeting_room_id', $roomId);
+            })
+            ->when($mineOnly, function ($query) {
+                $query->where('organizer_id', Auth::id());
+            })
+            ->whereNotNull('starts_at')
+            ->whereBetween('starts_at', [$gridStart, $gridEnd])
+            ->orderBy('starts_at')
+            ->get();
+
+        $meetingsByDay = $meetings->groupBy(fn ($m) => $m->starts_at->format('Y-m-d'));
+
+        $days = [];
+        $cursor = $gridStart->copy();
+        while ($cursor->lte($gridEnd)) {
+            $key = $cursor->format('Y-m-d');
+            $days[] = [
+                'date' => $cursor->copy(),
+                'inMonth' => $cursor->month === $month,
+                'isToday' => $cursor->isToday(),
+                'meetings' => $meetingsByDay->get($key, collect()),
+            ];
+            $cursor->addDay();
+        }
+
+        $rooms = $scope !== null
+            ? MeetingRoom::where('administration_id', $scope['administration_id'])->orderBy('name')->get()
+            : collect();
+
+        $prevMonth = $monthStart->copy()->subMonth();
+        $nextMonth = $monthStart->copy()->addMonth();
+
+        return view('meetings.calendar', compact(
+            'days',
+            'month',
+            'year',
+            'monthStart',
+            'rooms',
+            'roomId',
+            'mineOnly',
+            'prevMonth',
+            'nextMonth'
+        ));
     }
 
     public function create()
