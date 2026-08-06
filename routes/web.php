@@ -218,6 +218,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/documents/{id}/force-delete', [DocumentController::class, 'forceDelete'])->name('documents.forceDelete');
     Route::resource('documents', DocumentController::class);
     Route::get('/documents/{document}/download', [DocumentController::class, 'download'])->name('documents.download');
+    Route::get('/documents/{document}/download-folder', [DocumentController::class, 'downloadFolder'])->name('documents.downloadFolder');
     Route::post('/documents/{document}/favorite', [DocumentController::class, 'toggleFavorite'])->name('documents.favorite');
     Route::post('/documents/{document}/labels', [DocumentController::class, 'updateLabels'])->name('documents.labels');
     Route::post('/documents/{document}/rename', [DocumentController::class, 'rename'])->name('documents.rename');
