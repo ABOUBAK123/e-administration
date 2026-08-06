@@ -9,10 +9,22 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+// Rappels/alertes automatiques du module Reunions : rappel de reunion a
+// venir, relance validateur, alerte echeance de traitement. La commande
+// est idempotente (marque les entites deja traitees), donc une execution
+// horaire suffit meme si le scheduler redemarre.
+Schedule::command('meetings:send-reminders')
+    ->hourly()
+    ->withoutOverlapping()
+    ->onFailure(function () {
+        Log::error('La commande meetings:send-reminders a echoue.');
+    });
 
 Artisan::command('templates:backfill-content
     {--dry-run : Affiche les templates qui seront repares sans ecrire en base}

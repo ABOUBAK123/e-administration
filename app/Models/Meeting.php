@@ -49,6 +49,9 @@ class Meeting extends Model
         'qr_token',
         'qr_valid_from',
         'qr_valid_until',
+        'reminder_sent_at',
+        'validation_reminder_sent_at',
+        'deadline_alert_sent_at',
     ];
 
     protected $casts = [
@@ -68,6 +71,9 @@ class Meeting extends Model
         'writer_signed_at' => 'datetime',
         'published_at' => 'datetime',
         'diffusion_ack_required' => 'boolean',
+        'reminder_sent_at' => 'datetime',
+        'validation_reminder_sent_at' => 'datetime',
+        'deadline_alert_sent_at' => 'datetime',
     ];
 
     public function room()
