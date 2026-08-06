@@ -563,6 +563,10 @@ class DocumentController extends Controller
     {
         abort_if(!$this->userCanAccessDocument($document), 403);
 
+        if ($document->mime_type === 'application/x-folder' || ($document->description ?? '') === '[folder]') {
+            return $this->downloadFolder($document);
+        }
+
         $user = Auth::user();
         if ($user && (string) $user->id !== (string) $document->owner_id) {
             $userEmail = (string) ($user->email ?? '');
@@ -690,6 +694,88 @@ class DocumentController extends Controller
         }
 
         return Storage::disk('public')->download($path, $name);
+    }
+
+    /**
+     * Téléchargement d'un dossier sous forme d'archive ZIP contenant tous les
+     * documents qu'il contient (convention "Dossier: {nom}" dans `description`).
+     */
+    public function downloadFolder(Document $document)
+    {
+        abort_if(!$this->userCanAccessDocument($document), 403);
+
+        $isFolder = $document->mime_type === 'application/x-folder' || ($document->description ?? '') === '[folder]';
+        abort_unless($isFolder, 422, "Ce document n'est pas un dossier.");
+
+        if (!class_exists('ZipArchive')) {
+            abort(500, "L'extension PHP ZipArchive est requise pour télécharger un dossier.");
+        }
+
+        $folderName = (string) $document->title;
+
+        $children = Document::query()
+            ->where('description', 'Dossier: ' . $folderName)
+            ->where(function ($q) use ($document) {
+                $q->where('owner_id', $document->owner_id)
+                  ->orWhere('created_by', $document->created_by);
+            })
+            ->get();
+
+        if ($children->isEmpty()) {
+            abort(404, 'Ce dossier ne contient aucun fichier à télécharger.');
+        }
+
+        $tmpDir = storage_path('app/tmp/folder-zip');
+        if (!is_dir($tmpDir)) {
+            @mkdir($tmpDir, 0755, true);
+        }
+
+        $safeFolderName = preg_replace('/[\/\\\\\x00-\x1f]+/', '-', $folderName);
+        $safeFolderName = trim((string) $safeFolderName, '-') ?: 'dossier';
+        $zipPath = $tmpDir . DIRECTORY_SEPARATOR . Str::uuid() . '.zip';
+
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            abort(500, "Impossible de créer l'archive ZIP.");
+        }
+
+        $usedNames = [];
+        foreach ($children as $child) {
+            $childSourcePath = (string) ($child->final_file_path ?: $child->signed_file_path ?: $child->file_path ?: '');
+            $childRelPath = ltrim(str_replace('/storage/', '', $childSourcePath), '/');
+
+            if ($childRelPath === '' || !Storage::disk('public')->exists($childRelPath)) {
+                continue;
+            }
+
+            $childExt = pathinfo($childSourcePath, PATHINFO_EXTENSION) ?: 'bin';
+            $childSafeTitle = preg_replace('/[\/\\\\\x00-\x1f]+/', '-', $child->title);
+            $childSafeTitle = trim((string) $childSafeTitle, '-') ?: 'document';
+            $childName = pathinfo($childSafeTitle, PATHINFO_EXTENSION) === $childExt
+                ? $childSafeTitle
+                : $childSafeTitle . '.' . $childExt;
+
+            // Éviter les collisions de noms au sein du ZIP.
+            $finalName = $childName;
+            $suffix = 1;
+            while (in_array($finalName, $usedNames, true)) {
+                $finalName = pathinfo($childName, PATHINFO_FILENAME) . " ({$suffix})." . pathinfo($childName, PATHINFO_EXTENSION);
+                $suffix++;
+            }
+            $usedNames[] = $finalName;
+
+            $zip->addFile(Storage::disk('public')->path($childRelPath), $finalName);
+        }
+
+        $addedCount = $zip->numFiles;
+        $zip->close();
+
+        if ($addedCount === 0) {
+            @unlink($zipPath);
+            abort(404, 'Aucun fichier valide trouvé dans ce dossier.');
+        }
+
+        return response()->download($zipPath, $safeFolderName . '.zip')->deleteFileAfterSend(true);
     }
 
     /**
