@@ -53,8 +53,8 @@
 
 
 <!-- Inputs fichiers cachés -->
-<input type="file" id="fileInput" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.csv">
-<input type="file" id="folderInput" class="hidden" multiple webkitdirectory directory accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.csv">
+<input type="file" id="fileInput" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.csv,.zip">
+<input type="file" id="folderInput" class="hidden" multiple webkitdirectory directory accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.csv,.zip">
 
 <!-- Barre d'actions supérieure -->
 <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
@@ -1457,11 +1457,12 @@ async function handleMenuAction(action) {
 }
 
 // ---- Upload fichiers ----
-async function uploadFile(file) {
+async function uploadFile(file, folder = undefined) {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('title', file.name);
-    if (activeFolderTab) fd.append('folder', activeFolderTab);
+    const targetFolder = folder !== undefined ? folder : activeFolderTab;
+    if (targetFolder) fd.append('folder', targetFolder);
     const resp = await fetch(ROUTES.uploadAjax, {
         method: 'POST',
         headers: { 'X-CSRF-TOKEN': CSRF, Accept: 'application/json' },
@@ -1505,7 +1506,7 @@ document.getElementById('folderInput').addEventListener('change', async (e) => {
         const rel = file.webkitRelativePath || '';
         const top = rel.split('/')[0] || null;
         try {
-            const data = await uploadFile(file);
+            const data = await uploadFile(file, top);
             if (data.id) allDocs.unshift({ id: data.id, title: data.title,
                 description: top ? `Dossier: ${top}` : null,
                 mime_type: data.mime_type, file_path: data.file_path,
