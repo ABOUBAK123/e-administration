@@ -135,7 +135,7 @@ class MeetingController extends Controller
         ));
     }
 
-    public function create()
+    public function create(Request $request)
     {
         $this->guardPermission('meetings.create');
         if (!$this->isMeetingsModuleReady()) {
@@ -167,7 +167,24 @@ class MeetingController extends Controller
             ->orderBy('users.name')
             ->get();
 
-        return view('meetings.create', compact('rooms', 'users'));
+        // Pré-remplissage depuis le calendrier (clic sur un jour) : date + créneau par défaut 09:00-10:00.
+        $prefillStartsAt = null;
+        $prefillEndsAt = null;
+        $prefillDate = trim((string) $request->get('date', ''));
+        if ($prefillDate !== '') {
+            try {
+                $day = Carbon::createFromFormat('Y-m-d', $prefillDate)->startOfDay();
+                $prefillStartsAt = $day->copy()->setTime(9, 0)->format('Y-m-d\TH:i');
+                $prefillEndsAt = $day->copy()->setTime(10, 0)->format('Y-m-d\TH:i');
+            } catch (\Throwable $e) {
+                // Date invalide fournie dans l'URL : on ignore simplement le pré-remplissage.
+                $prefillStartsAt = null;
+                $prefillEndsAt = null;
+            }
+        }
+        $prefillRoomId = trim((string) $request->get('room_id', ''));
+
+        return view('meetings.create', compact('rooms', 'users', 'prefillStartsAt', 'prefillEndsAt', 'prefillRoomId'));
     }
 
     public function store(Request $request)
