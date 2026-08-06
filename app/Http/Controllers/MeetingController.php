@@ -19,7 +19,9 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use App\Services\ClamAvScanner;
+use App\Services\MeetingAiMinutesService;
 use App\Traits\GuardsPermissions;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class MeetingController extends Controller
@@ -239,6 +241,53 @@ class MeetingController extends Controller
             return back()->withInput()->with('error', 'La salle est déjà réservée sur ce créneau horaire.');
         }
 
+        $involvedUserIds = array_unique(array_filter(array_merge(
+            [(string) Auth::id(), (string) $validated['minutes_writer_id'], (string) $validated['validator_id']],
+            $requestedParticipants
+        )));
+
+        $conflictingMeetings = Meeting::whereIn('status', ['planned', 'in_progress'])
+            ->where(function ($query) use ($startsAt, $endsAt) {
+                $query->where('starts_at', '<', $endsAt)
+                    ->where('ends_at', '>', $startsAt);
+            })
+            ->where(function ($query) use ($involvedUserIds) {
+                $query->whereIn('organizer_id', $involvedUserIds)
+                    ->orWhereIn('minutes_writer_id', $involvedUserIds)
+                    ->orWhereIn('validator_id', $involvedUserIds)
+                    ->orWhereHas('participants', function ($participantQuery) use ($involvedUserIds) {
+                        $participantQuery->whereIn('user_id', $involvedUserIds);
+                    });
+            })
+            ->with(['organizer', 'minutesWriter', 'validator', 'participants'])
+            ->get();
+
+        if ($conflictingMeetings->isNotEmpty()) {
+            $conflictingUserIds = collect();
+            foreach ($conflictingMeetings as $conflictingMeeting) {
+                foreach ([$conflictingMeeting->organizer_id, $conflictingMeeting->minutes_writer_id, $conflictingMeeting->validator_id] as $candidateId) {
+                    if ($candidateId !== null && in_array((string) $candidateId, $involvedUserIds, true)) {
+                        $conflictingUserIds->push((string) $candidateId);
+                    }
+                }
+                foreach ($conflictingMeeting->participants as $participant) {
+                    if ($participant->user_id !== null && in_array((string) $participant->user_id, $involvedUserIds, true)) {
+                        $conflictingUserIds->push((string) $participant->user_id);
+                    }
+                }
+            }
+
+            $conflictingNames = User::whereIn('id', $conflictingUserIds->unique()->values())
+                ->pluck('name')
+                ->unique()
+                ->implode(', ');
+
+            return back()->withInput()->with(
+                'error',
+                'Conflit de planning : ' . ($conflictingNames ?: 'un ou plusieurs participants') . ' déjà engagé(s) sur une autre réunion à ce créneau.'
+            );
+        }
+
         $attachments = [];
         foreach ((array) $request->file('attachments', []) as $file) {
             ClamAvScanner::scan($file, 'reunions');
@@ -387,6 +436,49 @@ class MeetingController extends Controller
         $this->appendMinutesVersion($meeting, $validated['note'] ?? 'Mise à jour du compte rendu');
 
         return redirect()->route('meetings.show', $meeting)->with('success', 'Compte rendu mis à jour.');
+    }
+
+    /**
+     * Génère une proposition de compte rendu à partir d'un enregistrement audio
+     * envoyé par le navigateur (bouton "IA : écouter la réunion").
+     * Le texte proposé n'est jamais enregistré automatiquement : il est renvoyé
+     * au client pour relecture/édition, puis sauvegardé via updateMinutes().
+     */
+    public function aiGenerateMinutes(Request $request, Meeting $meeting)
+    {
+        $this->guardPermission('meetings.minutes');
+        $this->abortIfMeetingOutsideScope($meeting);
+
+        $currentUserId = (string) Auth::id();
+        $isWriter = (string) ($meeting->minutes_writer_id ?? '') === $currentUserId;
+        $isValidator = (string) ($meeting->validator_id ?? '') === $currentUserId;
+        if (!$isWriter && !$isValidator) {
+            return response()->json(['error' => 'Seul le rédacteur ou le validateur peut générer un compte rendu par IA.'], 403);
+        }
+
+        $validated = $request->validate([
+            'audio' => 'required|file|max:20480',
+        ]);
+
+        $audioFile = $request->file('audio');
+
+        try {
+            ClamAvScanner::scan($audioFile, 'reunions');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['error' => $e->validator->errors()->first('file')], 422);
+        }
+
+        try {
+            $proposedMinutes = app(MeetingAiMinutesService::class)->generateFromAudio($audioFile, $meeting);
+        } catch (\Throwable $e) {
+            Log::error('Echec generation compte rendu IA (reunion).', [
+                'meeting_id' => $meeting->id,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json(['error' => $e->getMessage()], 502);
+        }
+
+        return response()->json(['minutes_content' => $proposedMinutes]);
     }
 
     public function workflow(Request $request, Meeting $meeting)
