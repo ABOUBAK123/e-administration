@@ -297,6 +297,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/meetings/{meeting}/edit', [MeetingController::class, 'show'])->name('meetings.edit');
     Route::get('/meetings/{meeting}', [MeetingController::class, 'show'])->name('meetings.show');
     Route::post('/meetings/{meeting}/minutes', [MeetingController::class, 'updateMinutes'])->name('meetings.minutes.update');
+    Route::post('/meetings/{meeting}/ai-minutes', [MeetingController::class, 'aiGenerateMinutes'])->name('meetings.ai.minutes');
     Route::post('/meetings/{meeting}/workflow', [MeetingController::class, 'workflow'])->name('meetings.workflow');
     Route::post('/meetings/{meeting}/template-oo-config', [MeetingController::class, 'templateOoConfig'])->name('meetings.template.oo.config');
         Route::post('/meetings/{meeting}/template-analyze', [MeetingController::class, 'analyzeTemplate'])->name('meetings.template.analyze');

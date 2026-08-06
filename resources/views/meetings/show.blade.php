@@ -172,10 +172,31 @@
             @endif
 
             {{-- Contenu libre --}}
+            @if($isWriter || $isValidator)
+            <div class="border-t border-gray-100 pt-3 space-y-2" id="ai-minutes-block">
+                <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                    <i class="fas fa-robot text-purple-500 mr-1"></i> IA : écouter la réunion et proposer un compte rendu
+                </p>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button type="button" id="ai-record-btn" onclick="toggleAiRecording()"
+                            class="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700">
+                        <i class="fas fa-microphone"></i> <span id="ai-record-btn-label">Démarrer l'écoute</span>
+                    </button>
+                    <span id="ai-record-timer" class="text-xs text-gray-500 hidden">00:00</span>
+                    <button type="button" id="ai-generate-btn" onclick="generateAiMinutes()" disabled
+                            class="hidden items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50">
+                        <i class="fas fa-magic"></i> Générer la proposition
+                    </button>
+                    <span id="ai-minutes-status" class="text-xs text-gray-500"></span>
+                </div>
+                <p class="text-[11px] text-gray-400 italic">Le texte généré est une proposition à relire et corriger avant enregistrement.</p>
+            </div>
+            @endif
+
             <form method="POST" action="{{ route('meetings.minutes.update', $meeting) }}" class="space-y-2 border-t border-gray-100 pt-3">
                 @csrf
                 <label class="block text-xs font-semibold text-gray-600 mb-1">Contenu libre du compte rendu</label>
-                <textarea name="minutes_content" rows="6" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Rédiger le compte rendu...">{{ old('minutes_content', $meeting->minutes_content ?? '') }}</textarea>
+                <textarea name="minutes_content" id="minutes_content" rows="6" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Rédiger le compte rendu...">{{ old('minutes_content', $meeting->minutes_content ?? '') }}</textarea>
                 <input type="text" name="note" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Note de version (optionnel)">
                 <button class="px-3 py-2 rounded-lg bg-[#2453d6] text-white text-sm font-semibold hover:bg-[#1f47bb]">Enregistrer une version</button>
             </form>
@@ -534,6 +555,109 @@ document.getElementById('oo-tpl-modal')?.addEventListener('click', function (e) 
         } catch (err) {
             if (statusEl) { statusEl.textContent = ''; statusEl.classList.add('hidden'); }
             alert('Erreur : ' + err.message);
+        }
+    }
+
+    // ─── IA : écoute et proposition de compte rendu ─────────────────────────────
+    @php
+        try { $aiMinutesUrl = route('meetings.ai.minutes', $meeting); } catch (\Exception $e) { $aiMinutesUrl = null; }
+    @endphp
+    const AI_MINUTES_URL = @json($aiMinutesUrl);
+
+    let aiMediaRecorder = null;
+    let aiAudioChunks = [];
+    let aiRecordedBlob = null;
+    let aiTimerInterval = null;
+    let aiTimerSeconds = 0;
+
+    async function toggleAiRecording() {
+        const btn = document.getElementById('ai-record-btn');
+        const label = document.getElementById('ai-record-btn-label');
+        const statusEl = document.getElementById('ai-minutes-status');
+
+        if (aiMediaRecorder && aiMediaRecorder.state === 'recording') {
+            aiMediaRecorder.stop();
+            return;
+        }
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert('Votre navigateur ne permet pas l\'accès au microphone (HTTPS requis en dehors de localhost).');
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            aiAudioChunks = [];
+            aiRecordedBlob = null;
+            aiMediaRecorder = new MediaRecorder(stream);
+
+            aiMediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) aiAudioChunks.push(e.data); };
+            aiMediaRecorder.onstop = () => {
+                aiRecordedBlob = new Blob(aiAudioChunks, { type: aiMediaRecorder.mimeType || 'audio/webm' });
+                stream.getTracks().forEach(t => t.stop());
+                clearInterval(aiTimerInterval);
+                document.getElementById('ai-record-timer').classList.add('hidden');
+                label.textContent = 'Démarrer l\'écoute';
+                btn.classList.replace('bg-gray-500', 'bg-purple-600');
+                const genBtn = document.getElementById('ai-generate-btn');
+                genBtn.classList.remove('hidden');
+                genBtn.classList.add('inline-flex');
+                genBtn.disabled = false;
+                if (statusEl) statusEl.textContent = 'Enregistrement prêt (' + Math.round(aiRecordedBlob.size / 1024) + ' Ko).';
+            };
+
+            aiMediaRecorder.start();
+            label.textContent = 'Arrêter l\'écoute';
+            btn.classList.replace('bg-purple-600', 'bg-gray-500');
+            if (statusEl) statusEl.textContent = '';
+
+            aiTimerSeconds = 0;
+            const timerEl = document.getElementById('ai-record-timer');
+            timerEl.classList.remove('hidden');
+            timerEl.textContent = '00:00';
+            aiTimerInterval = setInterval(() => {
+                aiTimerSeconds++;
+                const m = String(Math.floor(aiTimerSeconds / 60)).padStart(2, '0');
+                const s = String(aiTimerSeconds % 60).padStart(2, '0');
+                timerEl.textContent = `${m}:${s}`;
+            }, 1000);
+        } catch (err) {
+            alert('Impossible d\'accéder au microphone : ' + err.message);
+        }
+    }
+
+    async function generateAiMinutes() {
+        if (!AI_MINUTES_URL) { alert('Route de génération IA non disponible.'); return; }
+        if (!aiRecordedBlob) { alert('Aucun enregistrement disponible. Démarrez l\'écoute puis arrêtez-la avant de générer.'); return; }
+
+        const genBtn = document.getElementById('ai-generate-btn');
+        const statusEl = document.getElementById('ai-minutes-status');
+        genBtn.disabled = true;
+        if (statusEl) statusEl.textContent = 'Transcription et rédaction en cours par l\'IA…';
+
+        const formData = new FormData();
+        formData.append('audio', aiRecordedBlob, 'reunion.webm');
+
+        try {
+            const resp = await fetch(AI_MINUTES_URL, {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' },
+                body: formData,
+            });
+            const data = await resp.json();
+
+            if (!resp.ok || data.error) {
+                throw new Error(data.error || 'Erreur lors de la génération du compte rendu par IA.');
+            }
+
+            const textarea = document.getElementById('minutes_content');
+            textarea.value = data.minutes_content;
+            if (statusEl) statusEl.textContent = 'Proposition générée. Relisez et corrigez avant d\'enregistrer.';
+        } catch (err) {
+            if (statusEl) statusEl.textContent = '';
+            alert('Erreur IA : ' + err.message);
+        } finally {
+            genBtn.disabled = false;
         }
     }
 </script>

@@ -34,6 +34,13 @@ return [
         'timeout' => env('OLLAMA_TIMEOUT', 60),
     ],
 
+    'gemini' => [
+        // Clé API gratuite : https://aistudio.google.com/app/apikey
+        'api_key' => env('GEMINI_API_KEY'),
+        'model'   => env('GEMINI_MODEL', 'gemini-2.0-flash'),
+        'timeout' => env('GEMINI_TIMEOUT', 120),
+    ],
+
     'signature_platform' => [
         // Secret partagé pour authentifier les webhooks entrants de la plateforme de signature.
         // Générer avec : php artisan tinker --execute="echo bin2hex(random_bytes(32));"
