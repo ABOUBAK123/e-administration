@@ -109,6 +109,23 @@
             <input type="date" name="recurrence_until" value="{{ old('recurrence_until') }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
         </div>
 
+        <div class="md:col-span-2 border border-gray-100 rounded-lg p-3 bg-gray-50/50">
+            <label class="inline-flex items-center gap-2 text-sm text-gray-700 mb-2">
+                <input type="checkbox" id="is_virtual" name="is_virtual" value="1" {{ old('is_virtual') ? 'checked' : '' }}
+                       class="rounded border-gray-300 text-[#2453d6] focus:ring-[#2453d6]"
+                       onchange="document.getElementById('meeting_link_wrap').classList.toggle('hidden', !this.checked)">
+                Réunion virtuelle / hybride (visioconférence)
+            </label>
+            <div id="meeting_link_wrap" class="{{ old('is_virtual') ? '' : 'hidden' }}">
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Lien de visioconférence (Teams, Zoom, Meet...)</label>
+                <input type="url" name="meeting_link" value="{{ old('meeting_link') }}" placeholder="https://teams.microsoft.com/..."
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                @error('meeting_link')
+                    <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                @enderror
+            </div>
+        </div>
+
         <div class="md:col-span-2">
             <label class="block text-xs font-semibold text-gray-700 mb-1">Ordre du jour</label>
             <textarea name="agenda" rows="5" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">{{ old('agenda') }}</textarea>

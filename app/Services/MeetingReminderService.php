@@ -208,8 +208,13 @@ class MeetingReminderService
             . "- Titre : {$meeting->title}\n"
             . "- Date : " . (string) optional($meeting->starts_at)->format('d/m/Y H:i') . "\n"
             . "- Salle : " . (string) ($meeting->room?->name ?: 'N/A') . "\n"
-            . "- Organisateur : " . (string) ($meeting->organizer?->name ?: 'N/A') . "\n\n"
-            . "Merci de vous organiser en consequence.\n\n"
+            . "- Organisateur : " . (string) ($meeting->organizer?->name ?: 'N/A') . "\n";
+
+        if ($meeting->is_virtual && !empty($meeting->meeting_link)) {
+            $body .= "- Lien de visioconference : {$meeting->meeting_link}\n";
+        }
+
+        $body .= "\nMerci de vous organiser en consequence.\n\n"
             . "Cordialement.";
 
         Mail::raw($body, function ($message) use ($emails, $subject) {
