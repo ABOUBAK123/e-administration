@@ -3502,6 +3502,7 @@ class AdminController extends Controller
         'reception_archival_days',
         'email_notifications_enabled', 'email_notifications_from',
         'otp_channel', 'whatsapp_api_token', 'whatsapp_phone_number_id',
+        'gemini_api_key', 'gemini_model', 'gemini_timeout',
     ];
 
     public function updateSettings(Request $request)
@@ -3523,6 +3524,11 @@ class AdminController extends Controller
         // Ne pas écraser le token WhatsApp s'il est laissé vide
         if (array_key_exists('whatsapp_api_token', $data) && trim((string) $data['whatsapp_api_token']) === '') {
             unset($data['whatsapp_api_token']);
+        }
+
+        // Ne pas écraser la clé API Gemini si le champ masqué est laissé vide
+        if (array_key_exists('gemini_api_key', $data) && trim((string) $data['gemini_api_key']) === '') {
+            unset($data['gemini_api_key']);
         }
 
         // Canal OTP : stocké par administration (otp_channel:{type}:{id}) ou global (otp_channel)

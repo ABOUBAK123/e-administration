@@ -27,6 +27,7 @@ $allTabs = [
     'direction-types'    => ['fas fa-tags',               'Types de direction',    '#10b981', 'administration.direction-types'],
     'routing'            => ['fas fa-route',              'Routage',               '#f97316', 'administration.routing'],
     'onlyoffice'         => ['fas fa-edit',               'OnlyOffice',            '#06b6d4', 'administration.onlyoffice'],
+    'ai-integration'     => ['fas fa-robot',              'Intelligence Artificielle', '#7c3aed', 'administration.ai-integration'],
     'users'              => ['fas fa-users',              'Utilisateurs',          '#3b82f6', 'administration.users'],
     'theming'            => ['fas fa-paint-brush',        'Apparence',             '#a855f7', 'administration.theming'],
     'email-notifications'=> ['fas fa-envelope-open-text', 'Notifications E-mail',  '#ef4444', 'administration.email-notifications'],
@@ -212,6 +213,7 @@ $_oc = [
         ['sub-entities',       'fas fa-sitemap',            'Entités sous tutelle',  'Structures rattachées aux administrations.','teal'],
         ['requested-acts',     'fas fa-clipboard-list',     'Actes demandés',        'Types d\'actes configurables.',            'yellow'],
         ['onlyoffice',         'fas fa-edit',               'OnlyOffice',            'Serveur d\'édition collaborative.',        'cyan'],
+        ['ai-integration',     'fas fa-robot',              'Intelligence Artificielle', 'Clé API IA (Gemini) pour les comptes rendus.', 'violet'],
         ['courrier-archiving', 'fas fa-archive',            'Archivage courrier',    'Délai d\'archivage automatique des courriers.','stone'],
     ] as [$t, $icon, $title, $desc, $color])
     @php $cnt = $_oc[$t] ?? null; @endphp
@@ -8267,6 +8269,112 @@ function toggleOoSecret() {
   updateQrPreview();
 })();
 </script>
+
+{{-- ══════════════════════ INTELLIGENCE ARTIFICIELLE (IA) ══════════════════════ --}}
+@elseif($tab === 'ai-integration')
+@php
+    $geminiApiKey  = $settings['gemini_api_key']->value  ?? '';
+    $geminiModel   = $settings['gemini_model']->value    ?? config('services.gemini.model', 'gemini-2.0-flash');
+    $geminiTimeout = $settings['gemini_timeout']->value  ?? (string) config('services.gemini.timeout', 120);
+    $geminiConfiguredViaEnv = $geminiApiKey === '' && (string) config('services.gemini.api_key', '') !== '';
+@endphp
+
+<div class="max-w-2xl space-y-6">
+
+  {{-- En-tête --}}
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+    <p class="text-xs font-bold uppercase tracking-widest text-violet-600 mb-1">INTELLIGENCE ARTIFICIELLE</p>
+    <h2 class="text-2xl font-bold text-gray-900 mb-2">Assistant IA pour les comptes rendus de réunion</h2>
+    <p class="text-sm text-gray-500 mb-4">
+      Configurez la clé API Google Gemini utilisée pour transcrire l'enregistrement audio d'une réunion
+      et proposer automatiquement un compte rendu structuré. Le service est gratuit dans la limite du
+      quota Google (clé personnelle à créer).
+    </p>
+    <div class="flex gap-4 text-sm font-semibold text-violet-600">
+      <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" class="hover:underline">Obtenir une clé API gratuite &#8599;</a>
+    </div>
+  </div>
+
+  @if(session('success') && request('tab') === 'ai-integration')
+  <div class="flex items-center gap-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm">
+    <i class="fas fa-check-circle"></i> {{ session('success') }}
+  </div>
+  @endif
+
+  @if($geminiConfiguredViaEnv)
+  <div class="flex items-center gap-3 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl px-4 py-3 text-sm">
+    <i class="fas fa-info-circle"></i> Une clé est actuellement définie via la variable d'environnement <code class="text-xs bg-blue-100 px-1 rounded">GEMINI_API_KEY</code> du serveur. Enregistrez une clé ici pour la gérer depuis cette interface (elle sera alors prioritaire).
+  </div>
+  @endif
+
+  {{-- Formulaire --}}
+  <form method="POST" action="{{ route('admin.settings.save') }}" class="space-y-6">
+    @csrf @method('PUT')
+    <input type="hidden" name="tab" value="ai-integration">
+
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-5">
+      <div>
+        <h3 class="text-lg font-bold text-gray-900 mb-1">Paramètres Gemini</h3>
+        <p class="text-sm text-gray-500">
+          Ces paramètres remplacent la configuration du fichier <code class="text-xs bg-gray-100 px-1 rounded">.env</code> lorsqu'ils sont renseignés ici.
+        </p>
+      </div>
+
+      {{-- Clé API --}}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">
+          Clé API Gemini <span class="text-gray-400 font-normal text-xs">(laisser vide pour désactiver / conserver le .env)</span>
+        </label>
+        <div class="relative w-full max-w-sm">
+          <input id="gemini-secret-input" type="password" name="gemini_api_key"
+            value="{{ old('gemini_api_key', $geminiApiKey) }}"
+            placeholder="Saisir votre clé API Gemini"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm pr-9 focus:outline-none focus:ring-2 focus:ring-violet-500">
+          <button type="button" onclick="toggleGeminiSecret()" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+            <i id="gemini-secret-eye" class="fas fa-eye text-sm"></i>
+          </button>
+        </div>
+      </div>
+
+      {{-- Modèle --}}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Modèle</label>
+        <input type="text" name="gemini_model"
+          value="{{ old('gemini_model', $geminiModel) }}"
+          placeholder="gemini-2.0-flash"
+          class="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500">
+        <p class="text-xs text-gray-400 mt-1">Identifiant du modèle Gemini à utiliser pour la génération du compte rendu.</p>
+      </div>
+
+      {{-- Délai --}}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Délai d'attente (secondes)</label>
+        <input type="number" min="10" max="600" name="gemini_timeout"
+          value="{{ old('gemini_timeout', $geminiTimeout) }}"
+          class="w-full max-w-[10rem] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500">
+        <p class="text-xs text-gray-400 mt-1">Délai maximal accordé à l'appel à l'API avant abandon.</p>
+      </div>
+    </div>
+
+    {{-- Bouton sauvegarder --}}
+    <div class="flex items-center gap-3">
+      <button type="submit"
+        class="px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-lg transition flex items-center gap-2">
+        <i class="fas fa-save"></i> Enregistrer
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+function toggleGeminiSecret() {
+  var inp = document.getElementById('gemini-secret-input');
+  var eye = document.getElementById('gemini-secret-eye');
+  if (inp.type === 'password') { inp.type = 'text';     eye.className = 'fas fa-eye-slash text-sm'; }
+  else                         { inp.type = 'password'; eye.className = 'fas fa-eye text-sm'; }
+}
+</script>
+
 @elseif($tab === 'users')
 @php
     $usersSearch    = request('u_search', '');
@@ -10066,6 +10174,7 @@ $permissionTree = [
       'administration.instructions'        => 'Instructions',
         'administration.user-profiles'      => 'Profils & Rôles',
         'administration.antivirus'          => 'Journal Antivirus',
+        'administration.ai-integration'     => 'Intelligence Artificielle (IA)',
     ]],
     'personnel'        => ['label' => 'Gestion du personnel', 'children' => [
         'personnel.dashboard'  => 'Tableau de bord',

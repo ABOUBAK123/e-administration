@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AppSetting;
 use App\Models\Meeting;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -29,11 +30,12 @@ class MeetingAiMinutesService
      */
     public function generateFromAudio(UploadedFile $audio, Meeting $meeting): string
     {
-        $apiKey = (string) config('services.gemini.api_key', '');
+        $apiKey = $this->resolveSetting('gemini_api_key', (string) config('services.gemini.api_key', ''));
         if ($apiKey === '') {
             throw new \RuntimeException(
-                'La clé API Gemini n\'est pas configurée (variable GEMINI_API_KEY). ' .
-                'Obtenez une clé gratuite sur https://aistudio.google.com/app/apikey puis ajoutez-la au fichier .env.'
+                'La clé API Gemini n\'est pas configurée. ' .
+                'Obtenez une clé gratuite sur https://aistudio.google.com/app/apikey puis renseignez-la dans ' .
+                'Administration > Intelligence Artificielle (ou la variable GEMINI_API_KEY du fichier .env).'
             );
         }
 
@@ -58,8 +60,8 @@ class MeetingAiMinutesService
             throw new \RuntimeException('Impossible de lire le fichier audio enregistré.');
         }
 
-        $model = (string) config('services.gemini.model', 'gemini-2.0-flash');
-        $timeout = (int) config('services.gemini.timeout', 120);
+        $model = $this->resolveSetting('gemini_model', (string) config('services.gemini.model', 'gemini-2.0-flash'));
+        $timeout = (int) $this->resolveSetting('gemini_timeout', (string) config('services.gemini.timeout', 120));
         $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
 
         $prompt = $this->buildPrompt($meeting);
@@ -111,6 +113,17 @@ class MeetingAiMinutesService
         }
 
         return $text;
+    }
+
+    /**
+     * Renvoie la valeur configurée en base (Administration > Intelligence Artificielle)
+     * si elle est renseignée, sinon retombe sur la valeur fournie (config/.env).
+     */
+    private function resolveSetting(string $key, string $fallback): string
+    {
+        $value = AppSetting::where('key', $key)->value('value');
+
+        return ($value !== null && trim($value) !== '') ? trim($value) : $fallback;
     }
 
     private function buildPrompt(Meeting $meeting): string

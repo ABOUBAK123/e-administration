@@ -92,6 +92,7 @@ class UserPermissionsService
             'administration.instructions'        => 'Instructions',
             'administration.user-profiles'      => 'Rôles & profils',
             'administration.antivirus'          => 'Journal Antivirus',
+            'administration.ai-integration'     => 'Intelligence Artificielle (IA)',
         ]],
         'qrcode'                  => ['label' => 'Vérification QR',        'children' => []],
         'personnel'               => ['label' => 'Gestion du personnel',   'children' => [
