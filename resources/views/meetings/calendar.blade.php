@@ -75,6 +75,7 @@
                            title="{{ $meeting->title }} - {{ $meeting->room?->name ?: 'Sans salle' }} - {{ $meeting->organizer?->name }}"
                            class="block text-[11px] leading-tight px-1.5 py-1 rounded border {{ $colorClass }} truncate hover:opacity-80">
                             <span class="font-semibold">{{ $meeting->starts_at->format('H:i') }}</span>
+                            @if($meeting->is_virtual)<span title="Visioconférence">🔗</span>@endif
                             {{ $meeting->title }}
                         </a>
                     @endforeach

@@ -18,6 +18,17 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
             <div><span class="text-gray-500">Type:</span> {{ $meeting->meeting_type }}</div>
             <div><span class="text-gray-500">Salle:</span> {{ $meeting->room?->name }} ({{ $meeting->room?->location }})</div>
+            <div>
+                <span class="text-gray-500">Modalité:</span>
+                @if($meeting->is_virtual)
+                    <span class="font-semibold text-blue-700">Virtuelle / hybride</span>
+                    @if($meeting->meeting_link)
+                        — <a href="{{ $meeting->meeting_link }}" target="_blank" rel="noopener" class="text-[#2453d6] font-semibold hover:underline">Rejoindre la visioconférence</a>
+                    @endif
+                @else
+                    Présentiel
+                @endif
+            </div>
             <div><span class="text-gray-500">Début:</span> {{ $meeting->starts_at?->format('d/m/Y H:i') }}</div>
             <div><span class="text-gray-500">Fin:</span> {{ $meeting->ends_at?->format('d/m/Y H:i') }}</div>
             <div><span class="text-gray-500">Délai fixé:</span> {{ $meeting->processing_deadline?->format('d/m/Y H:i') ?: '—' }}</div>
