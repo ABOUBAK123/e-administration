@@ -1039,9 +1039,9 @@ function renderTable() {
                             <i class="fas fa-check-circle text-emerald-500 w-4"></i> Valider la demande d'acte
                         </button>` : ''}
                         ${canValidateActRequest ? '<hr class="my-1 border-gray-100">' : ''}
-                        <a href="${ROUTES.download(doc.id)}" class="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                        <button onclick="handleDownload('${doc.id}')" class="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                             <i class="fas fa-download text-gray-400 w-4"></i> Télécharger
-                        </a>
+                        </button>
                         ${canConvertPdf ? `<button onclick="handleConvertPdf('${doc.id}')" class="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                             <i class="fas fa-file-pdf text-red-400 w-4"></i> Convertir en PDF
                         </button>` : ''}
@@ -1345,6 +1345,57 @@ async function handleChangeStatus(status) {
     document.getElementById('details-status').textContent = statusLabel[data.status] || data.status;
     renderTable();
     showToast(`Statut mis à jour : ${statusLabel[data.status] || data.status}`);
+}
+
+// ---- Téléchargement (fichier ou dossier en ZIP) ----
+async function handleDownload(id) {
+    toggleActions(id);
+    const doc = allDocs.find(d => d.id === id);
+    if (!doc) {
+        showToast('Document introuvable. Rafraîchissez la page et réessayez.');
+        return;
+    }
+
+    if (!isFolder(doc)) {
+        window.location.href = ROUTES.download(id);
+        return;
+    }
+
+    // Pour un dossier, on passe par fetch afin d'afficher un message clair
+    // (dossier vide, erreur serveur, etc.) au lieu de naviguer vers une page d'erreur.
+    try {
+        const resp = await fetch(ROUTES.download(id), {
+            headers: { Accept: 'application/json', 'X-CSRF-TOKEN': CSRF },
+        });
+
+        if (!resp.ok) {
+            let message = "Impossible de télécharger ce dossier.";
+            try {
+                const data = await resp.json();
+                if (data && data.message) message = data.message;
+            } catch (e) {
+                // Réponse non JSON (page d'erreur HTML) : on garde le message générique.
+            }
+            showToast(message);
+            return;
+        }
+
+        const blob = await resp.blob();
+        const disposition = resp.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        const filename = match ? match[1] : `${doc.title}.zip`;
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        showToast('Erreur réseau lors du téléchargement du dossier.');
+    }
 }
 
 // ---- Toast ----

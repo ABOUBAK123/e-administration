@@ -564,7 +564,7 @@ class DocumentController extends Controller
         abort_if(!$this->userCanAccessDocument($document), 403);
 
         if ($document->mime_type === 'application/x-folder' || ($document->description ?? '') === '[folder]') {
-            return $this->downloadFolder($document);
+            return $this->downloadFolder($request, $document);
         }
 
         $user = Auth::user();
@@ -700,15 +700,26 @@ class DocumentController extends Controller
      * Téléchargement d'un dossier sous forme d'archive ZIP contenant tous les
      * documents qu'il contient (convention "Dossier: {nom}" dans `description`).
      */
-    public function downloadFolder(Document $document)
+    public function downloadFolder(Request $request, Document $document)
     {
         abort_if(!$this->userCanAccessDocument($document), 403);
 
+        $wantsJson = $request->wantsJson() || $request->ajax() || $request->boolean('ajax');
+
+        $fail = function (int $status, string $message) use ($wantsJson) {
+            if ($wantsJson) {
+                return response()->json(['ok' => false, 'message' => $message], $status);
+            }
+            abort($status, $message);
+        };
+
         $isFolder = $document->mime_type === 'application/x-folder' || ($document->description ?? '') === '[folder]';
-        abort_unless($isFolder, 422, "Ce document n'est pas un dossier.");
+        if (!$isFolder) {
+            return $fail(422, "Ce document n'est pas un dossier.");
+        }
 
         if (!class_exists('ZipArchive')) {
-            abort(500, "L'extension PHP ZipArchive est requise pour télécharger un dossier.");
+            return $fail(500, "L'extension PHP ZipArchive est requise pour télécharger un dossier.");
         }
 
         $folderName = (string) $document->title;
@@ -722,7 +733,7 @@ class DocumentController extends Controller
             ->get();
 
         if ($children->isEmpty()) {
-            abort(404, 'Ce dossier ne contient aucun fichier à télécharger.');
+            return $fail(404, 'Ce dossier est vide : aucun fichier à télécharger.');
         }
 
         $tmpDir = storage_path('app/tmp/folder-zip');
@@ -736,7 +747,7 @@ class DocumentController extends Controller
 
         $zip = new \ZipArchive();
         if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
-            abort(500, "Impossible de créer l'archive ZIP.");
+            return $fail(500, "Impossible de créer l'archive ZIP.");
         }
 
         $usedNames = [];
@@ -772,7 +783,7 @@ class DocumentController extends Controller
 
         if ($addedCount === 0) {
             @unlink($zipPath);
-            abort(404, 'Aucun fichier valide trouvé dans ce dossier.');
+            return $fail(404, 'Aucun fichier valide trouvé dans ce dossier (fichiers manquants sur le serveur).');
         }
 
         return response()->download($zipPath, $safeFolderName . '.zip')->deleteFileAfterSend(true);
