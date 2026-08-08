@@ -37,8 +37,10 @@ use App\Models\AdministrationSmtpSetting;
 use App\Models\PersonnelEmployee;
 use App\Models\PersonnelEmployeeDocument;
 use App\Models\ClamAvScanLog;
+use App\Models\PersonnelStaffingNeed;
 use App\Services\ClamAvScanner;
 use App\Services\NotificationService;
+use App\Services\PersonnelAnalyticsService;
 use App\Services\Templates\TemplateGenerationCoreService;
 use App\Services\TemplateOfficeTextExtractor;
 use Carbon\Carbon;
@@ -676,6 +678,7 @@ class AdminController extends Controller
             'reviews' => 0,
             'careerEvents' => 0,
         ];
+        $personnelDashboard = null;
 
         try {
             $settings = AppSetting::all()->keyBy('key');
@@ -911,6 +914,17 @@ class AdminController extends Controller
                 $personnelStats['newThisYear'] = (clone $this->applyPersonnelScope(PersonnelEmployee::query(), $adminScope))
                     ->whereYear('hire_date', now()->year)
                     ->count();
+
+                // Statistiques décisionnelles (tableau de bord RH) : calculées uniquement
+                // pour l'onglet dashboard afin d'éviter des requêtes inutiles sur les autres onglets.
+                if ($tab === 'personnel' && $request->get('personnel_tab', 'dashboard') === 'dashboard') {
+                    try {
+                        $personnelDashboard = (new PersonnelAnalyticsService($adminScope))->buildDashboard();
+                    } catch (\Throwable $dashboardEx) {
+                        Log::error('Personnel dashboard analytics failed', ['error' => $dashboardEx->getMessage()]);
+                        $personnelDashboard = null;
+                    }
+                }
             }
 
             if (Schema::hasTable('personnel_leave_types')) {
@@ -1114,7 +1128,7 @@ class AdminController extends Controller
             'allUsers', 'shareMap', 'onlyofficeUrl', 'onlyofficeJwt', 'appPublicUrl', 'dirAssignments',
             'sameAdminRoutingUsers',
             'sigProviders', 'courrierArchivalDays', 'receptionArchivalDays', 'adminScope',
-            'personnelEmployees', 'personnelEmployeeDirectory', 'selectedPersonnelEmployee', 'personnelStats',
+            'personnelEmployees', 'personnelEmployeeDirectory', 'selectedPersonnelEmployee', 'personnelStats', 'personnelDashboard',
             'personnelLeaveTypes', 'personnelLeaveRequests', 'personnelLeaveApprovers', 'personnelJobReferences', 'leaveGlobalVisibility', 'personnelTrainings', 'personnelTrainingEnrollments',
             'personnelEmployeeSkills', 'personnelGoals', 'personnelPerformanceReviews', 'personnelCareerEvents', 'personnelMutationRequests', 'personnelRecentActivity',
             'agentSpaceCanSearchAll',
@@ -2364,6 +2378,99 @@ class AdminController extends Controller
             'personnel_tab' => $request->input('personnel_tab', 'leave'),
             'leave_subtab' => $request->input('leave_subtab', 'parameters'),
         ])->with('success', 'Type de congé supprimé.');
+    }
+
+    public function storePersonnelStaffingNeed(Request $request)
+    {
+        $validated = $request->validate([
+            'personnel_tab' => ['nullable', 'string'],
+            'administration_type' => ['required', 'in:emitter,recipient'],
+            'administration_id' => ['required', 'string'],
+            'job_title' => ['required', 'string', 'max:191'],
+            'required_count' => ['required', 'integer', 'min:0'],
+            'current_count' => ['nullable', 'integer', 'min:0'],
+            'priority' => ['required', 'in:urgent,high,normal,low'],
+            'status' => ['required', 'in:open,filled,cancelled'],
+            'target_date' => ['nullable', 'date'],
+            'notes' => ['nullable', 'string'],
+        ]);
+
+        $adminScope = $this->resolveAdminScope();
+        if ($adminScope) {
+            $validated['administration_type'] = $this->normalizeAdministrationType($adminScope['type'] ?? null);
+            $validated['administration_id'] = $adminScope['id'];
+        }
+
+        $this->ensurePersonnelAdministrationExists($validated['administration_type'], $validated['administration_id']);
+
+        PersonnelStaffingNeed::create([
+            'administration_type' => $validated['administration_type'],
+            'administration_id' => $validated['administration_id'],
+            'job_title' => $validated['job_title'],
+            'required_count' => $validated['required_count'],
+            'current_count' => $validated['current_count'] ?? 0,
+            'priority' => $validated['priority'],
+            'status' => $validated['status'],
+            'target_date' => $validated['target_date'] ?? null,
+            'notes' => $validated['notes'] ?? null,
+            'created_by_user_id' => auth()->id(),
+        ]);
+
+        return redirect()->route('admin.index', [
+            'tab' => 'personnel',
+            'personnel_tab' => $request->input('personnel_tab', 'dashboard'),
+        ])->with('success', 'Besoin en personnel enregistré.');
+    }
+
+    public function updatePersonnelStaffingNeed(Request $request, PersonnelStaffingNeed $staffingNeed)
+    {
+        $this->abortIfPersonnelScopeMismatch(
+            $staffingNeed->administration_type,
+            $staffingNeed->administration_id,
+            'Ce besoin en personnel est hors de votre périmètre d\'administration.'
+        );
+
+        $validated = $request->validate([
+            'personnel_tab' => ['nullable', 'string'],
+            'job_title' => ['required', 'string', 'max:191'],
+            'required_count' => ['required', 'integer', 'min:0'],
+            'current_count' => ['nullable', 'integer', 'min:0'],
+            'priority' => ['required', 'in:urgent,high,normal,low'],
+            'status' => ['required', 'in:open,filled,cancelled'],
+            'target_date' => ['nullable', 'date'],
+            'notes' => ['nullable', 'string'],
+        ]);
+
+        $staffingNeed->update([
+            'job_title' => $validated['job_title'],
+            'required_count' => $validated['required_count'],
+            'current_count' => $validated['current_count'] ?? 0,
+            'priority' => $validated['priority'],
+            'status' => $validated['status'],
+            'target_date' => $validated['target_date'] ?? null,
+            'notes' => $validated['notes'] ?? null,
+        ]);
+
+        return redirect()->route('admin.index', [
+            'tab' => 'personnel',
+            'personnel_tab' => $request->input('personnel_tab', 'dashboard'),
+        ])->with('success', 'Besoin en personnel modifié.');
+    }
+
+    public function destroyPersonnelStaffingNeed(Request $request, PersonnelStaffingNeed $staffingNeed)
+    {
+        $this->abortIfPersonnelScopeMismatch(
+            $staffingNeed->administration_type,
+            $staffingNeed->administration_id,
+            'Ce besoin en personnel est hors de votre périmètre d\'administration.'
+        );
+
+        $staffingNeed->delete();
+
+        return redirect()->route('admin.index', [
+            'tab' => 'personnel',
+            'personnel_tab' => $request->input('personnel_tab', 'dashboard'),
+        ])->with('success', 'Besoin en personnel supprimé.');
     }
 
     public function storePersonnelJobReference(Request $request)

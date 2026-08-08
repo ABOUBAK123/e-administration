@@ -299,6 +299,316 @@ $_oc = [
 </div>
 
 @if($personnelTab === 'dashboard')
+@php
+  $pd = $personnelDashboard ?? null;
+  $pdGender = $pd['byGender'] ?? [];
+  $pdGrade = $pd['byGrade'] ?? [];
+  $pdLeaveByType = $pd['leaveByType'] ?? [];
+  $pdRetirement = $pd['retirement'] ?? ['within1Year' => 0, 'within3Years' => 0, 'within5Years' => 0, 'upcoming' => []];
+  $pdStaffing = $pd['staffingNeeds'] ?? ['total' => 0, 'gap' => 0, 'urgent' => 0, 'items' => []];
+  $pdOnLeaveToday = $pd['onLeaveToday'] ?? 0;
+  $pdInTrainingToday = $pd['inTrainingToday'] ?? 0;
+@endphp
+<div class="mb-6">
+  <div class="flex items-center justify-between gap-3 mb-4">
+    <div>
+      <h3 class="text-lg font-bold text-gray-800">{{ __('personnel.ui.dashboard.decisional.title') }}</h3>
+      <p class="text-sm text-gray-500">{{ __('personnel.ui.dashboard.decisional.subtitle') }}</p>
+    </div>
+  </div>
+
+  {{-- KPI cards --}}
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4">
+      <div class="h-10 w-10 rounded-xl bg-sky-100 flex items-center justify-center mb-2">
+        <i class="fa fa-calendar-check text-sky-600"></i>
+      </div>
+      <div class="text-2xl font-bold text-gray-800">{{ $pdOnLeaveToday }}</div>
+      <div class="text-sm text-gray-500">{{ __('personnel.ui.dashboard.decisional.kpi.on_leave_today') }}</div>
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4">
+      <div class="h-10 w-10 rounded-xl bg-violet-100 flex items-center justify-center mb-2">
+        <i class="fa fa-graduation-cap text-violet-600"></i>
+      </div>
+      <div class="text-2xl font-bold text-gray-800">{{ $pdInTrainingToday }}</div>
+      <div class="text-sm text-gray-500">{{ __('personnel.ui.dashboard.decisional.kpi.in_training_today') }}</div>
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4">
+      <div class="h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center mb-2">
+        <i class="fa fa-person-walking-arrow-right text-amber-600"></i>
+      </div>
+      <div class="text-2xl font-bold text-gray-800">{{ $pdRetirement['within1Year'] ?? 0 }}</div>
+      <div class="text-sm text-gray-500">{{ __('personnel.ui.dashboard.decisional.kpi.retirement_1y') }}</div>
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4">
+      <div class="h-10 w-10 rounded-xl bg-rose-100 flex items-center justify-center mb-2">
+        <i class="fa fa-user-plus text-rose-600"></i>
+      </div>
+      <div class="text-2xl font-bold text-gray-800">{{ $pdStaffing['gap'] ?? 0 }}</div>
+      <div class="text-sm text-gray-500">{{ __('personnel.ui.dashboard.decisional.kpi.staffing_gap') }}</div>
+    </div>
+  </div>
+
+  {{-- Charts --}}
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <h4 class="font-semibold text-gray-800 mb-3">{{ __('personnel.ui.dashboard.decisional.charts.gender_title') }}</h4>
+      @if(count($pdGender) > 0)
+        <canvas id="pdGenderChart" height="180"></canvas>
+      @else
+        <p class="text-sm text-gray-400">{{ __('personnel.ui.dashboard.decisional.charts.no_data') }}</p>
+      @endif
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <h4 class="font-semibold text-gray-800 mb-3">{{ __('personnel.ui.dashboard.decisional.charts.grade_title') }}</h4>
+      @if(count($pdGrade) > 0)
+        <canvas id="pdGradeChart" height="180"></canvas>
+      @else
+        <p class="text-sm text-gray-400">{{ __('personnel.ui.dashboard.decisional.charts.no_data') }}</p>
+      @endif
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <h4 class="font-semibold text-gray-800 mb-3">{{ __('personnel.ui.dashboard.decisional.charts.retirement_title') }}</h4>
+      <canvas id="pdRetirementChart" height="180"></canvas>
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <h4 class="font-semibold text-gray-800 mb-3">{{ __('personnel.ui.dashboard.decisional.charts.leave_type_title') }}</h4>
+      @if(count($pdLeaveByType) > 0)
+        <canvas id="pdLeaveTypeChart" height="180"></canvas>
+      @else
+        <p class="text-sm text-gray-400">{{ __('personnel.ui.dashboard.decisional.charts.no_data') }}</p>
+      @endif
+    </div>
+  </div>
+
+  {{-- Retirement table + Staffing needs --}}
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <h4 class="font-semibold text-gray-800 mb-3">{{ __('personnel.ui.dashboard.decisional.retirement_table.title') }}</h4>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="text-left text-gray-500 border-b border-gray-200">
+              <th class="py-2 pr-3">{{ __('personnel.ui.dashboard.decisional.retirement_table.name') }}</th>
+              <th class="py-2 pr-3">{{ __('personnel.ui.dashboard.decisional.retirement_table.job_title') }}</th>
+              <th class="py-2">{{ __('personnel.ui.dashboard.decisional.retirement_table.date') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            @forelse(($pdRetirement['upcoming'] ?? []) as $upcomingItem)
+            <tr class="border-b border-gray-100">
+              <td class="py-2 pr-3 font-medium text-gray-800">{{ $upcomingItem['full_name'] }}</td>
+              <td class="py-2 pr-3 text-gray-500">{{ $upcomingItem['job_title'] }}</td>
+              <td class="py-2 text-gray-500">{{ \Illuminate\Support\Carbon::parse($upcomingItem['retirement_date'])->format('d/m/Y') }}</td>
+            </tr>
+            @empty
+            <tr><td colspan="3" class="py-3 text-gray-400">{{ __('personnel.ui.dashboard.decisional.retirement_table.empty') }}</td></tr>
+            @endforelse
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <div class="flex items-center justify-between gap-3 mb-1">
+        <h4 class="font-semibold text-gray-800">{{ __('personnel.ui.dashboard.decisional.staffing.title') }}</h4>
+        <button type="button" onclick="document.getElementById('pdStaffingCreateModal').classList.add('open')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#2453d6] text-white hover:bg-[#1c3fa8]">
+          <i class="fa fa-plus mr-1"></i>{{ __('personnel.ui.dashboard.decisional.staffing.add_button') }}
+        </button>
+      </div>
+      <p class="text-sm text-gray-500 mb-3">{{ __('personnel.ui.dashboard.decisional.staffing.subtitle') }}</p>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="text-left text-gray-500 border-b border-gray-200">
+              <th class="py-2 pr-3">{{ __('personnel.ui.dashboard.decisional.staffing.job_title') }}</th>
+              <th class="py-2 pr-3">{{ __('personnel.ui.dashboard.decisional.staffing.required') }}</th>
+              <th class="py-2 pr-3">{{ __('personnel.ui.dashboard.decisional.staffing.current') }}</th>
+              <th class="py-2 pr-3">{{ __('personnel.ui.dashboard.decisional.staffing.gap') }}</th>
+              <th class="py-2 pr-3">{{ __('personnel.ui.dashboard.decisional.staffing.priority') }}</th>
+              <th class="py-2 pr-3">{{ __('personnel.ui.dashboard.decisional.staffing.status') }}</th>
+              <th class="py-2">{{ __('personnel.ui.dashboard.decisional.staffing.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            @forelse(($pdStaffing['items'] ?? []) as $need)
+            @php
+              $priorityColors = ['urgent' => 'bg-red-100 text-red-700', 'high' => 'bg-orange-100 text-orange-700', 'normal' => 'bg-sky-100 text-sky-700', 'low' => 'bg-gray-100 text-gray-600'];
+              $statusColors = ['open' => 'bg-emerald-100 text-emerald-700', 'filled' => 'bg-gray-100 text-gray-500', 'cancelled' => 'bg-gray-100 text-gray-400 line-through'];
+            @endphp
+            <tr class="border-b border-gray-100">
+              <td class="py-2 pr-3 font-medium text-gray-800">{{ $need['job_title'] }}</td>
+              <td class="py-2 pr-3 text-gray-500">{{ $need['required_count'] }}</td>
+              <td class="py-2 pr-3 text-gray-500">{{ $need['current_count'] }}</td>
+              <td class="py-2 pr-3 font-semibold {{ $need['gap'] > 0 ? 'text-rose-600' : 'text-emerald-600' }}">{{ $need['gap'] }}</td>
+              <td class="py-2 pr-3"><span class="px-2 py-0.5 rounded-full text-xs font-semibold {{ $priorityColors[$need['priority']] ?? 'bg-gray-100 text-gray-600' }}">{{ __('personnel.ui.dashboard.decisional.staffing.priorities.' . $need['priority']) }}</span></td>
+              <td class="py-2 pr-3"><span class="px-2 py-0.5 rounded-full text-xs font-semibold {{ $statusColors[$need['status']] ?? 'bg-gray-100 text-gray-600' }}">{{ __('personnel.ui.dashboard.decisional.staffing.statuses.' . $need['status']) }}</span></td>
+              <td class="py-2">
+                <div class="flex items-center gap-2">
+                  <button type="button"
+                    onclick='pdOpenStaffingEditModal(@json($need))'
+                    class="text-xs text-[#2453d6] hover:underline">{{ __('personnel.ui.dashboard.decisional.staffing.edit_title') }}</button>
+                  <form method="POST" action="{{ route('admin.personnel.staffing-needs.destroy', $need['id']) }}" onsubmit="return confirm('{{ __('personnel.ui.dashboard.decisional.staffing.confirm_delete') }}')">
+                    @csrf
+                    @method('DELETE')
+                    <input type="hidden" name="personnel_tab" value="dashboard">
+                    <button type="submit" class="text-xs text-rose-600 hover:underline">
+                      <i class="fa fa-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            @empty
+            <tr><td colspan="7" class="py-3 text-gray-400">{{ __('personnel.ui.dashboard.decisional.staffing.empty') }}</td></tr>
+            @endforelse
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{{-- Modal: create / edit staffing need --}}
+<div id="pdStaffingCreateModal" class="adm-modal">
+  <div class="adm-modal-box">
+    <button type="button" onclick="document.getElementById('pdStaffingCreateModal').classList.remove('open')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><i class="fa fa-times"></i></button>
+    <h3 id="pdStaffingModalTitle" class="text-lg font-bold text-gray-800 mb-4">{{ __('personnel.ui.dashboard.decisional.staffing.create_title') }}</h3>
+    <form id="pdStaffingForm" method="POST" action="{{ route('admin.personnel.staffing-needs.store') }}">
+      @csrf
+      <input type="hidden" name="_method" id="pdStaffingMethod" value="POST">
+      <input type="hidden" name="personnel_tab" value="dashboard">
+      <input type="hidden" name="administration_type" value="{{ $adminScope['type'] ?? 'emitter' }}">
+      <input type="hidden" name="administration_id" value="{{ $adminScope['id'] ?? '' }}">
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">{{ __('personnel.ui.dashboard.decisional.staffing.job_title') }}</label>
+          <input type="text" name="job_title" id="pdStaffingJobTitle" required class="w-full rounded-lg border-gray-300">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">{{ __('personnel.ui.dashboard.decisional.staffing.required') }}</label>
+            <input type="number" min="0" name="required_count" id="pdStaffingRequired" required class="w-full rounded-lg border-gray-300">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">{{ __('personnel.ui.dashboard.decisional.staffing.current') }}</label>
+            <input type="number" min="0" name="current_count" id="pdStaffingCurrent" class="w-full rounded-lg border-gray-300">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">{{ __('personnel.ui.dashboard.decisional.staffing.priority') }}</label>
+            <select name="priority" id="pdStaffingPriority" class="w-full rounded-lg border-gray-300">
+              @foreach(['urgent','high','normal','low'] as $p)
+                <option value="{{ $p }}">{{ __('personnel.ui.dashboard.decisional.staffing.priorities.' . $p) }}</option>
+              @endforeach
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">{{ __('personnel.ui.dashboard.decisional.staffing.status') }}</label>
+            <select name="status" id="pdStaffingStatus" class="w-full rounded-lg border-gray-300">
+              @foreach(['open','filled','cancelled'] as $s)
+                <option value="{{ $s }}">{{ __('personnel.ui.dashboard.decisional.staffing.statuses.' . $s) }}</option>
+              @endforeach
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">{{ __('personnel.ui.dashboard.decisional.staffing.target_date') }}</label>
+          <input type="date" name="target_date" id="pdStaffingTargetDate" class="w-full rounded-lg border-gray-300">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">{{ __('personnel.ui.dashboard.decisional.staffing.notes') }}</label>
+          <textarea name="notes" id="pdStaffingNotes" rows="2" class="w-full rounded-lg border-gray-300"></textarea>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-3 mt-5">
+        <button type="button" onclick="document.getElementById('pdStaffingCreateModal').classList.remove('open')" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-600">{{ __('personnel.ui.dashboard.decisional.staffing.cancel') }}</button>
+        <button type="submit" class="px-4 py-2 rounded-lg bg-[#2453d6] text-white font-semibold">{{ __('personnel.ui.dashboard.decisional.staffing.save') }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+@push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+(function () {
+  const pdGenderData = @json($pdGender);
+  const pdGradeData = @json($pdGrade);
+  const pdLeaveTypeData = @json($pdLeaveByType);
+  const pdRetirementData = {
+    within1Year: {{ $pdRetirement['within1Year'] ?? 0 }},
+    within3Years: {{ $pdRetirement['within3Years'] ?? 0 }},
+    within5Years: {{ $pdRetirement['within5Years'] ?? 0 }},
+  };
+
+  function buildDoughnut(canvasId, dataObj) {
+    const el = document.getElementById(canvasId);
+    if (!el || typeof Chart === 'undefined') return;
+    new Chart(el, {
+      type: 'doughnut',
+      data: {
+        labels: Object.keys(dataObj),
+        datasets: [{ data: Object.values(dataObj), backgroundColor: ['#2453d6', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4'] }],
+      },
+      options: { plugins: { legend: { position: 'bottom' } } },
+    });
+  }
+
+  function buildBar(canvasId, dataObj) {
+    const el = document.getElementById(canvasId);
+    if (!el || typeof Chart === 'undefined') return;
+    new Chart(el, {
+      type: 'bar',
+      data: {
+        labels: Object.keys(dataObj),
+        datasets: [{ label: '{{ __('personnel.ui.dashboard.decisional.charts.grade_title') }}', data: Object.values(dataObj), backgroundColor: '#2453d6' }],
+      },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+    });
+  }
+
+  buildDoughnut('pdGenderChart', pdGenderData);
+  buildBar('pdGradeChart', pdGradeData);
+  buildDoughnut('pdLeaveTypeChart', pdLeaveTypeData);
+
+  const retirementEl = document.getElementById('pdRetirementChart');
+  if (retirementEl && typeof Chart !== 'undefined') {
+    new Chart(retirementEl, {
+      type: 'bar',
+      data: {
+        labels: [
+          '{{ __('personnel.ui.dashboard.decisional.charts.retirement_1y') }}',
+          '{{ __('personnel.ui.dashboard.decisional.charts.retirement_3y') }}',
+          '{{ __('personnel.ui.dashboard.decisional.charts.retirement_5y') }}',
+        ],
+        datasets: [{
+          label: '{{ __('personnel.ui.dashboard.decisional.charts.retirement_title') }}',
+          data: [pdRetirementData.within1Year, pdRetirementData.within3Years, pdRetirementData.within5Years],
+          backgroundColor: ['#ef4444', '#f59e0b', '#22c55e'],
+        }],
+      },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+    });
+  }
+
+  window.pdOpenStaffingEditModal = function (need) {
+    document.getElementById('pdStaffingModalTitle').textContent = @json(__('personnel.ui.dashboard.decisional.staffing.edit_title'));
+    document.getElementById('pdStaffingForm').action = '/admin/personnel/staffing-needs/' + need.id;
+    document.getElementById('pdStaffingMethod').value = 'PUT';
+    document.getElementById('pdStaffingJobTitle').value = need.job_title || '';
+    document.getElementById('pdStaffingRequired').value = need.required_count || 0;
+    document.getElementById('pdStaffingCurrent').value = need.current_count || 0;
+    document.getElementById('pdStaffingPriority').value = need.priority || 'normal';
+    document.getElementById('pdStaffingStatus').value = need.status || 'open';
+    document.getElementById('pdStaffingTargetDate').value = need.target_date || '';
+    document.getElementById('pdStaffingNotes').value = need.notes || '';
+    document.getElementById('pdStaffingCreateModal').classList.add('open');
+  };
+})();
+</script>
+@endpush
 <div class="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-6">
   <section class="xl:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
     <h3 class="text-lg font-bold text-gray-800 mb-2">{{ __('personnel.ui.dashboard.vision_title') }}</h3>

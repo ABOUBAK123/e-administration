@@ -361,6 +361,9 @@ Route::middleware('auth')->group(function () {
         Route::patch('/personnel/leave-requests/{leaveRequest}/status', [AdminController::class, 'updatePersonnelLeaveRequestStatus'])->name('personnel.leave-requests.status');
         Route::post('/personnel/job-references', [AdminController::class, 'storePersonnelJobReference'])->name('personnel.job-references.store');
         Route::post('/personnel/trainings', [AdminController::class, 'storePersonnelTraining'])->name('personnel.trainings.store');
+        Route::post('/personnel/staffing-needs', [AdminController::class, 'storePersonnelStaffingNeed'])->name('personnel.staffing-needs.store');
+        Route::put('/personnel/staffing-needs/{staffingNeed}', [AdminController::class, 'updatePersonnelStaffingNeed'])->name('personnel.staffing-needs.update');
+        Route::delete('/personnel/staffing-needs/{staffingNeed}', [AdminController::class, 'destroyPersonnelStaffingNeed'])->name('personnel.staffing-needs.destroy');
         Route::post('/personnel/training-enrollments', [AdminController::class, 'storePersonnelTrainingEnrollment'])->name('personnel.training-enrollments.store');
         Route::patch('/personnel/training-enrollments/{enrollment}/status', [AdminController::class, 'updatePersonnelTrainingEnrollmentStatus'])->name('personnel.training-enrollments.update-status');
         Route::post('/personnel/goals', [AdminController::class, 'storePersonnelGoal'])->name('personnel.goals.store');
