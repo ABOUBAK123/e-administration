@@ -905,7 +905,9 @@ class SignatureController extends Controller
      */
     public function workflowAction(Request $request)
     {
-        $this->guardPermission('workflows.validate');
+        if (!$this->canPermission('workflows.validate') && !$this->canPermission('signatures.request')) {
+            abort(403, 'Accès refusé.');
+        }
         $request->validate([
             'execution_ids'   => 'required|array',
             'execution_ids.*' => 'required|string',
@@ -3295,4 +3297,3 @@ class SignatureController extends Controller
         return 'pending';
     }
 }
-

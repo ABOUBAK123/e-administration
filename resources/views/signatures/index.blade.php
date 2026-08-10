@@ -114,7 +114,7 @@
                             @php $firstExecId = $row['actionableIds'][0]; @endphp
                             <button
                                 type="button"
-                                onclick="wfInboxAction(this, '{{ $firstExecId }}', '{{ $row['actionType'] }}')"
+                                data-wf-inbox-action="1"
                                 data-action="{{ $row['actionType'] }}"
                                 data-exec="{{ $firstExecId }}"
                                 data-execution-ids='@json($row['actionableIds'])'
@@ -712,7 +712,7 @@ function formatWorkflowHistoryDate(value) {
     return date.toLocaleString('fr-FR');
 }
 
-workflowCreateModal.addEventListener('click', function (e) {
+workflowCreateModal?.addEventListener('click', function (e) {
     if (e.target === workflowCreateModal) {
         closeWorkflowCreateModal();
     }
@@ -778,6 +778,20 @@ window.addEventListener('message', function (event) {
         }
         return;
     }
+});
+
+document.addEventListener('click', function (event) {
+    const button = event.target.closest('[data-wf-inbox-action="1"]');
+    if (!button) {
+        return;
+    }
+    const executionId = button.dataset.exec || '';
+    const actionType = button.dataset.action || '';
+    if (!executionId || !actionType) {
+        showNotification('Action impossible', 'Données de workflow incomplètes.', 'error');
+        return;
+    }
+    wfInboxAction(button, executionId, actionType);
 });
 
 // ── Boîte de réception : Signer / Valider via API plateforme ────────────────
@@ -1082,6 +1096,8 @@ async function wfInboxAction(btn, executionId, actionType) {
         btn.disabled = false;
     }
 }
+
+window.wfInboxAction = wfInboxAction;
 </script>
 @endpush
 @endsection
