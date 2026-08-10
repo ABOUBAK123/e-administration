@@ -870,7 +870,13 @@ class SignatureController extends Controller
 
     public function serveWorkflowDocument(string $executionId)
     {
-        $this->guardPermission('workflows.view');
+        if (
+            !$this->canPermission('workflows.view')
+            && !$this->canPermission('signatures.view')
+            && !$this->canPermission('signatures.request')
+        ) {
+            abort(403, 'Accès refusé.');
+        }
         $execution = WorkflowExecution::with(['workflow.steps.assignee', 'document'])->find($executionId);
         abort_unless($execution && $execution->document, 404);
 
