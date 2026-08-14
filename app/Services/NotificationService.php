@@ -103,7 +103,7 @@ class NotificationService
         return null;
     }
 
-    private static function sendWorkflowEmailToUser(?string $userId, string $subject, string $body, string $context): void
+    private static function sendWorkflowEmailToUser(?string $userId, string $subject, string $body, string $context, ?string $actionUrl = null): void
     {
         $normalizedUserId = trim((string) ($userId ?? ''));
         if ($normalizedUserId === '') {
@@ -125,8 +125,13 @@ class NotificationService
             return;
         }
 
+        $finalBody = $body;
+        if (is_string($actionUrl) && trim($actionUrl) !== '') {
+            $finalBody .= "\n\nAfin de continuer, cliquez sur l'adresse ci-dessous ou recopiez-la dans la barre d'adresse de votre navigateur :\n" . trim($actionUrl);
+        }
+
         try {
-            Mail::raw($body, function ($message) use ($user, $subject): void {
+            Mail::raw($finalBody, function ($message) use ($user, $subject): void {
                 $message->to($user->email)->subject($subject);
             });
         } catch (\Throwable $e) {
@@ -136,6 +141,17 @@ class NotificationService
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    private static function buildSignatureInvitationEmailBody(string $creatorName, ?string $actionUrl = null): string
+    {
+        $body = "Bonjour,\n\nVous venez de recevoir une demande de signature sur la plateforme de signature électronique de la part de {$creatorName}.\n\nAfin de signer le(s) document(s) en question, cliquez sur l'adresse ci-dessous ou recopiez-la dans la barre d'adresse de votre navigateur.";
+
+        if (is_string($actionUrl) && trim($actionUrl) !== '') {
+            $body .= "\n" . trim($actionUrl);
+        }
+
+        return $body . "\n";
     }
 
     /**
@@ -217,11 +233,22 @@ class NotificationService
         );
 
         $workflowName = (string) ($workflow->name ?? 'Sans nom');
+        $actionUrl = route('workflows.index') . '#en-cours';
+        $emailBody = "Bonjour,\n\nLe workflow \"{$workflowName}\" a été lancé par {$actorName}.\n\nVous êtes assigné à la première étape pour traiter la demande.\n";
+
+        if (!empty($firstStep->requires_signature)) {
+            $emailBody = self::buildSignatureInvitationEmailBody($actorName, $actionUrl);
+            $subject = 'Demande de signature sur la plateforme';
+        } else {
+            $subject = sprintf('Workflow démarré : %s', $workflowName);
+        }
+
         self::sendWorkflowEmailToUser(
             $assigneeId,
-            sprintf('Workflow démarré : %s', $workflowName),
-            "Bonjour,\n\nLe workflow \"{$workflowName}\" a été lancé par {$actorName}.\n\nVous êtes assigné à la première étape pour traiter la demande.\n",
-            'WorkflowExecutionStarted email failed'
+            $subject,
+            $emailBody,
+            'WorkflowExecutionStarted email failed',
+            $actionUrl
         );
     }
 
@@ -251,11 +278,22 @@ class NotificationService
 
         $stepName = trim((string) ($nextStep->name ?? '')) !== '' ? $nextStep->name : 'votre étape';
         $workflowName = (string) ($workflow->name ?? 'Sans nom');
+        $actionUrl = route('workflows.index') . '#en-cours';
+        $emailBody = "Bonjour,\n\nLe workflow \"{$workflowName}\" est maintenant à votre étape \"{$stepName}\".\nIl a été avancé par {$actorName}.\n";
+
+        if (!empty($nextStep->requires_signature)) {
+            $emailBody = self::buildSignatureInvitationEmailBody($actorName, $actionUrl);
+            $subject = 'Demande de signature sur la plateforme';
+        } else {
+            $subject = sprintf('Étape du workflow : %s', $workflowName);
+        }
+
         self::sendWorkflowEmailToUser(
             $assigneeId,
-            sprintf('Étape du workflow : %s', $workflowName),
-            "Bonjour,\n\nLe workflow \"{$workflowName}\" est maintenant à votre étape \"{$stepName}\".\nIl a été avancé par {$actorName}.\n",
-            'WorkflowStepAdvanced email failed'
+            $subject,
+            $emailBody,
+            'WorkflowStepAdvanced email failed',
+            $actionUrl
         );
     }
 
