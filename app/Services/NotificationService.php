@@ -125,13 +125,8 @@ class NotificationService
             return;
         }
 
-        $finalBody = $body;
-        if (is_string($actionUrl) && trim($actionUrl) !== '') {
-            $finalBody .= "\n\nAfin de continuer, cliquez sur l'adresse ci-dessous ou recopiez-la dans la barre d'adresse de votre navigateur :\n" . trim($actionUrl);
-        }
-
         try {
-            Mail::raw($finalBody, function ($message) use ($user, $subject): void {
+            Mail::raw($body, function ($message) use ($user, $subject): void {
                 $message->to($user->email)->subject($subject);
             });
         } catch (\Throwable $e) {
@@ -143,12 +138,12 @@ class NotificationService
         }
     }
 
-    private static function buildSignatureInvitationEmailBody(string $creatorName, ?string $actionUrl = null): string
+    private static function buildSignatureInvitationEmailBody(string $creatorName, string $workflowName, ?string $actionUrl = null): string
     {
-        $body = "Bonjour,\n\nVous venez de recevoir une demande de signature sur la plateforme de signature électronique de la part de {$creatorName}.\n\nAfin de signer le(s) document(s) en question, cliquez sur l'adresse ci-dessous ou recopiez-la dans la barre d'adresse de votre navigateur.";
+        $body = "Bonjour,\n\nVous venez de recevoir une demande de signature sur la plateforme E-administration de la part de {$creatorName} concernant le workflow \"{$workflowName}\".\n\nAfin de signer le(s) document(s) en question, cliquez sur le lien ci-dessous ou recopiez-le dans la barre d'adresse de votre navigateur :\n";
 
         if (is_string($actionUrl) && trim($actionUrl) !== '') {
-            $body .= "\n" . trim($actionUrl);
+            $body .= trim($actionUrl) . "\n";
         }
 
         return $body . "\n";
@@ -237,7 +232,7 @@ class NotificationService
         $emailBody = "Bonjour,\n\nLe workflow \"{$workflowName}\" a été lancé par {$actorName}.\n\nVous êtes assigné à la première étape pour traiter la demande.\n";
 
         if (!empty($firstStep->requires_signature)) {
-            $emailBody = self::buildSignatureInvitationEmailBody($actorName, $actionUrl);
+            $emailBody = self::buildSignatureInvitationEmailBody($actorName, $workflowName, $actionUrl);
             $subject = 'Demande de signature sur la plateforme';
         } else {
             $subject = sprintf('Workflow démarré : %s', $workflowName);
@@ -282,7 +277,7 @@ class NotificationService
         $emailBody = "Bonjour,\n\nLe workflow \"{$workflowName}\" est maintenant à votre étape \"{$stepName}\".\nIl a été avancé par {$actorName}.\n";
 
         if (!empty($nextStep->requires_signature)) {
-            $emailBody = self::buildSignatureInvitationEmailBody($actorName, $actionUrl);
+            $emailBody = self::buildSignatureInvitationEmailBody($actorName, $workflowName, $actionUrl);
             $subject = 'Demande de signature sur la plateforme';
         } else {
             $subject = sprintf('Étape du workflow : %s', $workflowName);
