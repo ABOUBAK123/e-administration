@@ -174,16 +174,8 @@ class SignatureController extends Controller
                 ]);
             }
 
-            if ($workflow?->created_by) {
-                NotificationService::notify(
-                    recipientId: (string) $workflow->created_by,
-                    type: 'workflow',
-                    title: 'Workflow terminé',
-                    message: sprintf('Le workflow "%s" est terminé après la dernière étape de signature.', $workflow->name ?? 'Sans nom'),
-                    actionUrl: route('workflows.index') . '#termine',
-                    workflowId: (string) ($workflow->id ?? null),
-                    executionId: (string) $execution->id
-                );
+            if ($workflow) {
+                NotificationService::workflowCompleted($workflow, Auth::user()?->name ?? 'Signataire');
             }
 
             return ['completed' => true];

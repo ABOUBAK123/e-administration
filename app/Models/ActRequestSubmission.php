@@ -178,36 +178,36 @@ class ActRequestSubmission extends Model
 
         $body .= "\nMerci.";
 
-        $smtpError = $this->configureActRequestMailerForSubmission();
-        if ($smtpError !== null) {
-            Log::error('ActRequestSubmission status email failed: administration SMTP configuration unavailable.', [
-                'submission_id' => (string) $this->id,
-                'tracking_number' => (string) $this->tracking_number,
-                'recipient_email' => $recipientEmail,
-                'emitter_administration_id' => (string) ($this->emitter_administration_id ?? ''),
-                'recipient_administration_id' => (string) ($this->recipient_administration_id ?? ''),
-                'from_status' => $oldStatus,
-                'to_status' => $newStatus,
-                'error' => $smtpError,
-            ]);
+$smtpError = $this->configureActRequestMailerForSubmission();
+if ($smtpError !== null) {
+    Log::error('ActRequestSubmission status email failed: administration SMTP configuration unavailable.', [
+        'submission_id' => (string) $this->id,
+        'tracking_number' => (string) $this->tracking_number,
+        'recipient_email' => $recipientEmail,
+        'emitter_administration_id' => (string) ($this->emitter_administration_id ?? ''),
+        'recipient_administration_id' => (string) ($this->recipient_administration_id ?? ''),
+        'from_status' => $oldStatus,
+        'to_status' => $newStatus,
+        'error' => $smtpError,
+    ]);
 
-            return;
-        }
+    return;
+}
 
-        try {
-            Mail::raw($body, function ($message) use ($recipientEmail, $subject): void {
-                $message->to($recipientEmail)->subject($subject);
-            });
-        } catch (\Throwable $e) {
-            Log::error('ActRequestSubmission status email failed.', [
-                'submission_id' => (string) $this->id,
-                'tracking_number' => (string) $this->tracking_number,
-                'recipient_email' => $recipientEmail,
-                'from_status' => $oldStatus,
-                'to_status' => $newStatus,
-                'error' => $e->getMessage(),
-            ]);
-        }
+try {
+    Mail::raw($body, function ($message) use ($recipientEmail, $subject): void {
+        $message->to($recipientEmail)->subject($subject);
+    });
+} catch (\Throwable $e) {
+    Log::error('ActRequestSubmission status email failed.', [
+        'submission_id' => (string) $this->id,
+        'tracking_number' => (string) $this->tracking_number,
+        'recipient_email' => $recipientEmail,
+        'from_status' => $oldStatus,
+        'to_status' => $newStatus,
+        'error' => $e->getMessage(),
+    ]);
+}
     }
 
     private function notifyRelevantInternalRecipients(

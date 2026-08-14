@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActRequestSubmission;
 use App\Models\AdministrationProfile;
 use App\Models\AdministrationSmtpSetting;
 use App\Models\Courrier;
 use App\Models\IssuingAdministration;
 use App\Models\Notification;
+use App\Models\RequestedAct;
 use App\Models\SubEntity;
 use App\Models\User;
 use App\Models\UserDirectionAssignment;
@@ -178,5 +180,57 @@ class CourrierPendingImputationNotificationTest extends TestCase
                 return str_contains($message, "configuration SMTP indisponible")
                     && array_key_exists('error', $context);
             });
+    }
+
+    public function test_act_status_change_email_uses_administration_smtp_configuration(): void
+    {
+        Mail::fake();
+        Log::spy();
+
+        $administration = IssuingAdministration::create([
+            'id' => (string) Str::uuid(),
+            'name' => 'Administration acte',
+            'code' => 'ACT-' . Str::random(5),
+            'is_active' => true,
+        ]);
+
+        AdministrationSmtpSetting::create([
+            'id' => (string) Str::uuid(),
+            'administration_id' => $administration->id,
+            'administration_type' => 'emitter',
+            'mail_host' => 'smtp.actes.test',
+            'mail_port' => 587,
+            'mail_username' => 'actes@example.test',
+            'mail_password' => 'secret',
+            'mail_encryption' => 'tls',
+            'mail_from_address' => 'no-reply@example.test',
+            'mail_from_name' => 'Administration actes',
+        ]);
+
+        $requestedAct = RequestedAct::create([
+            'id' => (string) Str::uuid(),
+            'administration_id' => $administration->id,
+            'direction_code' => 'DIR-01',
+            'document_name' => 'Acte test',
+            'is_active' => true,
+        ]);
+
+        $submission = ActRequestSubmission::create([
+            'id' => (string) Str::uuid(),
+            'requested_act_id' => $requestedAct->id,
+            'emitter_administration_id' => $administration->id,
+            'direction_code' => 'DIR-01',
+            'requested_document_name' => 'Acte test',
+            'applicant_full_name' => 'Demandeur Test',
+            'applicant_email' => 'demandeur@example.test',
+            'status' => 'pending',
+        ]);
+
+        $submission->update(['status' => 'in_progress']);
+
+        Mail::assertSentCount(1);
+        $this->assertSame('smtp', config('mail.default'));
+        $this->assertSame('smtp.actes.test', config('mail.mailers.smtp.host'));
+        Log::shouldNotHaveReceived('error');
     }
 }

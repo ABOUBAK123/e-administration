@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AdministrationSmtpSetting;
 use App\Models\AppSetting;
 use App\Models\Meeting;
 use App\Models\MeetingAttendance;
@@ -824,6 +825,47 @@ class MeetingController extends Controller
         return $pdf->download('synthese_reunions_' . $mode . '_' . now()->format('Ymd_His') . '.pdf');
     }
 
+    private function resolveMeetingSmtpSetting(Meeting $meeting): ?AdministrationSmtpSetting
+    {
+        $administrationId = trim((string) ($meeting->issuing_administration_id ?? ''));
+        if ($administrationId === '') {
+            return null;
+        }
+
+        return AdministrationSmtpSetting::forAdministration($administrationId, 'emitter')
+            ?? AdministrationSmtpSetting::forAdministration($administrationId, 'recipient');
+    }
+
+    private function applyMeetingScopedSmtpConfiguration(AdministrationSmtpSetting $smtp): void
+    {
+        config([
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.host' => $smtp->mail_host,
+            'mail.mailers.smtp.port' => $smtp->mail_port ?? 587,
+            'mail.mailers.smtp.username' => $smtp->mail_username,
+            'mail.mailers.smtp.password' => $smtp->mail_password,
+            'mail.mailers.smtp.encryption' => $smtp->mail_encryption ?: null,
+            'mail.mailers.smtp.timeout' => 10,
+            'mail.from.address' => $smtp->mail_from_address,
+            'mail.from.name' => $smtp->mail_from_name ?? config('app.name'),
+        ]);
+    }
+
+    private function configureMeetingMailerFor(Meeting $meeting): ?string
+    {
+        $smtp = $this->resolveMeetingSmtpSetting($meeting);
+        if (!$smtp) {
+            return "Aucune configuration SMTP d'administration n'a ete trouvee pour cette reunion.";
+        }
+
+        if (!$smtp->mail_host || !$smtp->mail_from_address) {
+            return "La configuration SMTP d'administration est incomplete (hote ou expediteur manquant).";
+        }
+
+        $this->applyMeetingScopedSmtpConfiguration($smtp);
+        return null;
+    }
+
     private function abortIfMeetingOutsideScope(Meeting $meeting): void
     {
         $scope = $this->resolveCurrentUserScope();
@@ -939,40 +981,61 @@ class MeetingController extends Controller
             'attendances' => $meeting->attendances,
         ])->output();
 
-        Mail::raw($body, function ($message) use ($emails, $subject, $minutesPdf, $attendancePdf, $meeting) {
-            $to = $emails->first();
-            $bcc = $emails->slice(1)->all();
-
-            $message->to($to)->subject($subject);
-            if (!empty($bcc)) {
-                $message->bcc($bcc);
-            }
-
-            $message->attachData($minutesPdf, 'compte_rendu_' . Str::slug($meeting->title) . '.pdf', [
-                'mime' => 'application/pdf',
+        $smtpError = $this->configureMeetingMailerFor($meeting);
+        if ($smtpError !== null) {
+            Log::error('MeetingController diffusion email config unavailable', [
+                'meeting_id' => (string) $meeting->id,
+                'meeting_title' => (string) $meeting->title,
+                'admin_id' => (string) ($meeting->issuing_administration_id ?? ''),
+                'error' => $smtpError,
             ]);
-            $message->attachData($attendancePdf, 'liste_presence_' . Str::slug($meeting->title) . '.pdf', [
-                'mime' => 'application/pdf',
-            ]);
+            return;
+        }
 
-            foreach ((array) ($meeting->attachments ?? []) as $attachment) {
-                $publicPath = (string) ($attachment['path'] ?? '');
-                if (!str_starts_with($publicPath, '/storage/')) {
-                    continue;
+        try {
+            Mail::raw($body, function ($message) use ($emails, $subject, $minutesPdf, $attendancePdf, $meeting) {
+                $to = $emails->first();
+                $bcc = $emails->slice(1)->all();
+
+                $message->to($to)->subject($subject);
+                if (!empty($bcc)) {
+                    $message->bcc($bcc);
                 }
 
-                $relativePath = ltrim(substr($publicPath, strlen('/storage/')), '/');
-                if (!Storage::disk('public')->exists($relativePath)) {
-                    continue;
-                }
+                $message->attachData($minutesPdf, 'compte_rendu_' . Str::slug($meeting->title) . '.pdf', [
+                    'mime' => 'application/pdf',
+                ]);
+                $message->attachData($attendancePdf, 'liste_presence_' . Str::slug($meeting->title) . '.pdf', [
+                    'mime' => 'application/pdf',
+                ]);
 
-                $message->attachData(
-                    Storage::disk('public')->get($relativePath),
-                    (string) ($attachment['name'] ?? basename($relativePath)),
-                    ['mime' => (string) ($attachment['mime'] ?? Storage::disk('public')->mimeType($relativePath) ?? 'application/octet-stream')]
-                );
-            }
-        });
+                foreach ((array) ($meeting->attachments ?? []) as $attachment) {
+                    $publicPath = (string) ($attachment['path'] ?? '');
+                    if (!str_starts_with($publicPath, '/storage/')) {
+                        continue;
+                    }
+
+                    $relativePath = ltrim(substr($publicPath, strlen('/storage/')), '/');
+                    if (!Storage::disk('public')->exists($relativePath)) {
+                        continue;
+                    }
+
+                    $message->attachData(
+                        Storage::disk('public')->get($relativePath),
+                        (string) ($attachment['name'] ?? basename($relativePath)),
+                        ['mime' => (string) ($attachment['mime'] ?? Storage::disk('public')->mimeType($relativePath) ?? 'application/octet-stream')]
+                    );
+                }
+            });
+        } catch (\Throwable $e) {
+            Log::error('MeetingController diffusion email failed', [
+                'meeting_id' => (string) $meeting->id,
+                'meeting_title' => (string) $meeting->title,
+                'recipients_count' => $emails->count(),
+                'error' => $e->getMessage(),
+            ]);
+        }
+
     }
 
     private function sendValidationRequestEmail(Meeting $meeting): void
@@ -996,9 +1059,30 @@ class MeetingController extends Controller
             . "{$showUrl}\n\n"
             . "Cordialement.";
 
-        Mail::raw($body, function ($message) use ($validatorEmail, $subject) {
-            $message->to($validatorEmail)->subject($subject);
-        });
+        $smtpError = $this->configureMeetingMailerFor($meeting);
+        if ($smtpError !== null) {
+            Log::error('MeetingController validation request email config unavailable', [
+                'meeting_id' => (string) $meeting->id,
+                'meeting_title' => (string) $meeting->title,
+                'validator_email' => $validatorEmail,
+                'admin_id' => (string) ($meeting->issuing_administration_id ?? ''),
+                'error' => $smtpError,
+            ]);
+            return;
+        }
+
+        try {
+            Mail::raw($body, function ($message) use ($validatorEmail, $subject) {
+                $message->to($validatorEmail)->subject($subject);
+            });
+        } catch (\Throwable $e) {
+            Log::error('MeetingController validation request email failed', [
+                'meeting_id' => (string) $meeting->id,
+                'meeting_title' => (string) $meeting->title,
+                'validator_email' => $validatorEmail,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     // -------------------------------------------------------------------------

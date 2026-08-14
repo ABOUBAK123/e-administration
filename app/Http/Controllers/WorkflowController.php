@@ -518,15 +518,7 @@ class WorkflowController extends Controller
 
         if ($next > $totalSteps) {
             $execution->update(['status' => 'completed', 'current_step' => $totalSteps]);
-            // Notifier le créateur du workflow que c'est terminé
-            NotificationService::notify(
-                recipientId: $workflow->created_by,
-                type: 'workflow_assigned',
-                title: 'Workflow terminé',
-                message: 'Le workflow « ' . $workflow->name . ' » a été complété avec succès.',
-                actionUrl: route('workflows.index') . '#termine',
-                workflowId: $workflow->id,
-            );
+            NotificationService::workflowCompleted($workflow, Auth::user()->name ?? 'Système');
         } else {
             $execution->update(['current_step' => $next]);
             $nextStep = $workflow->steps()->where('order', $next)->first();
