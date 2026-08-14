@@ -79,6 +79,51 @@ class ActRequestSubmission extends Model
         return $this->belongsTo(User::class, 'validated_by_user_id');
     }
 
+    private function resolveSmtpSetting(): ?AdministrationSmtpSetting
+    {
+        $administrationId = trim((string) ($this->emitter_administration_id ?? ''));
+        if ($administrationId === '') {
+            $administrationId = trim((string) ($this->recipient_administration_id ?? ''));
+        }
+
+        if ($administrationId === '') {
+            return null;
+        }
+
+        return AdministrationSmtpSetting::forAdministration($administrationId, 'emitter')
+            ?? AdministrationSmtpSetting::forAdministration($administrationId, 'recipient');
+    }
+
+    private function applyScopedSmtpConfiguration(AdministrationSmtpSetting $smtp): void
+    {
+        config([
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.host' => $smtp->mail_host,
+            'mail.mailers.smtp.port' => $smtp->mail_port ?? 587,
+            'mail.mailers.smtp.username' => $smtp->mail_username,
+            'mail.mailers.smtp.password' => $smtp->mail_password,
+            'mail.mailers.smtp.encryption' => $smtp->mail_encryption ?: null,
+            'mail.mailers.smtp.timeout' => 10,
+            'mail.from.address' => $smtp->mail_from_address,
+            'mail.from.name' => $smtp->mail_from_name ?? config('app.name'),
+        ]);
+    }
+
+    private function configureMailerForSubmission(): ?string
+    {
+        $smtp = $this->resolveSmtpSetting();
+        if (!$smtp) {
+            return "Aucune configuration SMTP d'administration n'a ete trouvee pour cette demande.";
+        }
+
+        if (!$smtp->mail_host || !$smtp->mail_from_address) {
+            return "La configuration SMTP d'administration est incomplete (hote ou expediteur manquant).";
+        }
+
+        $this->applyScopedSmtpConfiguration($smtp);
+        return null;
+    }
+
     private function sendStatusChangeEmail(string $oldStatus, string $newStatus): void
     {
         $recipientEmail = trim((string) ($this->applicant_email ?? ''));
@@ -122,12 +167,27 @@ class ActRequestSubmission extends Model
 
         $body .= "\nMerci.";
 
+        $smtpError = $this->configureMailerForSubmission();
+        if ($smtpError !== null) {
+            Log::error('ActRequestSubmission status email config unavailable', [
+                'submission_id' => (string) $this->id,
+                'tracking_number' => (string) $this->tracking_number,
+                'recipient_email' => $recipientEmail,
+                'emitter_administration_id' => (string) ($this->emitter_administration_id ?? ''),
+                'recipient_administration_id' => (string) ($this->recipient_administration_id ?? ''),
+                'from_status' => $oldStatus,
+                'to_status' => $newStatus,
+                'error' => $smtpError,
+            ]);
+            return;
+        }
+
         try {
             Mail::raw($body, function ($message) use ($recipientEmail, $subject): void {
                 $message->to($recipientEmail)->subject($subject);
             });
         } catch (\Throwable $e) {
-            Log::warning('ActRequestSubmission status email failed', [
+            Log::error('ActRequestSubmission status email failed', [
                 'submission_id' => (string) $this->id,
                 'tracking_number' => (string) $this->tracking_number,
                 'recipient_email' => $recipientEmail,
