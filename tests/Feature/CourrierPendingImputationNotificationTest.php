@@ -53,7 +53,7 @@ class CourrierPendingImputationNotificationTest extends TestCase
 
         $responsible = User::factory()->create([
             'profile_id' => $profile->id,
-            'email' => 'responsable@example.test',
+            'email' => 'responsable.' . Str::random(8) . '@example.test',
         ]);
 
         UserDirectionAssignment::create([
@@ -78,7 +78,10 @@ class CourrierPendingImputationNotificationTest extends TestCase
             'permissions' => ['menuPermissions' => ['courrier.enregistrement']],
         ]);
 
-        $agent = User::factory()->create(['profile_id' => $profile->id]);
+        $agent = User::factory()->create([
+            'profile_id' => $profile->id,
+            'email' => 'agent.' . Str::random(8) . '@example.test',
+        ]);
 
         UserDirectionAssignment::create([
             'id' => (string) Str::uuid(),

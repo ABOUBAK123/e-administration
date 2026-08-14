@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\NotificationService;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
@@ -109,6 +110,9 @@ class ActRequestSubmission extends Model
             $trackingUrl = '';
         }
 
+        $this->notifyMatchingUserAccount($recipientEmail, $oldStatus, $newStatus, $oldLabel, $newLabel, $trackingNumber, $trackingUrl);
+        $this->notifyRelevantInternalRecipients($oldStatus, $newStatus, $oldLabel, $newLabel, $trackingNumber, $trackingUrl);
+
         $subject = 'Evolution de votre demande d\'acte (' . $trackingNumber . ')';
         $body = "Bonjour,\n\n"
             . "Le statut de votre demande d'acte a change.\n"
@@ -131,6 +135,182 @@ class ActRequestSubmission extends Model
                 'submission_id' => (string) $this->id,
                 'tracking_number' => (string) $this->tracking_number,
                 'recipient_email' => $recipientEmail,
+                'from_status' => $oldStatus,
+                'to_status' => $newStatus,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function notifyRelevantInternalRecipients(
+        string $oldStatus,
+        string $newStatus,
+        string $oldLabel,
+        string $newLabel,
+        string $trackingNumber,
+        string $trackingUrl
+    ): void {
+        $candidateUserIds = [];
+        $seenUserIds = [];
+        $applicantEmail = mb_strtolower(trim((string) ($this->applicant_email ?? '')));
+
+        foreach ([
+            ['type' => 'emitter', 'id' => $this->emitter_administration_id],
+            ['type' => 'recipient', 'id' => $this->recipient_administration_id],
+        ] as $scope) {
+            $scopeType = $scope['type'] ?? null;
+            $scopeId = $scope['id'] ?? null;
+
+            if (!$scopeType || !$scopeId) {
+                continue;
+            }
+
+            $assignmentUserIds = UserDirectionAssignment::query()
+                ->where('direction_scope_type', $scopeType)
+                ->where('direction_scope_id', $scopeId)
+                ->pluck('user_id')
+                ->filter(fn ($userId) => is_string($userId) || is_numeric($userId))
+                ->map(fn ($userId) => (string) $userId)
+                ->all();
+
+            $profileUserIds = User::query()
+                ->whereHas('profile', function ($query) use ($scopeType, $scopeId): void {
+                    $query->where('administration_type', $scopeType)
+                        ->where('administration_id', $scopeId);
+                })
+                ->pluck('id')
+                ->filter(fn ($userId) => is_string($userId) || is_numeric($userId))
+                ->map(fn ($userId) => (string) $userId)
+                ->all();
+
+            foreach (array_merge($assignmentUserIds, $profileUserIds) as $userId) {
+                $userId = (string) $userId;
+                if ($userId === '' || isset($seenUserIds[$userId])) {
+                    continue;
+                }
+
+                $seenUserIds[$userId] = true;
+                $candidateUserIds[] = $userId;
+            }
+        }
+
+        if (!empty($this->direction_code)) {
+            $directionCode = strtoupper(trim((string) $this->direction_code));
+            if ($directionCode !== '') {
+                $subEntity = SubEntity::query()
+                    ->where('scope_type', 'emitter')
+                    ->where('scope_id', $this->emitter_administration_id)
+                    ->where('is_active', true)
+                    ->whereRaw('UPPER(code) = ?', [$directionCode])
+                    ->first();
+
+                if ($subEntity && trim((string) ($subEntity->manager_email ?? '')) !== '') {
+                    $managerUser = User::query()
+                        ->whereRaw('LOWER(email) = ?', [mb_strtolower(trim((string) $subEntity->manager_email))])
+                        ->first();
+
+                    if ($managerUser) {
+                        $userId = (string) $managerUser->id;
+                        if (!isset($seenUserIds[$userId])) {
+                            $seenUserIds[$userId] = true;
+                            $candidateUserIds[] = $userId;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (empty($candidateUserIds)) {
+            return;
+        }
+
+        $query = User::query()
+            ->whereIn('id', $candidateUserIds)
+            ->whereIn('role', ['admin', 'manager', 'signer'])
+            ->orderBy('name');
+
+        $actionUrl = $trackingUrl !== '' ? $trackingUrl : (function (): ?string {
+            try {
+                return route('act-requests.index');
+            } catch (\Throwable $e) {
+                return null;
+            }
+        })();
+
+        foreach ($query->get() as $user) {
+            $recipientEmail = mb_strtolower(trim((string) ($user->email ?? '')));
+            if ($recipientEmail === '' || $recipientEmail === $applicantEmail) {
+                continue;
+            }
+
+            $message = sprintf(
+                'La demande d\'acte %s a change de statut : %s → %s.',
+                $trackingNumber,
+                $oldLabel,
+                $newLabel
+            );
+
+            try {
+                NotificationService::notify(
+                    recipientId: (string) $user->id,
+                    type: 'info',
+                    title: 'Mise à jour d\'une demande d\'acte',
+                    message: $message,
+                    actionUrl: $actionUrl ?? route('act-requests.index'),
+                );
+            } catch (\Throwable $e) {
+                Log::warning('ActRequestSubmission internal status notification failed', [
+                    'submission_id' => (string) $this->id,
+                    'tracking_number' => (string) $this->tracking_number,
+                    'recipient_user_id' => (string) $user->id,
+                    'recipient_email' => (string) $user->email,
+                    'from_status' => $oldStatus,
+                    'to_status' => $newStatus,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    private function notifyMatchingUserAccount(
+        string $recipientEmail,
+        string $oldStatus,
+        string $newStatus,
+        string $oldLabel,
+        string $newLabel,
+        string $trackingNumber,
+        string $trackingUrl
+    ): void {
+        $user = User::query()
+            ->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($recipientEmail))])
+            ->first();
+
+        if (!$user) {
+            return;
+        }
+
+        $actionUrl = $trackingUrl !== '' ? $trackingUrl : route('act-requests.index');
+        $message = sprintf(
+            'Votre demande d\'acte %s a change de statut : %s → %s.',
+            $trackingNumber,
+            $oldLabel,
+            $newLabel
+        );
+
+        try {
+            NotificationService::notify(
+                recipientId: (string) $user->id,
+                type: 'info',
+                title: 'Mise à jour de votre demande d\'acte',
+                message: $message,
+                actionUrl: $actionUrl,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('ActRequestSubmission matching user notification failed', [
+                'submission_id' => (string) $this->id,
+                'tracking_number' => (string) $this->tracking_number,
+                'recipient_user_id' => (string) $user->id,
+                'recipient_email' => (string) $user->email,
                 'from_status' => $oldStatus,
                 'to_status' => $newStatus,
                 'error' => $e->getMessage(),
