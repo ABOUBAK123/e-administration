@@ -80,6 +80,58 @@ class ActRequestSubmission extends Model
         return $this->belongsTo(User::class, 'validated_by_user_id');
     }
 
+    private function resolveAdministrationSmtpSetting(): ?AdministrationSmtpSetting
+    {
+        $emitterId = trim((string) ($this->emitter_administration_id ?? ''));
+        if ($emitterId !== '') {
+            $smtp = AdministrationSmtpSetting::forAdministration($emitterId, 'emitter');
+            if ($smtp) {
+                return $smtp;
+            }
+        }
+
+        $recipientId = trim((string) ($this->recipient_administration_id ?? ''));
+        if ($recipientId !== '') {
+            $smtp = AdministrationSmtpSetting::forAdministration($recipientId, 'recipient');
+            if ($smtp) {
+                return $smtp;
+            }
+        }
+
+        return null;
+    }
+
+    private function applyAdministrationSmtpConfiguration(AdministrationSmtpSetting $smtp): void
+    {
+        config([
+            'mail.default'                 => 'smtp',
+            'mail.mailers.smtp.host'       => $smtp->mail_host,
+            'mail.mailers.smtp.port'       => $smtp->mail_port ?? 587,
+            'mail.mailers.smtp.username'   => $smtp->mail_username,
+            'mail.mailers.smtp.password'   => $smtp->mail_password,
+            'mail.mailers.smtp.encryption' => $smtp->mail_encryption ?: null,
+            'mail.mailers.smtp.timeout'    => 10,
+            'mail.from.address'            => $smtp->mail_from_address,
+            'mail.from.name'               => $smtp->mail_from_name ?? config('app.name'),
+        ]);
+    }
+
+    private function configureActRequestMailerForSubmission(): ?string
+    {
+        $smtp = $this->resolveAdministrationSmtpSetting();
+        if (!$smtp) {
+            return 'Aucune configuration SMTP d\'administration n\'a ete trouvee pour la demande d\'acte ' . ($this->tracking_number ?: $this->id);
+        }
+
+        if (!$smtp->mail_host || !$smtp->mail_from_address) {
+            return 'La configuration SMTP d\'administration est incomplete (hote ou expediteur manquant) pour la demande d\'acte ' . ($this->tracking_number ?: $this->id);
+        }
+
+        $this->applyAdministrationSmtpConfiguration($smtp);
+
+        return null;
+    }
+
     private function sendStatusChangeEmail(string $oldStatus, string $newStatus): void
     {
         $recipientEmail = trim((string) ($this->applicant_email ?? ''));
@@ -126,12 +178,28 @@ class ActRequestSubmission extends Model
 
         $body .= "\nMerci.";
 
+        $smtpError = $this->configureActRequestMailerForSubmission();
+        if ($smtpError !== null) {
+            Log::error('ActRequestSubmission status email failed: administration SMTP configuration unavailable.', [
+                'submission_id' => (string) $this->id,
+                'tracking_number' => (string) $this->tracking_number,
+                'recipient_email' => $recipientEmail,
+                'emitter_administration_id' => (string) ($this->emitter_administration_id ?? ''),
+                'recipient_administration_id' => (string) ($this->recipient_administration_id ?? ''),
+                'from_status' => $oldStatus,
+                'to_status' => $newStatus,
+                'error' => $smtpError,
+            ]);
+
+            return;
+        }
+
         try {
             Mail::raw($body, function ($message) use ($recipientEmail, $subject): void {
                 $message->to($recipientEmail)->subject($subject);
             });
         } catch (\Throwable $e) {
-            Log::warning('ActRequestSubmission status email failed', [
+            Log::error('ActRequestSubmission status email failed.', [
                 'submission_id' => (string) $this->id,
                 'tracking_number' => (string) $this->tracking_number,
                 'recipient_email' => $recipientEmail,
