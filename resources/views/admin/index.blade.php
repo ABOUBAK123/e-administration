@@ -7821,9 +7821,16 @@ document.addEventListener('DOMContentLoaded', function() {
             <option value="phone">Telephone</option>
             <option value="email">Email</option>
             <option value="textarea">Texte long</option>
+            <option value="list">Liste</option>
           </select>
           <button type="button" onclick="actAddField()"
             class="px-4 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition">Ajouter</button>
+        </div>
+        <div id="act-field-list-options" class="hidden space-y-2">
+          <label class="text-xs font-semibold text-gray-700">Elements de la liste</label>
+          <textarea id="act-field-options" rows="3"
+            placeholder="Saisir un élément par ligne ou séparé par des virgules"
+            class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none"></textarea>
         </div>
         <div id="act-fields-tags" class="flex flex-wrap gap-2 min-h-[28px]"></div>
         <input type="hidden" name="applicant_fields" id="act-fields-json"
@@ -7934,12 +7941,32 @@ function actAddDoc() {
 }
 function actRemoveDoc(i) { actDocs.splice(i,1); actRenderDocs(); }
 
+function actToggleFieldOptions() {
+    var select = document.getElementById('act-field-type');
+    var wrapper = document.getElementById('act-field-list-options');
+    var textarea = document.getElementById('act-field-options');
+    if (!select || !wrapper || !textarea) return;
+    var isList = select.value === 'list';
+    wrapper.classList.toggle('hidden', !isList);
+    if (isList) {
+        textarea.setAttribute('required', 'required');
+    } else {
+        textarea.removeAttribute('required');
+    }
+}
 function actRenderFields() {
     var c = document.getElementById('act-fields-tags'); c.innerHTML = '';
     actFields.forEach(function(f, i) {
+        var label = f.label || '';
+        var type = f.inputType || 'text';
+        var meta = '';
+        if (type === 'list' && Array.isArray(f.options) && f.options.length) {
+            meta = ' : ' + f.options.slice(0, 3).join(', ');
+            if (f.options.length > 3) meta += '...';
+        }
         var s = document.createElement('span');
         s.className = 'inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs text-indigo-700';
-        s.innerHTML = f.label+' ('+f.inputType+') <button type="button" onclick="actRemoveField('+i+')" class="text-indigo-600 hover:text-indigo-800 font-bold">&times;</button>';
+        s.innerHTML = label+' ('+type+meta+') <button type="button" onclick="actRemoveField('+i+')" class="text-indigo-600 hover:text-indigo-800 font-bold">&times;</button>';
         c.appendChild(s);
     });
     document.getElementById('act-fields-json').value = JSON.stringify(actFields);
@@ -7948,9 +7975,26 @@ function actAddField() {
     var label = document.getElementById('act-field-label').value.trim();
     var type  = document.getElementById('act-field-type').value;
     if (!label) return;
-    actFields.push({label:label, inputType:type});
+    if (type === 'list') {
+        var listInput = document.getElementById('act-field-options');
+        var options = [];
+        if (listInput) {
+            options = listInput.value.split(/\r?\n|,/) 
+                .map(function(v){ return v.trim(); })
+                .filter(function(v){ return v !== ''; });
+        }
+        if (!options.length) {
+            alert('Saisissez au moins une valeur pour la liste.');
+            return;
+        }
+        actFields.push({label:label, inputType:type, options:options});
+        listInput.value = '';
+    } else {
+        actFields.push({label:label, inputType:type});
+    }
     document.getElementById('act-field-label').value = '';
     actRenderFields();
+    actToggleFieldOptions();
 }
 function actRemoveField(i) { actFields.splice(i,1); actRenderFields(); }
 
@@ -7979,9 +8023,13 @@ function actSearch(q) {
     document.getElementById('act-count').textContent = vis + ' element' + (vis > 1 ? 's' : '');
 }
 document.addEventListener('DOMContentLoaded', function() {
+    var actTypeSelect = document.getElementById('act-field-type');
+    if (actTypeSelect) {
+        actTypeSelect.addEventListener('change', actToggleFieldOptions);
+    }
     try { actDocs   = JSON.parse(document.getElementById('act-docs-json').value   || '[]'); } catch(e){}
     try { actFields = JSON.parse(document.getElementById('act-fields-json').value || '[]'); } catch(e){}
-    actRenderDocs(); actRenderFields();
+    actRenderDocs(); actRenderFields(); actToggleFieldOptions();
     var a = document.getElementById('act-admin-select');
     if (a && a.value) actFilterDirections(a.value);
     toggleActAutoGenerateFields();

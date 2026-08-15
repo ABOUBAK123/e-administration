@@ -65,6 +65,39 @@ class PublicActRequestController extends Controller
             ->trim('_');
     }
 
+    private function buildApplicantFieldOptions(array $field): array
+    {
+        $options = $field['options'] ?? $field['values'] ?? [];
+        if (!is_array($options)) {
+            $options = preg_split('/\r\n|\n|,/', (string) $options) ?: [];
+        }
+
+        $cleanOptions = [];
+        foreach ($options as $option) {
+            $value = trim((string) $option);
+            if ($value !== '') {
+                $cleanOptions[] = $value;
+            }
+        }
+
+        return array_values(array_unique($cleanOptions));
+    }
+
+    private function buildApplicantFieldKey(array $field): string
+    {
+        $label = trim((string) ($field['label'] ?? ''));
+        if ($label === '') {
+            return '';
+        }
+
+        return (string) Str::of($label)
+            ->ascii()
+            ->lower()
+            ->replace("'", '_')
+            ->replaceMatches('/[^a-z0-9]+/', '_')
+            ->trim('_');
+    }
+
     private function normalizeUniqueKeyValue(?string $value): ?string
     {
         $raw = trim((string) ($value ?? ''));
@@ -543,21 +576,35 @@ class PublicActRequestController extends Controller
         $incomingExtra = $request->input('extra', []);
 
         foreach ($requestedFields as $field) {
+            if (!is_array($field)) {
+                continue;
+            }
+
             $label = trim((string) ($field['label'] ?? ''));
             if ($label === '') {
                 continue;
             }
-            $key = Str::of($label)
-                ->ascii()
-                ->lower()
-                ->replace("'", '_')
-                ->replaceMatches('/[^a-z0-9]+/', '_')
-                ->trim('_')
-                ->toString();
+
+            $key = $this->buildApplicantFieldKey($field);
             if ($key === '') {
                 continue;
             }
-            $extraPayload[$key] = (string) ($incomingExtra[$key] ?? '');
+
+            $value = (string) ($incomingExtra[$key] ?? '');
+            $type = strtolower(trim((string) ($field['inputType'] ?? 'text')));
+
+            if ($type === 'list') {
+                $allowedOptions = $this->buildApplicantFieldOptions($field);
+                if (empty($allowedOptions)) {
+                    return back()->withErrors(['extra.' . $key => 'La liste de choix est vide pour ce champ.'])->withInput();
+                }
+
+                if ($value === '' || !in_array($value, $allowedOptions, true)) {
+                    return back()->withErrors(['extra.' . $key => 'Veuillez sélectionner une valeur valide dans la liste proposée.'])->withInput();
+                }
+            }
+
+            $extraPayload[$key] = $value;
         }
 
         $attachments = [];

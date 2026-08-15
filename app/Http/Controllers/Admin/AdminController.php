@@ -5357,6 +5357,53 @@ class AdminController extends Controller
         return back()->with('success', 'Entité sous tutelle supprimée.')->withInput(['tab' => 'sub-entities']);
     }
 
+    private function normalizeRequestedActFields(array $rawFields): array
+    {
+        $normalized = [];
+
+        foreach ($rawFields as $field) {
+            if (!is_array($field)) {
+                continue;
+            }
+
+            $label = trim((string) ($field['label'] ?? ''));
+            if ($label === '') {
+                continue;
+            }
+
+            $type = strtolower(trim((string) ($field['inputType'] ?? $field['type'] ?? 'text')));
+            $allowedTypes = ['text', 'date', 'number', 'phone', 'email', 'textarea', 'list'];
+            if (!in_array($type, $allowedTypes, true)) {
+                $type = 'text';
+            }
+
+            $normalizedField = [
+                'label' => $label,
+                'inputType' => $type,
+            ];
+
+            if ($type === 'list') {
+                $options = $field['options'] ?? $field['values'] ?? [];
+                if (!is_array($options)) {
+                    $options = preg_split('/\r\n|\n|,/', (string) $options) ?: [];
+                }
+
+                $cleanOptions = [];
+                foreach ($options as $option) {
+                    $value = trim((string) $option);
+                    if ($value !== '') {
+                        $cleanOptions[] = $value;
+                    }
+                }
+                $normalizedField['options'] = array_values(array_unique($cleanOptions));
+            }
+
+            $normalized[] = $normalizedField;
+        }
+
+        return $normalized;
+    }
+
     // ── Actes demandés ────────────────────────────────────────────────────────
     public function storeRequestedAct(Request $request)
     {
@@ -5397,7 +5444,7 @@ class AdminController extends Controller
         }
 
         $data['required_documents'] = json_decode($data['required_documents'] ?? '[]', true) ?: [];
-        $data['applicant_fields']   = json_decode($data['applicant_fields']   ?? '[]', true) ?: [];
+        $data['applicant_fields']   = $this->normalizeRequestedActFields(json_decode($data['applicant_fields'] ?? '[]', true) ?: []);
         RequestedAct::create($data);
         return back()->with('success', 'Acte demandé créé.')->withInput(['tab' => 'requested-acts']);
     }
@@ -5436,7 +5483,7 @@ class AdminController extends Controller
         }
 
         $data['required_documents'] = json_decode($data['required_documents'] ?? '[]', true) ?: [];
-        $data['applicant_fields']   = json_decode($data['applicant_fields']   ?? '[]', true) ?: [];
+        $data['applicant_fields']   = $this->normalizeRequestedActFields(json_decode($data['applicant_fields'] ?? '[]', true) ?: []);
         $requestedAct->update($data);
         return back()->with('success', 'Acte demandé mis à jour.')->withInput(['tab' => 'requested-acts']);
     }
