@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            return;
+        }
+
         if (!Schema::hasTable('act_request_submissions') || !Schema::hasColumn('act_request_submissions', 'status')) {
             return;
         }
@@ -25,6 +29,10 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            return;
+        }
+
         if (!Schema::hasTable('act_request_submissions') || !Schema::hasColumn('act_request_submissions', 'status')) {
             return;
         }
