@@ -72,6 +72,81 @@
                                 <p class="text-[11px] text-blue-700 mt-0.5">N° {{ $req->tracking_number ?: '—' }}</p>
                             </div>
                         </div>
+
+                        @php
+                            $payloadMap = is_array($req->applicant_payload) ? $req->applicant_payload : [];
+                            $fieldDefinitions = is_array($req->requestedAct?->applicant_fields) ? $req->requestedAct->applicant_fields : [];
+                            $displayedApplicantFields = [];
+                            $seenKeys = [];
+
+                            foreach ($fieldDefinitions as $field) {
+                                if (!is_array($field)) {
+                                    continue;
+                                }
+
+                                $fieldLabel = trim((string) ($field['label'] ?? ''));
+                                if ($fieldLabel === '') {
+                                    continue;
+                                }
+
+                                $fieldKey = (string) \Illuminate\Support\Str::of($fieldLabel)
+                                    ->ascii()
+                                    ->lower()
+                                    ->replace("'", '_')
+                                    ->replaceMatches('/[^a-z0-9]+/', '_')
+                                    ->trim('_');
+
+                                if ($fieldKey === '' || !array_key_exists($fieldKey, $payloadMap)) {
+                                    continue;
+                                }
+
+                                $fieldValue = $payloadMap[$fieldKey];
+                                if (is_array($fieldValue)) {
+                                    $fieldValue = implode(', ', array_filter(array_map(static fn ($item) => trim((string) $item), $fieldValue), static fn ($item) => $item !== ''));
+                                }
+
+                                $normalizedValue = trim((string) $fieldValue);
+                                if ($normalizedValue === '') {
+                                    continue;
+                                }
+
+                                $displayedApplicantFields[] = ['label' => $fieldLabel, 'value' => $normalizedValue];
+                                $seenKeys[] = $fieldKey;
+                            }
+
+                            foreach ($payloadMap as $fieldKey => $fieldValue) {
+                                if ($fieldKey === '_note' || in_array($fieldKey, $seenKeys, true)) {
+                                    continue;
+                                }
+
+                                if (is_array($fieldValue)) {
+                                    $fieldValue = implode(', ', array_filter(array_map(static fn ($item) => trim((string) $item), $fieldValue), static fn ($item) => $item !== ''));
+                                }
+
+                                $normalizedValue = trim((string) $fieldValue);
+                                if ($normalizedValue === '') {
+                                    continue;
+                                }
+
+                                $displayedApplicantFields[] = [
+                                    'label' => ucwords(str_replace('_', ' ', (string) $fieldKey)),
+                                    'value' => $normalizedValue,
+                                ];
+                            }
+                        @endphp
+
+                        @if(!empty($displayedApplicantFields))
+                            <div class="mt-3 space-y-1.5">
+                                @foreach($displayedApplicantFields as $field)
+                                    <div class="flex flex-col gap-0.5 text-[11px] leading-relaxed">
+                                        <span class="font-medium text-gray-600">{{ $field['label'] }}</span>
+                                        <span class="text-gray-700 break-words">{{ $field['value'] }}</span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @else
+                            <p class="mt-3 text-[11px] text-gray-400">Aucun champ supplémentaire renseigné.</p>
+                        @endif
                     </td>
                     <td class="px-5 py-4 text-gray-600">
                         <p class="font-medium text-gray-700">{{ $req->requested_document_name }}</p>
