@@ -108,6 +108,65 @@ class WorkflowSmtpNotificationTest extends TestCase
         Log::shouldNotHaveReceived('error');
     }
 
+    public function test_workflow_template_store_assigns_current_administration_id(): void
+    {
+        $administration = IssuingAdministration::create([
+            'id' => (string) Str::uuid(),
+            'name' => 'Administration modèles workflow',
+            'code' => 'WF-MODEL-' . Str::random(5),
+            'is_active' => true,
+        ]);
+
+        $profile = AdministrationProfile::create([
+            'id' => (string) Str::uuid(),
+            'administration_id' => $administration->id,
+            'administration_type' => 'emitter',
+            'name' => 'GESTIONNAIRE WORKFLOW',
+            'permissions' => ['menuPermissions' => ['workflows.create']],
+        ]);
+
+        $user = User::factory()->create([
+            'profile_id' => $profile->id,
+            'email' => 'workflow-template@example.test',
+            'name' => 'Gestionnaire workflow',
+        ]);
+
+        $this->actingAs($user);
+
+        $response = $this->postJson(route('workflow-templates.store'), [
+            'name' => 'ATTESTATION DE PRIME',
+            'description' => 'Modèle de workflow d’attestation',
+            'validation_steps' => [[
+                'id' => 1,
+                'approver_id' => $user->id,
+            ]],
+            'signature_steps' => [[
+                'id' => 1,
+                'signer_id' => $user->id,
+            ]],
+            'notification_config' => [
+                'enabled' => true,
+                'emails' => null,
+                'cc' => null,
+                'stages' => [
+                    'onValidationStep' => true,
+                    'onSignatureStep' => true,
+                    'onApproved' => true,
+                    'onRejected' => false,
+                    'onCompleted' => true,
+                ],
+                'sendDownloadLink' => true,
+            ],
+        ]);
+
+        $response->assertCreated();
+        $this->assertDatabaseHas('workflow_templates', [
+            'name' => 'ATTESTATION DE PRIME',
+            'created_by' => $user->id,
+            'administration_id' => $administration->id,
+        ]);
+    }
+
     public function test_workflow_completed_logs_explicit_error_when_smtp_configuration_missing(): void
     {
         Mail::fake();

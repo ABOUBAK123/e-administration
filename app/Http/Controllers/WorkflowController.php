@@ -552,8 +552,15 @@ class WorkflowController extends Controller
     public function indexTemplates()
     {
         $this->guardPermission('workflows.view');
-        $templates = WorkflowTemplate::where('created_by', Auth::id())
-            ->latest()->get();
+
+        $administrationId = $this->resolveCurrentAdministrationId();
+        $templatesQuery = WorkflowTemplate::query()->where('created_by', Auth::id());
+
+        if ($administrationId) {
+            $templatesQuery->where('administration_id', $administrationId);
+        }
+
+        $templates = $templatesQuery->latest()->get();
 
         return response()->json($templates->map(fn($t) => [
             'id'               => $t->id,
@@ -572,8 +579,20 @@ class WorkflowController extends Controller
             'name' => 'required|string|max:500',
         ]);
 
+        $administrationId = $this->resolveCurrentAdministrationId();
+        if (!$administrationId) {
+            $message = 'Aucune administration active n’est associée à cet utilisateur.';
+
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $message], 422);
+            }
+
+            return back()->withInput()->with('error', $message);
+        }
+
         $template = WorkflowTemplate::create([
             'id'               => Str::uuid(),
+            'administration_id' => $administrationId,
             'name'             => $request->name,
             'description'      => $request->description,
             'validation_steps' => $request->validation_steps ?? [],
