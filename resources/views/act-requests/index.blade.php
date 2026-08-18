@@ -39,6 +39,82 @@
         </p>
     </div>
 @else
+    @php
+        $computeApplicantFields = function ($req) {
+            $payloadMap = is_array($req->applicant_payload) ? $req->applicant_payload : [];
+            $fieldDefinitions = is_array($req->requestedAct?->applicant_fields) ? $req->requestedAct->applicant_fields : [];
+            $fields = [];
+            $seenKeys = [];
+
+            foreach ($fieldDefinitions as $field) {
+                if (!is_array($field)) {
+                    continue;
+                }
+
+                $fieldLabel = trim((string) ($field['label'] ?? ''));
+                if ($fieldLabel === '') {
+                    continue;
+                }
+
+                $fieldKey = (string) \Illuminate\Support\Str::of($fieldLabel)
+                    ->ascii()
+                    ->lower()
+                    ->replace("'", '_')
+                    ->replaceMatches('/[^a-z0-9]+/', '_')
+                    ->trim('_');
+
+                if ($fieldKey === '' || !array_key_exists($fieldKey, $payloadMap)) {
+                    continue;
+                }
+
+                $fieldValue = $payloadMap[$fieldKey];
+                if (is_array($fieldValue)) {
+                    $fieldValue = implode(', ', array_filter(array_map(static fn ($item) => trim((string) $item), $fieldValue), static fn ($item) => $item !== ''));
+                }
+
+                $normalizedValue = trim((string) $fieldValue);
+                if ($normalizedValue === '') {
+                    continue;
+                }
+
+                $fields[$fieldLabel] = $normalizedValue;
+                $seenKeys[] = $fieldKey;
+            }
+
+            foreach ($payloadMap as $fieldKey => $fieldValue) {
+                if ($fieldKey === '_note' || in_array($fieldKey, $seenKeys, true)) {
+                    continue;
+                }
+
+                if (is_array($fieldValue)) {
+                    $fieldValue = implode(', ', array_filter(array_map(static fn ($item) => trim((string) $item), $fieldValue), static fn ($item) => $item !== ''));
+                }
+
+                $normalizedValue = trim((string) $fieldValue);
+                if ($normalizedValue === '') {
+                    continue;
+                }
+
+                $fields[ucwords(str_replace('_', ' ', (string) $fieldKey))] = $normalizedValue;
+            }
+
+            return $fields;
+        };
+
+        // Une colonne par champ distinct rencontré sur la page courante (ordre d'apparition),
+        // pour couvrir tous les types d'actes affichés (chacun avec ses propres champs).
+        $applicantFieldsByRequest = [];
+        $allApplicantFieldLabels = [];
+        foreach ($requests as $req) {
+            $fields = $computeApplicantFields($req);
+            $applicantFieldsByRequest[$req->id] = $fields;
+            foreach (array_keys($fields) as $label) {
+                if (!in_array($label, $allApplicantFieldLabels, true)) {
+                    $allApplicantFieldLabels[] = $label;
+                }
+            }
+        }
+    @endphp
     <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
@@ -47,21 +123,34 @@
             <span class="text-sm text-gray-500">{{ $requests->total() }} demande(s)</span>
         </div>
 
+        @if(!empty($allApplicantFieldLabels))
+        <p class="px-5 pt-3 text-[11px] text-gray-400 flex items-center gap-1.5">
+            <i class="fas fa-arrows-left-right"></i> Faites défiler le tableau horizontalement pour voir tous les champs renseignés par les demandeurs.
+        </p>
+        @endif
+
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead class="bg-gray-50 border-b border-gray-100">
                 <tr>
-                    <th class="text-left px-5 py-3 font-semibold text-gray-600">Demande</th>
-                    <th class="text-left px-5 py-3 font-semibold text-gray-600">Acte</th>
-                    <th class="text-left px-5 py-3 font-semibold text-gray-600">Destinataire</th>
-                    <th class="text-left px-5 py-3 font-semibold text-gray-600">Statut</th>
-                    <th class="text-left px-5 py-3 font-semibold text-gray-600">Reçue le</th>
+                    <th class="text-left px-5 py-3 font-semibold text-gray-600 whitespace-nowrap">Demande</th>
+                    <th class="text-left px-5 py-3 font-semibold text-gray-600 whitespace-nowrap">Acte</th>
+                    <th class="text-left px-5 py-3 font-semibold text-gray-600 whitespace-nowrap">Destinataire</th>
+                    @foreach($allApplicantFieldLabels as $fieldLabel)
+                    <th class="text-left px-5 py-3 font-semibold text-gray-600 whitespace-nowrap">{{ $fieldLabel }}</th>
+                    @endforeach
+                    <th class="text-left px-5 py-3 font-semibold text-gray-600 whitespace-nowrap">Statut</th>
+                    <th class="text-left px-5 py-3 font-semibold text-gray-600 whitespace-nowrap">Reçue le</th>
                     <th class="px-5 py-3"></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
                 @foreach($requests as $req)
+                @php
+                    $requestApplicantFields = $applicantFieldsByRequest[$req->id] ?? [];
+                @endphp
                 <tr class="hover:bg-gray-50/50 transition">
-                    <td class="px-5 py-4">
+                    <td class="px-5 py-4 whitespace-nowrap">
                         <div class="flex items-center gap-3">
                             <div class="h-9 w-9 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
                                 <i class="fas fa-file-invoice text-orange-500 text-sm"></i>
@@ -72,83 +161,8 @@
                                 <p class="text-[11px] text-blue-700 mt-0.5">N° {{ $req->tracking_number ?: '—' }}</p>
                             </div>
                         </div>
-
-                        @php
-                            $payloadMap = is_array($req->applicant_payload) ? $req->applicant_payload : [];
-                            $fieldDefinitions = is_array($req->requestedAct?->applicant_fields) ? $req->requestedAct->applicant_fields : [];
-                            $displayedApplicantFields = [];
-                            $seenKeys = [];
-
-                            foreach ($fieldDefinitions as $field) {
-                                if (!is_array($field)) {
-                                    continue;
-                                }
-
-                                $fieldLabel = trim((string) ($field['label'] ?? ''));
-                                if ($fieldLabel === '') {
-                                    continue;
-                                }
-
-                                $fieldKey = (string) \Illuminate\Support\Str::of($fieldLabel)
-                                    ->ascii()
-                                    ->lower()
-                                    ->replace("'", '_')
-                                    ->replaceMatches('/[^a-z0-9]+/', '_')
-                                    ->trim('_');
-
-                                if ($fieldKey === '' || !array_key_exists($fieldKey, $payloadMap)) {
-                                    continue;
-                                }
-
-                                $fieldValue = $payloadMap[$fieldKey];
-                                if (is_array($fieldValue)) {
-                                    $fieldValue = implode(', ', array_filter(array_map(static fn ($item) => trim((string) $item), $fieldValue), static fn ($item) => $item !== ''));
-                                }
-
-                                $normalizedValue = trim((string) $fieldValue);
-                                if ($normalizedValue === '') {
-                                    continue;
-                                }
-
-                                $displayedApplicantFields[] = ['label' => $fieldLabel, 'value' => $normalizedValue];
-                                $seenKeys[] = $fieldKey;
-                            }
-
-                            foreach ($payloadMap as $fieldKey => $fieldValue) {
-                                if ($fieldKey === '_note' || in_array($fieldKey, $seenKeys, true)) {
-                                    continue;
-                                }
-
-                                if (is_array($fieldValue)) {
-                                    $fieldValue = implode(', ', array_filter(array_map(static fn ($item) => trim((string) $item), $fieldValue), static fn ($item) => $item !== ''));
-                                }
-
-                                $normalizedValue = trim((string) $fieldValue);
-                                if ($normalizedValue === '') {
-                                    continue;
-                                }
-
-                                $displayedApplicantFields[] = [
-                                    'label' => ucwords(str_replace('_', ' ', (string) $fieldKey)),
-                                    'value' => $normalizedValue,
-                                ];
-                            }
-                        @endphp
-
-                        @if(!empty($displayedApplicantFields))
-                            <div class="mt-3 space-y-1.5">
-                                @foreach($displayedApplicantFields as $field)
-                                    <div class="flex flex-col gap-0.5 text-[11px] leading-relaxed">
-                                        <span class="font-medium text-gray-600">{{ $field['label'] }}</span>
-                                        <span class="text-gray-700 break-words">{{ $field['value'] }}</span>
-                                    </div>
-                                @endforeach
-                            </div>
-                        @else
-                            <p class="mt-3 text-[11px] text-gray-400">Aucun champ supplémentaire renseigné.</p>
-                        @endif
                     </td>
-                    <td class="px-5 py-4 text-gray-600">
+                    <td class="px-5 py-4 text-gray-600 whitespace-nowrap">
                         <p class="font-medium text-gray-700">{{ $req->requested_document_name }}</p>
                         <p class="text-xs text-gray-400 mt-0.5">
                             Code admin: {{ $req->administration?->code ?: '—' }}
@@ -157,10 +171,15 @@
                             @endif
                         </p>
                     </td>
-                    <td class="px-5 py-4 text-gray-600">
+                    <td class="px-5 py-4 text-gray-600 whitespace-nowrap">
                         <p class="text-xs text-gray-500">Code destinataire</p>
                         <p class="font-medium text-gray-700">{{ $req->recipientAdministration?->code ?: '—' }}</p>
                     </td>
+                    @foreach($allApplicantFieldLabels as $fieldLabel)
+                    <td class="px-5 py-4 text-gray-700 whitespace-nowrap">
+                        {{ $requestApplicantFields[$fieldLabel] ?? '—' }}
+                    </td>
+                    @endforeach
                     <td class="px-5 py-4">
                         @php
                             $colors = [
@@ -182,12 +201,12 @@
                             $cls   = $colors[$req->status]   ?? 'bg-gray-100 text-gray-600';
                             $label = $labels[$req->status]   ?? ucfirst($req->status);
                         @endphp
-                        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold {{ $cls }}">
+                        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold {{ $cls }} whitespace-nowrap">
                             {{ $label }}
                         </span>
                     </td>
-                    <td class="px-5 py-4 text-gray-500 text-xs">{{ $req->created_at?->format('d/m/Y H:i') }}</td>
-                    <td class="px-5 py-4 text-right">
+                    <td class="px-5 py-4 text-gray-500 text-xs whitespace-nowrap">{{ $req->created_at?->format('d/m/Y H:i') }}</td>
+                    <td class="px-5 py-4 text-right whitespace-nowrap">
                         @php
                             $attachments = is_array($req->attachments) ? $req->attachments : [];
                             $attachmentCount = count($attachments);
@@ -217,6 +236,7 @@
                 @endforeach
             </tbody>
         </table>
+        </div>
 
         @if($requests->hasPages())
         <div class="px-5 py-4 border-t border-gray-100">
