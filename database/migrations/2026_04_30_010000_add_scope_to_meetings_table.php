@@ -97,6 +97,10 @@ return new class extends Migration
 
     private function foreignKeyExists(string $tableName, string $constraintName): bool
     {
+        if (!in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            return false;
+        }
+
         $database = DB::getDatabaseName();
 
         $exists = DB::table('information_schema.TABLE_CONSTRAINTS')
@@ -111,6 +115,10 @@ return new class extends Migration
 
     private function canCreateIssuingAdminForeignKey(): bool
     {
+        if (!in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            return false;
+        }
+
         $database = DB::getDatabaseName();
 
         $meetingTable = DB::table('information_schema.TABLES')

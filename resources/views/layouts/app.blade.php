@@ -248,6 +248,13 @@
         </a>
         @endif
 
+        @if($canMenu('act-templates'))
+        <a href="{{ route('act-templates.index') }}"
+           class="nav-link {{ request()->routeIs('act-templates.*') ? 'active' : '' }}">
+            <i class="fas fa-file-contract"></i> Modèles d'actes
+        </a>
+        @endif
+
         @if($canMenu('workflows'))
         <a href="{{ route('workflows.index') }}"
            class="nav-link {{ request()->routeIs('workflows.*') ? 'active' : '' }}">

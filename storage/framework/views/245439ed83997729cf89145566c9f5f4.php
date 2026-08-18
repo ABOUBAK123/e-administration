@@ -26,6 +26,7 @@ $allTabs = [
     'direction-types'    => ['fas fa-tags',               'Types de direction',    '#10b981', 'administration.direction-types'],
     'routing'            => ['fas fa-route',              'Routage',               '#f97316', 'administration.routing'],
     'onlyoffice'         => ['fas fa-edit',               'OnlyOffice',            '#06b6d4', 'administration.onlyoffice'],
+    'ai-integration'     => ['fas fa-robot',              'Intelligence Artificielle', '#7c3aed', 'administration.ai-integration'],
     'users'              => ['fas fa-users',              'Utilisateurs',          '#3b82f6', 'administration.users'],
     'theming'            => ['fas fa-paint-brush',        'Apparence',             '#a855f7', 'administration.theming'],
     'email-notifications'=> ['fas fa-envelope-open-text', 'Notifications E-mail',  '#ef4444', 'administration.email-notifications'],
@@ -211,6 +212,7 @@ $_oc = [
         ['sub-entities',       'fas fa-sitemap',            'Entités sous tutelle',  'Structures rattachées aux administrations.','teal'],
         ['requested-acts',     'fas fa-clipboard-list',     'Actes demandés',        'Types d\'actes configurables.',            'yellow'],
         ['onlyoffice',         'fas fa-edit',               'OnlyOffice',            'Serveur d\'édition collaborative.',        'cyan'],
+        ['ai-integration',     'fas fa-robot',              'Intelligence Artificielle', 'Clé API IA (Gemini) pour les comptes rendus.', 'violet'],
         ['courrier-archiving', 'fas fa-archive',            'Archivage courrier',    'Délai d\'archivage automatique des courriers.','stone'],
     ]; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as [$t, $icon, $title, $desc, $color]): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
     <?php $cnt = $_oc[$t] ?? null; ?>
@@ -296,6 +298,317 @@ $_oc = [
 </div>
 
 <?php if($personnelTab === 'dashboard'): ?>
+<?php
+  $pd = $personnelDashboard ?? null;
+  $pdGender = $pd['byGender'] ?? [];
+  $pdGrade = $pd['byGrade'] ?? [];
+  $pdLeaveByType = $pd['leaveByType'] ?? [];
+  $pdRetirement = $pd['retirement'] ?? ['within1Year' => 0, 'within3Years' => 0, 'within5Years' => 0, 'upcoming' => []];
+  $pdStaffing = $pd['staffingNeeds'] ?? ['total' => 0, 'gap' => 0, 'urgent' => 0, 'items' => []];
+  $pdOnLeaveToday = $pd['onLeaveToday'] ?? 0;
+  $pdInTrainingToday = $pd['inTrainingToday'] ?? 0;
+?>
+<div class="mb-6">
+  <div class="flex items-center justify-between gap-3 mb-4">
+    <div>
+      <h3 class="text-lg font-bold text-gray-800"><?php echo e(__('personnel.ui.dashboard.decisional.title')); ?></h3>
+      <p class="text-sm text-gray-500"><?php echo e(__('personnel.ui.dashboard.decisional.subtitle')); ?></p>
+    </div>
+  </div>
+
+  
+  <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4">
+      <div class="h-10 w-10 rounded-xl bg-sky-100 flex items-center justify-center mb-2">
+        <i class="fa fa-calendar-check text-sky-600"></i>
+      </div>
+      <div class="text-2xl font-bold text-gray-800"><?php echo e($pdOnLeaveToday); ?></div>
+      <div class="text-sm text-gray-500"><?php echo e(__('personnel.ui.dashboard.decisional.kpi.on_leave_today')); ?></div>
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4">
+      <div class="h-10 w-10 rounded-xl bg-violet-100 flex items-center justify-center mb-2">
+        <i class="fa fa-graduation-cap text-violet-600"></i>
+      </div>
+      <div class="text-2xl font-bold text-gray-800"><?php echo e($pdInTrainingToday); ?></div>
+      <div class="text-sm text-gray-500"><?php echo e(__('personnel.ui.dashboard.decisional.kpi.in_training_today')); ?></div>
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4">
+      <div class="h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center mb-2">
+        <i class="fa fa-person-walking-arrow-right text-amber-600"></i>
+      </div>
+      <div class="text-2xl font-bold text-gray-800"><?php echo e($pdRetirement['within1Year'] ?? 0); ?></div>
+      <div class="text-sm text-gray-500"><?php echo e(__('personnel.ui.dashboard.decisional.kpi.retirement_1y')); ?></div>
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4">
+      <div class="h-10 w-10 rounded-xl bg-rose-100 flex items-center justify-center mb-2">
+        <i class="fa fa-user-plus text-rose-600"></i>
+      </div>
+      <div class="text-2xl font-bold text-gray-800"><?php echo e($pdStaffing['gap'] ?? 0); ?></div>
+      <div class="text-sm text-gray-500"><?php echo e(__('personnel.ui.dashboard.decisional.kpi.staffing_gap')); ?></div>
+    </div>
+  </div>
+
+  
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <h4 class="font-semibold text-gray-800 mb-3"><?php echo e(__('personnel.ui.dashboard.decisional.charts.gender_title')); ?></h4>
+      <?php if(count($pdGender) > 0): ?>
+        <canvas id="pdGenderChart" height="180"></canvas>
+      <?php else: ?>
+        <p class="text-sm text-gray-400"><?php echo e(__('personnel.ui.dashboard.decisional.charts.no_data')); ?></p>
+      <?php endif; ?>
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <h4 class="font-semibold text-gray-800 mb-3"><?php echo e(__('personnel.ui.dashboard.decisional.charts.grade_title')); ?></h4>
+      <?php if(count($pdGrade) > 0): ?>
+        <canvas id="pdGradeChart" height="180"></canvas>
+      <?php else: ?>
+        <p class="text-sm text-gray-400"><?php echo e(__('personnel.ui.dashboard.decisional.charts.no_data')); ?></p>
+      <?php endif; ?>
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <h4 class="font-semibold text-gray-800 mb-3"><?php echo e(__('personnel.ui.dashboard.decisional.charts.retirement_title')); ?></h4>
+      <canvas id="pdRetirementChart" height="180"></canvas>
+    </div>
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <h4 class="font-semibold text-gray-800 mb-3"><?php echo e(__('personnel.ui.dashboard.decisional.charts.leave_type_title')); ?></h4>
+      <?php if(count($pdLeaveByType) > 0): ?>
+        <canvas id="pdLeaveTypeChart" height="180"></canvas>
+      <?php else: ?>
+        <p class="text-sm text-gray-400"><?php echo e(__('personnel.ui.dashboard.decisional.charts.no_data')); ?></p>
+      <?php endif; ?>
+    </div>
+  </div>
+
+  
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <h4 class="font-semibold text-gray-800 mb-3"><?php echo e(__('personnel.ui.dashboard.decisional.retirement_table.title')); ?></h4>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="text-left text-gray-500 border-b border-gray-200">
+              <th class="py-2 pr-3"><?php echo e(__('personnel.ui.dashboard.decisional.retirement_table.name')); ?></th>
+              <th class="py-2 pr-3"><?php echo e(__('personnel.ui.dashboard.decisional.retirement_table.job_title')); ?></th>
+              <th class="py-2"><?php echo e(__('personnel.ui.dashboard.decisional.retirement_table.date')); ?></th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php $__empty_1 = true; $__currentLoopData = ($pdRetirement['upcoming'] ?? []); $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $upcomingItem): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
+            <tr class="border-b border-gray-100">
+              <td class="py-2 pr-3 font-medium text-gray-800"><?php echo e($upcomingItem['full_name']); ?></td>
+              <td class="py-2 pr-3 text-gray-500"><?php echo e($upcomingItem['job_title']); ?></td>
+              <td class="py-2 text-gray-500"><?php echo e(\Illuminate\Support\Carbon::parse($upcomingItem['retirement_date'])->format('d/m/Y')); ?></td>
+            </tr>
+            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
+            <tr><td colspan="3" class="py-3 text-gray-400"><?php echo e(__('personnel.ui.dashboard.decisional.retirement_table.empty')); ?></td></tr>
+            <?php endif; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
+      <div class="flex items-center justify-between gap-3 mb-1">
+        <h4 class="font-semibold text-gray-800"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.title')); ?></h4>
+        <button type="button" onclick="document.getElementById('pdStaffingCreateModal').classList.add('open')" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#2453d6] text-white hover:bg-[#1c3fa8]">
+          <i class="fa fa-plus mr-1"></i><?php echo e(__('personnel.ui.dashboard.decisional.staffing.add_button')); ?>
+
+        </button>
+      </div>
+      <p class="text-sm text-gray-500 mb-3"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.subtitle')); ?></p>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="text-left text-gray-500 border-b border-gray-200">
+              <th class="py-2 pr-3"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.job_title')); ?></th>
+              <th class="py-2 pr-3"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.required')); ?></th>
+              <th class="py-2 pr-3"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.current')); ?></th>
+              <th class="py-2 pr-3"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.gap')); ?></th>
+              <th class="py-2 pr-3"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.priority')); ?></th>
+              <th class="py-2 pr-3"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.status')); ?></th>
+              <th class="py-2"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.actions')); ?></th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php $__empty_1 = true; $__currentLoopData = ($pdStaffing['items'] ?? []); $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $need): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
+            <?php
+              $priorityColors = ['urgent' => 'bg-red-100 text-red-700', 'high' => 'bg-orange-100 text-orange-700', 'normal' => 'bg-sky-100 text-sky-700', 'low' => 'bg-gray-100 text-gray-600'];
+              $statusColors = ['open' => 'bg-emerald-100 text-emerald-700', 'filled' => 'bg-gray-100 text-gray-500', 'cancelled' => 'bg-gray-100 text-gray-400 line-through'];
+            ?>
+            <tr class="border-b border-gray-100">
+              <td class="py-2 pr-3 font-medium text-gray-800"><?php echo e($need['job_title']); ?></td>
+              <td class="py-2 pr-3 text-gray-500"><?php echo e($need['required_count']); ?></td>
+              <td class="py-2 pr-3 text-gray-500"><?php echo e($need['current_count']); ?></td>
+              <td class="py-2 pr-3 font-semibold <?php echo e($need['gap'] > 0 ? 'text-rose-600' : 'text-emerald-600'); ?>"><?php echo e($need['gap']); ?></td>
+              <td class="py-2 pr-3"><span class="px-2 py-0.5 rounded-full text-xs font-semibold <?php echo e($priorityColors[$need['priority']] ?? 'bg-gray-100 text-gray-600'); ?>"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.priorities.' . $need['priority'])); ?></span></td>
+              <td class="py-2 pr-3"><span class="px-2 py-0.5 rounded-full text-xs font-semibold <?php echo e($statusColors[$need['status']] ?? 'bg-gray-100 text-gray-600'); ?>"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.statuses.' . $need['status'])); ?></span></td>
+              <td class="py-2">
+                <div class="flex items-center gap-2">
+                  <button type="button"
+                    onclick='pdOpenStaffingEditModal(<?php echo json_encode($need, 15, 512) ?>)'
+                    class="text-xs text-[#2453d6] hover:underline"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.edit_title')); ?></button>
+                  <form method="POST" action="<?php echo e(route('admin.personnel.staffing-needs.destroy', $need['id'])); ?>" onsubmit="return confirm('<?php echo e(__('personnel.ui.dashboard.decisional.staffing.confirm_delete')); ?>')">
+                    <?php echo csrf_field(); ?>
+                    <?php echo method_field('DELETE'); ?>
+                    <input type="hidden" name="personnel_tab" value="dashboard">
+                    <button type="submit" class="text-xs text-rose-600 hover:underline">
+                      <i class="fa fa-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
+            <tr><td colspan="7" class="py-3 text-gray-400"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.empty')); ?></td></tr>
+            <?php endif; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div id="pdStaffingCreateModal" class="adm-modal">
+  <div class="adm-modal-box">
+    <button type="button" onclick="document.getElementById('pdStaffingCreateModal').classList.remove('open')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><i class="fa fa-times"></i></button>
+    <h3 id="pdStaffingModalTitle" class="text-lg font-bold text-gray-800 mb-4"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.create_title')); ?></h3>
+    <form id="pdStaffingForm" method="POST" action="<?php echo e(route('admin.personnel.staffing-needs.store')); ?>">
+      <?php echo csrf_field(); ?>
+      <input type="hidden" name="_method" id="pdStaffingMethod" value="POST">
+      <input type="hidden" name="personnel_tab" value="dashboard">
+      <input type="hidden" name="administration_type" value="<?php echo e($adminScope['type'] ?? 'emitter'); ?>">
+      <input type="hidden" name="administration_id" value="<?php echo e($adminScope['id'] ?? ''); ?>">
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.job_title')); ?></label>
+          <input type="text" name="job_title" id="pdStaffingJobTitle" required class="w-full rounded-lg border-gray-300">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.required')); ?></label>
+            <input type="number" min="0" name="required_count" id="pdStaffingRequired" required class="w-full rounded-lg border-gray-300">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.current')); ?></label>
+            <input type="number" min="0" name="current_count" id="pdStaffingCurrent" class="w-full rounded-lg border-gray-300">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.priority')); ?></label>
+            <select name="priority" id="pdStaffingPriority" class="w-full rounded-lg border-gray-300">
+              <?php $__currentLoopData = ['urgent','high','normal','low']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $p): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                <option value="<?php echo e($p); ?>"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.priorities.' . $p)); ?></option>
+              <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.status')); ?></label>
+            <select name="status" id="pdStaffingStatus" class="w-full rounded-lg border-gray-300">
+              <?php $__currentLoopData = ['open','filled','cancelled']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $s): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                <option value="<?php echo e($s); ?>"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.statuses.' . $s)); ?></option>
+              <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.target_date')); ?></label>
+          <input type="date" name="target_date" id="pdStaffingTargetDate" class="w-full rounded-lg border-gray-300">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.notes')); ?></label>
+          <textarea name="notes" id="pdStaffingNotes" rows="2" class="w-full rounded-lg border-gray-300"></textarea>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-3 mt-5">
+        <button type="button" onclick="document.getElementById('pdStaffingCreateModal').classList.remove('open')" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-600"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.cancel')); ?></button>
+        <button type="submit" class="px-4 py-2 rounded-lg bg-[#2453d6] text-white font-semibold"><?php echo e(__('personnel.ui.dashboard.decisional.staffing.save')); ?></button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<?php $__env->startPush('scripts'); ?>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+(function () {
+  const pdGenderData = <?php echo json_encode($pdGender, 15, 512) ?>;
+  const pdGradeData = <?php echo json_encode($pdGrade, 15, 512) ?>;
+  const pdLeaveTypeData = <?php echo json_encode($pdLeaveByType, 15, 512) ?>;
+  const pdRetirementData = {
+    within1Year: <?php echo e($pdRetirement['within1Year'] ?? 0); ?>,
+    within3Years: <?php echo e($pdRetirement['within3Years'] ?? 0); ?>,
+    within5Years: <?php echo e($pdRetirement['within5Years'] ?? 0); ?>,
+  };
+
+  function buildDoughnut(canvasId, dataObj) {
+    const el = document.getElementById(canvasId);
+    if (!el || typeof Chart === 'undefined') return;
+    new Chart(el, {
+      type: 'doughnut',
+      data: {
+        labels: Object.keys(dataObj),
+        datasets: [{ data: Object.values(dataObj), backgroundColor: ['#2453d6', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4'] }],
+      },
+      options: { plugins: { legend: { position: 'bottom' } } },
+    });
+  }
+
+  function buildBar(canvasId, dataObj) {
+    const el = document.getElementById(canvasId);
+    if (!el || typeof Chart === 'undefined') return;
+    new Chart(el, {
+      type: 'bar',
+      data: {
+        labels: Object.keys(dataObj),
+        datasets: [{ label: '<?php echo e(__('personnel.ui.dashboard.decisional.charts.grade_title')); ?>', data: Object.values(dataObj), backgroundColor: '#2453d6' }],
+      },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+    });
+  }
+
+  buildDoughnut('pdGenderChart', pdGenderData);
+  buildBar('pdGradeChart', pdGradeData);
+  buildDoughnut('pdLeaveTypeChart', pdLeaveTypeData);
+
+  const retirementEl = document.getElementById('pdRetirementChart');
+  if (retirementEl && typeof Chart !== 'undefined') {
+    new Chart(retirementEl, {
+      type: 'bar',
+      data: {
+        labels: [
+          '<?php echo e(__('personnel.ui.dashboard.decisional.charts.retirement_1y')); ?>',
+          '<?php echo e(__('personnel.ui.dashboard.decisional.charts.retirement_3y')); ?>',
+          '<?php echo e(__('personnel.ui.dashboard.decisional.charts.retirement_5y')); ?>',
+        ],
+        datasets: [{
+          label: '<?php echo e(__('personnel.ui.dashboard.decisional.charts.retirement_title')); ?>',
+          data: [pdRetirementData.within1Year, pdRetirementData.within3Years, pdRetirementData.within5Years],
+          backgroundColor: ['#ef4444', '#f59e0b', '#22c55e'],
+        }],
+      },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+    });
+  }
+
+  window.pdOpenStaffingEditModal = function (need) {
+    document.getElementById('pdStaffingModalTitle').textContent = <?php echo json_encode(__('personnel.ui.dashboard.decisional.staffing.edit_title'), 15, 512) ?>;
+    document.getElementById('pdStaffingForm').action = '/admin/personnel/staffing-needs/' + need.id;
+    document.getElementById('pdStaffingMethod').value = 'PUT';
+    document.getElementById('pdStaffingJobTitle').value = need.job_title || '';
+    document.getElementById('pdStaffingRequired').value = need.required_count || 0;
+    document.getElementById('pdStaffingCurrent').value = need.current_count || 0;
+    document.getElementById('pdStaffingPriority').value = need.priority || 'normal';
+    document.getElementById('pdStaffingStatus').value = need.status || 'open';
+    document.getElementById('pdStaffingTargetDate').value = need.target_date || '';
+    document.getElementById('pdStaffingNotes').value = need.notes || '';
+    document.getElementById('pdStaffingCreateModal').classList.add('open');
+  };
+})();
+</script>
+<?php $__env->stopPush(); ?>
 <div class="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-6">
   <section class="xl:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
     <h3 class="text-lg font-bold text-gray-800 mb-2"><?php echo e(__('personnel.ui.dashboard.vision_title')); ?></h3>
@@ -4397,7 +4710,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
 
         
         <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
-            <label class="block text-xs text-gray-500 mb-1">Administration Émettrice concern�e</label>
+          <label class="block text-xs text-gray-500 mb-1">Administration Émettrice concernée</label>
             <select id="tpl-filter-emitter" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-300"
                 onchange="tplFilterEmitter(this.value)">
                 <option value="">Toutes les administrations</option>
@@ -4492,7 +4805,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
                 <textarea id="tpl-content" name="content" class="hidden"><?php echo e(old('content', $selectedTplId && request('tpl_action') === 'edit' ? ($selectedTpl->content ?? '') : '')); ?></textarea>
             </div>
 
-            
+              
             <button type="submit"
                     class="w-full bg-blue-600 text-white rounded-lg px-3 py-2.5 text-sm font-bold hover:bg-blue-700 transition flex items-center justify-center gap-2">
                 <i class="fas fa-check-circle"></i>
@@ -4586,7 +4899,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             </div>
             <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
             <div class="border border-dashed border-gray-300 rounded-lg p-6 text-xs text-gray-400 text-center">
-                Aucun template configur� pour cette administration.
+              Aucun template configuré pour cette administration.
             </div>
             <?php endif; ?>
         </div>
@@ -4665,7 +4978,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         
         <?php if($selectedTpl): ?>
         <div class="border-t border-gray-100 pt-4 space-y-2">
-            <h3 class="text-sm font-semibold text-gray-800">Acc�s partag�s</h3>
+          <h3 class="text-sm font-semibold text-gray-800">Accès partagés</h3>
             <?php $currentShared = $shareMap[$selectedTpl->id] ?? []; ?>
             <?php if(count($currentShared)): ?>
             <div class="flex flex-wrap gap-2">
@@ -5005,7 +5318,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     <?php $__env->startPush('scripts'); ?>
 <script>
 (function() {
-    // --- Donn�es PHP → JS -----------------------------------------------------
+  // --- Données PHP → JS -----------------------------------------------------
     var _ooUrl    = <?php echo json_encode($onlyofficeUrl, 15, 512) ?>;
     var _ooJwt    = <?php echo json_encode($onlyofficeJwt, 15, 512) ?>;
     var _ooTokenUrl = "<?php echo e(route('admin.onlyoffice.token')); ?>";
@@ -5172,7 +5485,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     window.tplOoCanCloseModal = tplOoCanCloseModal;
 
     // --- Filtrer par administration -------------------------------------------
-    // --- Afficher/Masquer le formulaire de cr�ation de template --------------
+    // --- Afficher/Masquer le formulaire de création de template --------------
     function tplToggleCreateForm() {
         var panel = document.getElementById('tpl-create-panel');
         var btn   = document.getElementById('tpl-create-toggle-btn');
@@ -5188,7 +5501,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             btn.innerHTML = '<i class="fas fa-plus-circle text-xs"></i> Nouveau template';
             btn.classList.replace('bg-gray-500', 'bg-blue-600');
             btn.classList.replace('hover:bg-gray-600', 'hover:bg-blue-700');
-            label.textContent = 'Cliquez pour cr�er un template';
+            label.textContent = 'Cliquez pour créer un template';
         }
     }
     window.tplToggleCreateForm = tplToggleCreateForm;
@@ -5213,7 +5526,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     }
     window.tplFilterEmitter = tplFilterEmitter;
 
-    // --- S�lectionner un template ---------------------------------------------
+    // --- Sélectionner un template ---------------------------------------------
     function tplSelect(id) {
         var url = new URL(window.location.href);
         url.searchParams.set('tab', 'templates');
@@ -5230,7 +5543,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
       // Ouvre le modal d'édition OnlyOffice
         openModal('modal-tpl-oo');
 
-        // Si un template est d�j� s�lectionn�, le charger automatiquement
+        // Si un template est déjà sélectionné, le charger automatiquement
         var tplId = <?php echo json_encode($selectedTplId ?? null, 15, 512) ?> || window._ooCurrentTemplateId || null;
       if (!tplId) {
         tplOoShowStatus('Sélectionnez d\'abord un template dans la liste, ou créez-en un nouveau.', 7000);
@@ -5252,7 +5565,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
               if (cfg.warning) { tplOoShowStatus('Avertissement réseau : ' + cfg.warning, 8000); }
               tplOoLoadEditor(cfg);
             })
-            .catch(function(err) { tplOoShowStatus('Erreur r�seau : ' + err.message, 5000); });
+            .catch(function(err) { tplOoShowStatus('Erreur réseau : ' + err.message, 5000); });
         }
     }
     window.tplOpenOnlyOffice = tplOpenOnlyOffice;
@@ -5274,11 +5587,11 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
       _tplOoUploadTargetId = targetTemplateId || null;
         if (uploadPanel) uploadPanel.classList.remove('hidden');
         if (createPanel) createPanel.classList.add('hidden');
-        tplOoShowStatus('S�lectionnez un fichier DOCX, XLSX, PPTX ou PDF � importer comme mod�le.', 0);
+        tplOoShowStatus('Sélectionnez un fichier DOCX, XLSX, PPTX ou PDF à importer comme modèle.', 0);
     }
     window.tplOoOpenUpload = tplOoOpenUpload;
 
-    // --- Stocker le fichier s�lectionn� (utilis� par tplOoSubmitUpload) -------
+    // --- Stocker le fichier sélectionné (utilisé par tplOoSubmitUpload) -------
     window._ooSelectedFile = null;
 
     function tplOoHandleFileSelect(input) {
@@ -5293,7 +5606,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             fsize.textContent = sz < 1024*1024 ? (Math.round(sz/1024)) + ' Ko' : (Math.round(sz/1024/1024*10)/10) + ' Mo';
         }
         if (info) info.classList.remove('hidden');
-        // Pr�remplir le champ nom si vide
+        // Préremplir le champ nom si vide
         var nameInput = document.getElementById('tpl-oo-up-name');
         if (nameInput && !nameInput.value.trim()) {
             nameInput.value = input.files[0].name.replace(/\.[^/.]+$/, '');
@@ -5305,7 +5618,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         var files = event.dataTransfer.files;
         if (!files || !files.length) return;
         var fakeInput = document.getElementById('tpl-oo-file-input');
-        // Cr�er un DataTransfer pour affecter les fichiers � l'input
+        // Créer un DataTransfer pour affecter les fichiers à l'input
         try {
             var dt = new DataTransfer();
             dt.items.add(files[0]);
@@ -5462,7 +5775,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     }
     window.tplOoSubmitUpload = tplOoSubmitUpload;
 
-    // --- D�tection automatique des variables depuis le fichier DOCX -----------
+    // --- Détection automatique des variables depuis le fichier DOCX -----------
     function tplDetectVars(tplId, tplName) {
         var btn = document.getElementById('detect-btn-' + tplId);
         var lbl = document.getElementById('detect-label-' + tplId);
@@ -5476,7 +5789,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (btn) btn.disabled = false;
-            if (lbl) lbl.textContent = data.count > 0 ? data.count + ' vars' : 'D�tecter';
+            if (lbl) lbl.textContent = data.count > 0 ? data.count + ' vars' : 'Détecter';
             if (data.success && data.count > 0) {
                 var varNames = data.variables.slice(0, 5).map(function(v) { return '[' + v.key + ']'; }).join(', ');
                 if (data.count > 5) varNames += ' + ' + (data.count - 5) + ' autres';
@@ -5484,13 +5797,13 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
                   tplNavigate(window.location.pathname + '?tab=templates&selected_template=' + tplId);
                 }
             } else {
-                alert(data.message || 'Aucune variable trouv�e. Utilisez des balises [variable] (ou {{variable}}).');
+                alert(data.message || 'Aucune variable trouvée. Utilisez des balises [variable] (ou {{variable}}).');
             }
         })
         .catch(function(err) {
             if (btn) btn.disabled = false;
-            if (lbl) lbl.textContent = 'D�tecter';
-            alert('Erreur r�seau: ' + err.message);
+            if (lbl) lbl.textContent = 'Détecter';
+            alert('Erreur réseau: ' + err.message);
         });
     }
     window.tplDetectVars = tplDetectVars;
@@ -5635,12 +5948,12 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
       .then(function(data) {
         var lbl = document.getElementById('detect-label-' + tplId);
         if (lbl && data && typeof data.count === 'number') {
-          lbl.textContent = data.count > 0 ? data.count + ' vars' : 'D�tecter';
+          lbl.textContent = data.count > 0 ? data.count + ' vars' : 'Détecter';
         }
 
         if (data && data.success && typeof data.count === 'number') {
           if (data.count > 0) {
-            tplOoShowStatus('Variables synchronis�es automatiquement (' + data.count + ').', 3500);
+            tplOoShowStatus('Variables synchronisées automatiquement (' + data.count + ').', 3500);
           } else {
             tplOoShowStatus('Aucune variable détectée après sauvegarde.', 3500);
           }
@@ -5655,7 +5968,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     }
     window.tplAutoSyncVars = tplAutoSyncVars;
 
-    // Charger l'�diteur OO avec une config donn�e (fichier upload� ou nouveau)
+    // Charger l'éditeur OO avec une config donnée (fichier uploadé ou nouveau)
     function tplOoLoadEditor(cfg) {
         var fileType = (cfg.fileType || '').toLowerCase();
         // Les PDF restent en prévisualisation native (OnlyOffice PDF édite mal selon la config serveur).
@@ -5803,13 +6116,13 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         _tplOoZones = [];
         tplOoUpdateBadge();
 
-        // Construire l'URL PDF locale (�vite l'interstitiel ngrok)
+        // Construire l'URL PDF locale (évite l'interstitiel ngrok)
         // On utilise localDocUrl si disponible, sinon on reconstruit depuis storagePubPath
         var pdfUrl = cfg.localDocUrl || cfg.docUrl;
         if (!pdfUrl && cfg.storagePubPath) {
             pdfUrl = window.location.protocol + '//' + window.location.host + cfg.storagePubPath;
         }
-        var dlUrl = cfg.docUrl || pdfUrl; // t�l�chargement via URL publique
+        var dlUrl = cfg.docUrl || pdfUrl; // téléchargement via URL publique
 
         var placeholder = document.getElementById('oo-editor-placeholder');
         if (placeholder) {
@@ -5818,7 +6131,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
                 '<div style="flex-shrink:0;padding:8px 12px;background:#3d4043;display:flex;align-items:center;gap:10px;">' +
                 '<i class="fas fa-file-pdf" style="color:#ef4444;"></i>' +
                 '<span style="color:#fff;font-size:12px;font-weight:600;">' + (cfg.template_name || 'Document PDF') + '</span>' +
-                '<span style="color:#aaa;font-size:11px;margin-left:4px;">� Apercu PDF</span>' +
+                '<span style="color:#aaa;font-size:11px;margin-left:4px;">• Aperçu PDF</span>' +
                 '<a href="' + dlUrl + '" target="_blank" style="margin-left:auto;background:#2453d6;color:#fff;font-size:11px;font-weight:600;padding:4px 12px;border-radius:6px;text-decoration:none;"><i class="fas fa-download" style="margin-right:4px;"></i>Telecharger</a>' +
                 '</div>' +
                 '<iframe src="' + pdfUrl + '" style="flex:1;width:100%;border:none;" allowfullscreen></iframe>' +
@@ -5906,7 +6219,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     }
 
     // ─── Créer une boîte de zone glissable ───────────────────────────────────
-    // --- Cr�er une bo�te de zone glissable -----------------------------------
+    // --- Créer une boîte de zone glissable -----------------------------------
     function tplOoCreateDraggableZone(idx) {
         var container = document.getElementById('oo-iframe-container');
         if (!container) return;
@@ -6043,8 +6356,8 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
     window.tplOoRemoveZone = tplOoRemoveZone;
 
     // --- Sceller une zone de signature (verrouille visuellement la position) --
-    // --- Sceller une zone : verrouille d�finitivement drag ET resize ----------
-    // --- Sceller : verrouille drag + resize, appliqu� automatiquement au clic hors zone
+    // --- Sceller une zone : verrouille définitivement drag ET resize ----------
+    // --- Sceller : verrouille drag + resize, appliqué automatiquement au clic hors zone
     function tplOoSealZone(idx) {
         var zone = _tplOoZones[idx];
         if (!zone || !zone.el || zone.el._sealed) return;
@@ -6053,7 +6366,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         zone.el._sealed = true;
         zone.sealed      = true;
 
-        // Style verrouill� : bordure verte pleine, curseur bloqu�
+        // Style verrouillé : bordure verte pleine, curseur bloqué
         zone.el.style.border     = '2.5px solid #16a34a';
         zone.el.style.background = 'rgba(22,163,74,0.13)';
         zone.el.style.cursor     = 'default';
@@ -6062,27 +6375,27 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         var rh = document.getElementById('tpl-zone-resize-' + idx);
         if (rh) rh.style.display = 'none';
 
-        // Mise � jour visuelle : label + hint verts
+        // Mise à jour visuelle : label + hint verts
         var label = zone.el.querySelector('.tpl-zone-label');
         if (label) { label.style.color = '#15803d'; }
         var hint = zone.el.querySelector('.tpl-zone-hint');
         if (hint) {
-            hint.textContent = '\uD83D\uDD12 Position fix�e � cliquez pour repositionner';
+            hint.textContent = '\uD83D\uDD12 Position fixée • cliquez pour repositionner';
             hint.style.color = '#15803d';
         }
 
-        // Permettre de cliquer sur la zone pour la d�bloquer et repositionner
+        // Permettre de cliquer sur la zone pour la débloquer et repositionner
         zone.el.addEventListener('click', function onReopenClick(e) {
             if (e.target.tagName === 'BUTTON') return; // bouton supprimer ? ignorer
             zone.el.removeEventListener('click', onReopenClick);
             tplOoUnsealZone(idx);
         }, { once: true });
 
-        tplOoShowStatus('Zone "Signature ' + (idx + 1) + '" fix�e. Cliquez dessus pour repositionner, ou "Enregistrer les zones".', 5000);
+        tplOoShowStatus('Zone "Signature ' + (idx + 1) + '" fixée. Cliquez dessus pour repositionner, ou "Enregistrer les zones".', 5000);
     }
     window.tplOoSealZone = tplOoSealZone;
 
-    // --- D�bloquer une zone pour la repositionner -----------------------------
+    // --- Débloquer une zone pour la repositionner -----------------------------
     function tplOoUnsealZone(idx) {
         var zone = _tplOoZones[idx];
         if (!zone || !zone.el) return;
@@ -6091,12 +6404,12 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         zone.el._sealed = false;
         zone.sealed      = false;
 
-        // Style libre : bordure bleue pointill�e
+        // Style libre : bordure bleue pointillée
         zone.el.style.border     = '2.5px dashed #2563eb';
         zone.el.style.background = 'rgba(37,99,235,0.10)';
         zone.el.style.cursor     = 'move';
 
-        // R�afficher le handle resize
+        // Réafficher le handle resize
         var rh = document.getElementById('tpl-zone-resize-' + idx);
         if (rh) rh.style.display = '';
 
@@ -6106,7 +6419,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         var hint = zone.el.querySelector('.tpl-zone-hint');
         if (hint) { hint.textContent = 'Cliquez en dehors pour fixer'; hint.style.color = '#3b82f6'; }
 
-        // R�-enregistrer le listener "clic en dehors"
+        // Ré-enregistrer le listener "clic en dehors"
         function onDocMousedown(e) {
             if (zone.el._sealed) return;
             if (zone.el.contains(e.target)) return;
@@ -6115,7 +6428,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         document.addEventListener('mousedown', onDocMousedown);
         zone.el._unsealListener = function() { document.removeEventListener('mousedown', onDocMousedown); };
 
-        tplOoShowStatus('Zone "Signature ' + (idx + 1) + '" d�verrouill�e. Repositionnez-la puis cliquez en dehors.', 4000);
+        tplOoShowStatus('Zone "Signature ' + (idx + 1) + '" déverrouillée. Repositionnez-la puis cliquez en dehors.', 4000);
     }
     window.tplOoUnsealZone = tplOoUnsealZone;
 
@@ -6235,7 +6548,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         div.innerHTML =
             '<div class="mb-2">' +
                 '<p class="text-xs font-semibold text-gray-800 truncate">' + tpl.name + '</p>' +
-                '<p class="text-xs text-gray-500">' + (tpl.file_name || '-') + ' � ' + (tpl.file_type || '').toUpperCase() + '</p>' +
+            '<p class="text-xs text-gray-500">' + (tpl.file_name || '-') + ' • ' + (tpl.file_type || '').toUpperCase() + '</p>' +
                 (tpl.administration ? '<p class="text-xs text-gray-400">' + tpl.administration + '</p>' : '') +
                 '<p class="text-xs text-blue-600 mt-0.5">0 partage(s)</p>' +
             '</div>' +
@@ -6296,7 +6609,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             }
         }).catch(function() {
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-stamp text-xs"></i> Sceller les zones'; }
-            tplOoShowStatus(_tplOoZones.length + ' zone(s) m�moris�e(s) localement (hors-ligne).', 4000);
+          tplOoShowStatus(_tplOoZones.length + ' zone(s) mémorisée(s) localement (hors-ligne).', 4000);
         });
     }
     window.tplOoSave = tplOoSave;
@@ -6456,7 +6769,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
             inp.value = tplId;
         });
 
-        // Marquer utilisateurs d�j� partag�s
+        // Marquer utilisateurs déjà partagés
         document.querySelectorAll('.share-toggle-btn').forEach(function(btn) {
             var uid = btn.getAttribute('data-user-id');
             if (shared.indexOf(uid) !== -1) {
@@ -7423,6 +7736,9 @@ document.addEventListener('DOMContentLoaded', function() {
     $editAct    = ($actAction === 'edit' && $selActId) ? $requestedActs->firstWhere('id', $selActId) : null;
     $actAdminId = old('administration_id', $editAct?->administration_id ?? '');
     $actDirCode = old('direction_code',    $editAct?->direction_code    ?? '');
+    $actAutoEnabled = old('auto_generate_enabled', $editAct?->auto_generate_enabled ? '1' : '0') === '1';
+    $actAutoTemplateId = old('auto_template_id', $editAct?->auto_template_id ?? '');
+    $actUniqueKeyField = old('unique_key_field', $editAct?->unique_key_field ?? '');
 ?>
 
 <div class="grid grid-cols-1 xl:grid-cols-[1fr_1.1fr] gap-5">
@@ -7488,6 +7804,42 @@ document.addEventListener('DOMContentLoaded', function() {
         placeholder="Nom du document" required
         class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
 
+      <div class="rounded-xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
+        <div class="flex items-start gap-3">
+          <input type="hidden" name="auto_generate_enabled" value="0">
+          <input type="checkbox" id="act-auto-generate" name="auto_generate_enabled" value="1" <?php echo e($actAutoEnabled ? 'checked' : ''); ?>
+
+            onchange="toggleActAutoGenerateFields()"
+            class="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400">
+          <div>
+            <label for="act-auto-generate" class="text-sm font-semibold text-gray-800">Auto-génération à partir de la 2e demande publique</label>
+            <p class="text-xs text-gray-600 mt-0.5">Un utilisateur partagé sur le template pourra valider, et la première validation clôture l'attente.</p>
+          </div>
+        </div>
+
+        <div id="act-auto-fields" class="grid grid-cols-1 md:grid-cols-2 gap-3 <?php echo e($actAutoEnabled ? '' : 'hidden'); ?>">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Template de génération</label>
+            <select name="auto_template_id" id="act-auto-template"
+              class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
+              <option value="">Sélectionner un template</option>
+              <?php $__currentLoopData = $requestedActTemplates; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $tplOption): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+              <option value="<?php echo e($tplOption->id); ?>" <?php echo e((string) $actAutoTemplateId === (string) $tplOption->id ? 'selected' : ''); ?>><?php echo e($tplOption->name); ?></option>
+              <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Champ clé unique</label>
+            <input type="text" name="unique_key_field" id="act-unique-key-field"
+              value="<?php echo e($actUniqueKeyField); ?>"
+              placeholder="Ex: numero_cni ou applicant_email"
+              class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
+            <p class="text-[11px] text-gray-500 mt-1">Utilisez un champ usager (slug) ou un champ de base: applicant_email, applicant_phone.</p>
+          </div>
+        </div>
+      </div>
+
       <div class="space-y-2">
         <label class="text-xs font-semibold text-gray-700">Liste des documents a fournir</label>
         <div class="flex gap-2">
@@ -7510,17 +7862,30 @@ document.addEventListener('DOMContentLoaded', function() {
             onkeydown="if(event.key==='Enter'){event.preventDefault();actAddField();}"
             placeholder="Nom du champ (ex: Date de naissance)"
             class="border border-gray-300 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
-          <select id="act-field-type"
+          <select id="act-field-type" onchange="actUpdateFieldTypePanel()"
             class="border border-gray-300 rounded-xl px-3 py-3 text-sm focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
             <option value="text">Texte</option>
             <option value="date">Date</option>
             <option value="number">Nombre</option>
             <option value="phone">Telephone</option>
             <option value="email">Email</option>
+            <option value="select">Liste / Sélection</option>
             <option value="textarea">Texte long</option>
           </select>
           <button type="button" onclick="actAddField()"
             class="px-4 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition">Ajouter</button>
+        </div>
+        <div id="act-field-options-panel" class="hidden rounded-xl border border-dashed border-amber-200 bg-amber-50/50 p-3 space-y-2">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Options de la liste</label>
+          <div class="flex gap-2">
+            <input type="text" id="act-field-option-input"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();actAddFieldOption();}"
+              placeholder="Entrez une option puis appuyez sur Entrée"
+              class="flex-1 border border-amber-200 rounded-xl px-3 py-2 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
+            <button type="button" onclick="actAddFieldOption()"
+              class="px-3 py-2 rounded-xl bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 transition">Ajouter option</button>
+          </div>
+          <div id="act-field-options-tags" class="flex flex-wrap gap-2 min-h-[24px]"></div>
         </div>
         <div id="act-fields-tags" class="flex flex-wrap gap-2 min-h-[28px]"></div>
         <input type="hidden" name="applicant_fields" id="act-fields-json"
@@ -7568,6 +7933,9 @@ document.addEventListener('DOMContentLoaded', function() {
         <p class="text-sm font-semibold text-gray-800"><?php echo e($act->document_name); ?></p>
         <p class="text-xs text-gray-600">Administration : <?php echo e($act->administration?->name ?? '&mdash;'); ?></p>
         <p class="text-xs text-gray-600">Direction : <?php echo e($act->direction_code ?? '&mdash;'); ?></p>
+        <?php if($act->auto_generate_enabled): ?>
+        <p class="text-xs text-amber-700">Auto-génération active · Template: <?php echo e($act->autoTemplate?->name ?? '—'); ?> · Clé: <?php echo e($act->unique_key_field ?? '—'); ?></p>
+        <?php endif; ?>
         <p class="text-xs text-gray-400">Cree le <?php echo e($act->created_at->format('d/m/Y H:i')); ?></p>
         <?php if(!empty($act->required_documents)): ?>
         <div class="pt-1">
@@ -7612,7 +7980,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <?php $__env->startPush('scripts'); ?>
 <script>
-var actDocs = [], actFields = [];
+var actDocs = [], actFields = [], actFieldOptions = [];
 function actRenderDocs() {
     var c = document.getElementById('act-docs-tags'); c.innerHTML = '';
     actDocs.forEach(function(doc, i) {
@@ -7629,12 +7997,47 @@ function actAddDoc() {
 }
 function actRemoveDoc(i) { actDocs.splice(i,1); actRenderDocs(); }
 
+function actRenderFieldOptions() {
+    var c = document.getElementById('act-field-options-tags');
+    if (!c) return;
+    c.innerHTML = '';
+    actFieldOptions.forEach(function(option, i) {
+        var s = document.createElement('span');
+        s.className = 'inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white px-2.5 py-1 text-[11px] text-amber-700';
+        s.innerHTML = option + ' <button type="button" onclick="actRemoveFieldOption('+i+')" class="text-amber-600 hover:text-amber-800 font-bold">&times;</button>';
+        c.appendChild(s);
+    });
+}
+function actAddFieldOption() {
+    var input = document.getElementById('act-field-option-input');
+    if (!input) return;
+    var val = input.value.trim();
+    if (!val) return;
+    if (!actFieldOptions.includes(val)) actFieldOptions.push(val);
+    input.value = '';
+    actRenderFieldOptions();
+}
+function actRemoveFieldOption(i) { actFieldOptions.splice(i,1); actRenderFieldOptions(); }
+function actUpdateFieldTypePanel() {
+    var type = document.getElementById('act-field-type').value;
+    var panel = document.getElementById('act-field-options-panel');
+    if (panel) panel.classList.toggle('hidden', type !== 'select');
+    if (type !== 'select') {
+        actFieldOptions = [];
+        actRenderFieldOptions();
+    }
+}
+
 function actRenderFields() {
     var c = document.getElementById('act-fields-tags'); c.innerHTML = '';
     actFields.forEach(function(f, i) {
+        var labelText = f.label + ' (' + f.inputType + ')';
+        if (f.inputType === 'select' && Array.isArray(f.options) && f.options.length) {
+            labelText += ' [' + f.options.length + ' choix]';
+        }
         var s = document.createElement('span');
         s.className = 'inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs text-indigo-700';
-        s.innerHTML = f.label+' ('+f.inputType+') <button type="button" onclick="actRemoveField('+i+')" class="text-indigo-600 hover:text-indigo-800 font-bold">&times;</button>';
+        s.innerHTML = labelText + ' <button type="button" onclick="actRemoveField('+i+')" class="text-indigo-600 hover:text-indigo-800 font-bold">&times;</button>';
         c.appendChild(s);
     });
     document.getElementById('act-fields-json').value = JSON.stringify(actFields);
@@ -7643,9 +8046,21 @@ function actAddField() {
     var label = document.getElementById('act-field-label').value.trim();
     var type  = document.getElementById('act-field-type').value;
     if (!label) return;
-    actFields.push({label:label, inputType:type});
+    if (type === 'select' && actFieldOptions.length === 0) {
+        alert('Ajoutez au moins une option pour une liste de sélection.');
+        return;
+    }
+    var field = {label:label, inputType:type};
+    if (type === 'select') {
+        field.options = actFieldOptions.slice();
+    }
+    actFields.push(field);
     document.getElementById('act-field-label').value = '';
+    actFieldOptions = [];
+    actRenderFieldOptions();
     actRenderFields();
+    document.getElementById('act-field-type').value = 'text';
+    actUpdateFieldTypePanel();
 }
 function actRemoveField(i) { actFields.splice(i,1); actRenderFields(); }
 
@@ -7656,6 +8071,14 @@ function actFilterDirections(adminId) {
     });
     if (sel.value && sel.selectedOptions[0] && sel.selectedOptions[0].dataset.admin !== adminId) sel.value = '';
 }
+
+function toggleActAutoGenerateFields() {
+  var checkbox = document.getElementById('act-auto-generate');
+  var wrapper = document.getElementById('act-auto-fields');
+  if (!checkbox || !wrapper) return;
+  wrapper.classList.toggle('hidden', !checkbox.checked);
+}
+
 function actSearch(q) {
     q = q.toLowerCase().trim();
     var vis = 0, tot = 0;
@@ -7669,8 +8092,12 @@ document.addEventListener('DOMContentLoaded', function() {
     try { actDocs   = JSON.parse(document.getElementById('act-docs-json').value   || '[]'); } catch(e){}
     try { actFields = JSON.parse(document.getElementById('act-fields-json').value || '[]'); } catch(e){}
     actRenderDocs(); actRenderFields();
+    actFieldOptions = [];
+    actRenderFieldOptions();
+    actUpdateFieldTypePanel();
     var a = document.getElementById('act-admin-select');
     if (a && a.value) actFilterDirections(a.value);
+    toggleActAutoGenerateFields();
 });
 </script>
 <?php $__env->stopPush(); ?>
@@ -7759,7 +8186,7 @@ document.addEventListener('DOMContentLoaded', function() {
           <tr data-search="<?php echo e(strtolower($dt->name . ' ' . ($dt->description ?? ''))); ?>"
               class="<?php echo e($editDt && $editDt->id === $dt->id ? 'bg-blue-50' : ''); ?>">
             <td class="px-4 py-3 font-medium text-gray-800"><?php echo e($dt->name); ?></td>
-            <td class="px-4 py-3 text-gray-600"><?php echo e($dt->description ?? '�'); ?></td>
+            <td class="px-4 py-3 text-gray-600"><?php echo e($dt->description ?? '—'); ?></td>
             <td class="px-4 py-3">
               <div class="flex items-center gap-2">
                 <a href="<?php echo e(route('admin.index', ['tab' => 'direction-types', 'dt_action' => 'edit', 'selected_dt' => $dt->id])); ?>"
@@ -7778,7 +8205,7 @@ document.addEventListener('DOMContentLoaded', function() {
           </tr>
           <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
           <tr>
-            <td colspan="3" class="px-4 py-8 text-center text-xs text-gray-500">Aucun type de direction enregistr�.</td>
+            <td colspan="3" class="px-4 py-8 text-center text-xs text-gray-500">Aucun type de direction enregistré.</td>
           </tr>
           <?php endif; ?>
         </tbody>
@@ -7804,10 +8231,10 @@ function dtSearch(q) {
 <?php $__env->stopPush(); ?>
 <?php elseif($tab === 'routing'): ?>
 <div class="flex items-center justify-between mb-5">
-    <h2 class="text-lg font-bold text-gray-800">R�gles de routage</h2>
+  <h2 class="text-lg font-bold text-gray-800">Règles de routage</h2>
     <button onclick="openModal('modal-routing-create')"
         class="px-4 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-semibold hover:bg-orange-600 transition flex items-center gap-2">
-        <i class="fas fa-plus"></i> Nouvelle r�gle
+    <i class="fas fa-plus"></i> Nouvelle règle
     </button>
 </div>
 <div class="mb-3">
@@ -7820,19 +8247,27 @@ function dtSearch(q) {
         <thead class="bg-gray-50 border-b border-gray-100">
             <tr>
                 <th class="text-left px-5 py-3 font-semibold text-gray-600">Template</th>
-                <th class="text-left px-5 py-3 font-semibold text-gray-600">Destinataire</th>
+              <th class="text-left px-5 py-3 font-semibold text-gray-600">Cible</th>
                 <th class="text-left px-5 py-3 font-semibold text-gray-600">Condition</th>
-                <th class="text-left px-5 py-3 font-semibold text-gray-600">Priorit�</th>
+                <th class="text-left px-5 py-3 font-semibold text-gray-600">Priorité</th>
                 <th class="text-left px-5 py-3 font-semibold text-gray-600">Statut</th>
                 <th class="px-5 py-3"></th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-50" id="routing-tbody">
             <?php $__empty_1 = true; $__currentLoopData = $routingRules; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $rule): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
-            <tr data-search="<?php echo e(strtolower(($rule->template?->name ?? '') . ' ' . ($rule->recipient?->name ?? '') . ' ' . ($rule->condition_field ?? '') . ' ' . ($rule->condition_value ?? ''))); ?>"
+            <tr data-search="<?php echo e(strtolower(($rule->template?->name ?? '') . ' ' . ($rule->recipient?->name ?? '') . ' ' . ($rule->targetUser?->name ?? '') . ' ' . ($rule->condition_field ?? '') . ' ' . ($rule->condition_value ?? ''))); ?>"
                 class="hover:bg-gray-50/50 transition">
                 <td class="px-5 py-3.5 font-medium text-gray-800"><?php echo e($rule->template?->name ?? '—'); ?></td>
-                <td class="px-5 py-3.5 text-gray-600"><?php echo e($rule->recipient?->name ?? '—'); ?></td>
+              <td class="px-5 py-3.5 text-gray-600">
+                <?php if(($rule->target_type ?? 'recipient') === 'user'): ?>
+                  <div class="font-medium text-gray-700"><?php echo e($rule->targetUser?->name ?? '—'); ?></div>
+                  <div class="text-xs text-gray-500">Utilisateur</div>
+                <?php else: ?>
+                  <div class="font-medium text-gray-700"><?php echo e($rule->recipient?->name ?? '—'); ?></div>
+                  <div class="text-xs text-gray-500">Administration destinataire</div>
+                <?php endif; ?>
+              </td>
                 <td class="px-5 py-3.5 text-xs text-gray-500">
                     <?php if($rule->condition_field): ?>
                         <code class="bg-gray-100 px-1.5 py-0.5 rounded"><?php echo e($rule->condition_field); ?></code>
@@ -7852,7 +8287,7 @@ function dtSearch(q) {
                     </span>
                 </td>
                 <td class="px-5 py-3.5 text-right">
-                    <form method="POST" action="<?php echo e(route('admin.routing-rules.destroy', $rule)); ?>" onsubmit="return confirm('Supprimer cette r�gle ?')" class="inline">
+                  <form method="POST" action="<?php echo e(route('admin.routing-rules.destroy', $rule)); ?>" onsubmit="return confirm('Supprimer cette règle ?')" class="inline">
                         <?php echo csrf_field(); ?> <?php echo method_field('DELETE'); ?>
                         <button class="inline-flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded-lg transition">
                             <i class="fas fa-trash-alt text-xs"></i>
@@ -7861,7 +8296,7 @@ function dtSearch(q) {
                 </td>
             </tr>
             <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
-            <tr><td colspan="6" class="px-5 py-12 text-center text-gray-400">Aucune r�gle de routage configur�e.</td></tr>
+            <tr><td colspan="6" class="px-5 py-12 text-center text-gray-400">Aucune règle de routage configurée.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>
@@ -7877,12 +8312,39 @@ function routingSearch(q) {
         row.style.display = (!q || row.dataset.search.includes(q)) ? '' : 'none';
     });
 }
+
+function toggleRoutingTargetFields(targetType) {
+  var recipientWrap = document.getElementById('routing-target-recipient-wrap');
+  var userWrap = document.getElementById('routing-target-user-wrap');
+  var recipientSelect = document.getElementById('routing-recipient-id');
+  var userSelect = document.getElementById('routing-target-user-id');
+
+  var isUser = (targetType === 'user');
+
+  if (recipientWrap) recipientWrap.style.display = isUser ? 'none' : '';
+  if (userWrap) userWrap.style.display = isUser ? '' : 'none';
+
+  if (recipientSelect) {
+    recipientSelect.required = !isUser;
+    if (isUser) recipientSelect.value = '';
+  }
+
+  if (userSelect) {
+    userSelect.required = isUser;
+    if (!isUser) userSelect.value = '';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  var targetTypeSelect = document.getElementById('routing-target-type');
+  toggleRoutingTargetFields(targetTypeSelect ? targetTypeSelect.value : 'recipient');
+});
 </script>
 <?php $__env->stopPush(); ?>
 <div id="modal-routing-create" class="adm-modal">
     <div class="adm-modal-box">
         <button onclick="closeModal('modal-routing-create')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl"><i class="fas fa-times"></i></button>
-        <h3 class="text-lg font-bold text-gray-800 mb-5">Nouvelle r�gle de routage</h3>
+    <h3 class="text-lg font-bold text-gray-800 mb-5">Nouvelle règle de routage</h3>
         <form method="POST" action="<?php echo e(route('admin.routing-rules.store')); ?>" class="space-y-4">
             <?php echo csrf_field(); ?>
             <div>
@@ -7895,21 +8357,38 @@ function routingSearch(q) {
                 </select>
             </div>
             <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Destinataire <span class="text-red-500">*</span></label>
-                <select name="recipient_id" required class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">Type de cible <span class="text-red-500">*</span></label>
+                  <select id="routing-target-type" name="target_type" onchange="toggleRoutingTargetFields(this.value)" class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                    <option value="recipient">Administration destinataire</option>
+                    <option value="user">Utilisateur (même administration)</option>
+                </select>
+            </div>
+                <div id="routing-target-recipient-wrap">
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">Administration destinataire <span class="text-red-500">*</span></label>
+                  <select id="routing-recipient-id" name="recipient_id" required class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
                     <option value="">« Sélectionner »</option>
                     <?php $__currentLoopData = $recipients; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $recip): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                     <option value="<?php echo e($recip->id); ?>"><?php echo e($recip->name); ?></option>
                     <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
-                </select>
-            </div>
+                  </select>
+                </div>
+                <div id="routing-target-user-wrap" style="display:none;">
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">Utilisateur (même administration) <span class="text-red-500">*</span></label>
+                  <select id="routing-target-user-id" name="target_user_id" class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
+                    <option value="">« Sélectionner »</option>
+                    <?php $__currentLoopData = $sameAdminRoutingUsers; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $routingUser): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                    <option value="<?php echo e($routingUser->id); ?>"><?php echo e($routingUser->name); ?> <?php if($routingUser->email): ?>(<?php echo e($routingUser->email); ?>)<?php endif; ?></option>
+                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                  </select>
+                  <p class="mt-1 text-xs text-gray-500">Seuls les utilisateurs affectés à la même administration peuvent être sélectionnés.</p>
+                </div>
             <div class="grid grid-cols-3 gap-3">
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Champ</label>
                     <input type="text" name="condition_field" placeholder="status" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
                 </div>
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-1">Op�rateur</label>
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">Opérateur</label>
                     <select name="condition_operator" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
                         <option value="=">=</option>
                         <option value="!=">!=</option>
@@ -7922,12 +8401,12 @@ function routingSearch(q) {
                 </div>
             </div>
             <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Priorit�</label>
+              <label class="block text-sm font-semibold text-gray-700 mb-1">Priorité</label>
                 <input type="number" name="priority" value="0" min="0" class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400">
             </div>
             <div class="pt-2 flex gap-3 justify-end">
                 <button type="button" onclick="closeModal('modal-routing-create')" class="px-5 py-2.5 bg-gray-100 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-200 transition">Annuler</button>
-                <button type="submit" class="px-5 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-semibold hover:bg-orange-600 transition">Cr�er</button>
+              <button type="submit" class="px-5 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-semibold hover:bg-orange-600 transition">Créer</button>
             </div>
         </form>
     </div>
@@ -8219,6 +8698,113 @@ function toggleOoSecret() {
   updateQrPreview();
 })();
 </script>
+
+
+<?php elseif($tab === 'ai-integration'): ?>
+<?php
+    $geminiApiKey  = $settings['gemini_api_key']->value  ?? '';
+    $geminiModel   = $settings['gemini_model']->value    ?? config('services.gemini.model', 'gemini-2.0-flash');
+    $geminiTimeout = $settings['gemini_timeout']->value  ?? (string) config('services.gemini.timeout', 120);
+    $geminiConfiguredViaEnv = $geminiApiKey === '' && (string) config('services.gemini.api_key', '') !== '';
+?>
+
+<div class="max-w-2xl space-y-6">
+
+  
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+    <p class="text-xs font-bold uppercase tracking-widest text-violet-600 mb-1">INTELLIGENCE ARTIFICIELLE</p>
+    <h2 class="text-2xl font-bold text-gray-900 mb-2">Assistant IA pour les comptes rendus de réunion</h2>
+    <p class="text-sm text-gray-500 mb-4">
+      Configurez la clé API Google Gemini utilisée pour transcrire l'enregistrement audio d'une réunion
+      et proposer automatiquement un compte rendu structuré. Le service est gratuit dans la limite du
+      quota Google (clé personnelle à créer).
+    </p>
+    <div class="flex gap-4 text-sm font-semibold text-violet-600">
+      <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" class="hover:underline">Obtenir une clé API gratuite &#8599;</a>
+    </div>
+  </div>
+
+  <?php if(session('success') && request('tab') === 'ai-integration'): ?>
+  <div class="flex items-center gap-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm">
+    <i class="fas fa-check-circle"></i> <?php echo e(session('success')); ?>
+
+  </div>
+  <?php endif; ?>
+
+  <?php if($geminiConfiguredViaEnv): ?>
+  <div class="flex items-center gap-3 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl px-4 py-3 text-sm">
+    <i class="fas fa-info-circle"></i> Une clé est actuellement définie via la variable d'environnement <code class="text-xs bg-blue-100 px-1 rounded">GEMINI_API_KEY</code> du serveur. Enregistrez une clé ici pour la gérer depuis cette interface (elle sera alors prioritaire).
+  </div>
+  <?php endif; ?>
+
+  
+  <form method="POST" action="<?php echo e(route('admin.settings.save')); ?>" class="space-y-6">
+    <?php echo csrf_field(); ?> <?php echo method_field('PUT'); ?>
+    <input type="hidden" name="tab" value="ai-integration">
+
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-5">
+      <div>
+        <h3 class="text-lg font-bold text-gray-900 mb-1">Paramètres Gemini</h3>
+        <p class="text-sm text-gray-500">
+          Ces paramètres remplacent la configuration du fichier <code class="text-xs bg-gray-100 px-1 rounded">.env</code> lorsqu'ils sont renseignés ici.
+        </p>
+      </div>
+
+      
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">
+          Clé API Gemini <span class="text-gray-400 font-normal text-xs">(laisser vide pour désactiver / conserver le .env)</span>
+        </label>
+        <div class="relative w-full max-w-sm">
+          <input id="gemini-secret-input" type="password" name="gemini_api_key"
+            value="<?php echo e(old('gemini_api_key', $geminiApiKey)); ?>"
+            placeholder="Saisir votre clé API Gemini"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm pr-9 focus:outline-none focus:ring-2 focus:ring-violet-500">
+          <button type="button" onclick="toggleGeminiSecret()" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+            <i id="gemini-secret-eye" class="fas fa-eye text-sm"></i>
+          </button>
+        </div>
+      </div>
+
+      
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Modèle</label>
+        <input type="text" name="gemini_model"
+          value="<?php echo e(old('gemini_model', $geminiModel)); ?>"
+          placeholder="gemini-2.0-flash"
+          class="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500">
+        <p class="text-xs text-gray-400 mt-1">Identifiant du modèle Gemini à utiliser pour la génération du compte rendu.</p>
+      </div>
+
+      
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Délai d'attente (secondes)</label>
+        <input type="number" min="10" max="600" name="gemini_timeout"
+          value="<?php echo e(old('gemini_timeout', $geminiTimeout)); ?>"
+          class="w-full max-w-[10rem] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500">
+        <p class="text-xs text-gray-400 mt-1">Délai maximal accordé à l'appel à l'API avant abandon.</p>
+      </div>
+    </div>
+
+    
+    <div class="flex items-center gap-3">
+      <button type="submit"
+        class="px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-lg transition flex items-center gap-2">
+        <i class="fas fa-save"></i> Enregistrer
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+function toggleGeminiSecret() {
+  var inp = document.getElementById('gemini-secret-input');
+  var eye = document.getElementById('gemini-secret-eye');
+  if (inp.type === 'password') { inp.type = 'text';     eye.className = 'fas fa-eye-slash text-sm'; }
+  else                         { inp.type = 'password'; eye.className = 'fas fa-eye text-sm'; }
+}
+</script>
+
 <?php elseif($tab === 'users'): ?>
 <?php
     $usersSearch    = request('u_search', '');
@@ -8303,6 +8889,7 @@ function toggleOoSecret() {
           <th class="px-4 py-3 text-left">E-mail</th>
           <th class="px-4 py-3 text-left">Quota</th>
           <th class="px-4 py-3 text-left">Statut</th>
+          <th class="px-4 py-3 text-left">2FA</th>
           <th class="px-4 py-3 text-left">Date création</th>
           <th class="px-4 py-3 text-left">Date modification</th>
           <th class="px-4 py-3 text-left">Actions</th>
@@ -8336,6 +8923,13 @@ function toggleOoSecret() {
             <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold
               <?php echo e($u->status === 'active' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'); ?>">
               <?php echo e($u->status === 'active' ? 'Actif' : 'Désactivé'); ?>
+
+            </span>
+          </td>
+          <td class="px-4 py-3">
+            <?php $twoFactorEnabled = $u->two_factor_enabled !== false; ?>
+            <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold <?php echo e($twoFactorEnabled ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'); ?>">
+              <?php echo e($twoFactorEnabled ? 'Activée' : 'Désactivée'); ?>
 
             </span>
           </td>
@@ -8384,6 +8978,16 @@ function toggleOoSecret() {
                 </button>
               </form>
               
+              <form method="POST" action="<?php echo e(route('admin.users-tab.toggle-two-factor', $u)); ?>" class="inline">
+                <?php echo csrf_field(); ?>
+                <?php $twoFactorEnabled = $u->two_factor_enabled !== false; ?>
+                <button type="submit"
+                  class="<?php echo e($twoFactorEnabled ? 'text-indigo-600 hover:bg-indigo-50' : 'text-gray-600 hover:bg-gray-100'); ?> rounded p-1.5 transition"
+                  title="<?php echo e($twoFactorEnabled ? 'Désactiver la double authentification' : 'Activer la double authentification'); ?>">
+                  <i class="fas <?php echo e($twoFactorEnabled ? 'fa-shield-alt' : 'fa-shield'); ?> text-xs"></i>
+                </button>
+              </form>
+              
               <form method="POST" action="<?php echo e(route('admin.users-tab.destroy', $u)); ?>" onsubmit="return confirm('Supprimer cet utilisateur ?')" class="inline">
                 <?php echo csrf_field(); ?> <?php echo method_field('DELETE'); ?>
                 <button type="submit" class="text-red-600 hover:bg-red-50 rounded p-1.5 transition" title="Supprimer">
@@ -8395,7 +8999,7 @@ function toggleOoSecret() {
         </tr>
         <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
         <tr>
-          <td colspan="10" class="px-4 py-8 text-center text-gray-400">Aucun utilisateur trouvé.</td>
+          <td colspan="11" class="px-4 py-8 text-center text-gray-400">Aucun utilisateur trouvé.</td>
         </tr>
         <?php endif; ?>
       </tbody>
@@ -8652,6 +9256,9 @@ function toggleOoSecret() {
       </select>
 
       <input type="email" id="e-email" name="email" placeholder="E-mail" required value="<?php echo e(old('email', $editUser->email ?? ($editUserData['email'] ?? ''))); ?>"
+        class="border border-gray-200 rounded-lg px-3 py-2.5 text-sm w-full focus:ring-2 focus:ring-[#2453d6] outline-none">
+
+      <input type="tel" id="e-phone" name="phone" placeholder="Téléphone" value="<?php echo e(old('phone', $editUser->phone ?? ($editUserData['phone'] ?? ''))); ?>"
         class="border border-gray-200 rounded-lg px-3 py-2.5 text-sm w-full focus:ring-2 focus:ring-[#2453d6] outline-none">
 
       <select id="e-quota" name="quota"
@@ -9403,6 +10010,109 @@ function themingToggleDisable() {
 </div>
 
 
+<?php
+    $otpScopeValue = '';
+    $otpScopeLabel = null;
+    if (isset($adminScope) && $adminScope) {
+        $otpScopeValue = $adminScope['type'] . ':' . $adminScope['id'];
+        $otpScopeLabel = $adminScope['type'] === 'emitter'
+            ? \App\Models\IssuingAdministration::find($adminScope['id'])?->name
+            : \App\Models\RecipientAdministration::find($adminScope['id'])?->name;
+    }
+    $otpChannelMap = collect($settings)
+        ->filter(fn($s, $k) => $k === 'otp_channel' || str_starts_with($k, 'otp_channel:'))
+        ->mapWithKeys(fn($s, $k) => [($k === 'otp_channel' ? '' : substr($k, 12)) => $s->value]);
+    $otpCurrent = $otpChannelMap[$otpScopeValue] ?? ($otpChannelMap[''] ?? 'email');
+?>
+<div class="mt-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+        <div class="h-10 w-10 bg-green-100 rounded-xl flex items-center justify-center">
+            <i class="fas fa-shield-alt text-green-600"></i>
+        </div>
+        <div>
+            <h2 class="text-base font-bold text-gray-800">Authentification à deux facteurs (OTP)</h2>
+            <p class="text-xs text-gray-400">Choisissez le canal d'envoi du code de vérification à la connexion, par administration</p>
+        </div>
+    </div>
+    <form method="POST" action="<?php echo e(route('admin.settings.save')); ?>" class="p-6 space-y-5">
+        <?php echo csrf_field(); ?> <?php echo method_field('PUT'); ?>
+        <input type="hidden" name="tab" value="email-notifications">
+
+        <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1.5">Administration concernée</label>
+            <?php if($otpScopeValue !== ''): ?>
+                
+                <select id="otpAdminScopeSelect" disabled
+                    class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm bg-gray-100 text-gray-500 cursor-not-allowed">
+                    <option selected><?php echo e($otpScopeLabel ?? 'Mon administration'); ?></option>
+                </select>
+                <input type="hidden" name="otp_admin_scope" value="<?php echo e($otpScopeValue); ?>">
+                <p class="text-xs text-gray-400 mt-1">Le paramétrage s'applique uniquement à votre administration.</p>
+            <?php else: ?>
+                
+                <select name="otp_admin_scope" id="otpAdminScopeSelect"
+                    class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                    <option value="">« Toutes les administrations (par défaut) »</option>
+                    <?php $__currentLoopData = $emitters; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $e): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                    <option value="emitter:<?php echo e($e->id); ?>"><?php echo e($e->name); ?><?php echo e($e->code ? ' ('.$e->code.')' : ''); ?></option>
+                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                    <?php $__currentLoopData = $recipients; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $r): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                    <option value="recipient:<?php echo e($r->id); ?>"><?php echo e($r->name); ?><?php echo e($r->code ? ' ('.$r->code.')' : ''); ?> [dest.]</option>
+                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                </select>
+                <p class="text-xs text-gray-400 mt-1">Le choix du canal s'appliquera aux utilisateurs de l'administration sélectionnée.</p>
+            <?php endif; ?>
+        </div>
+
+        <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-1.5">Canal d'envoi du code OTP</label>
+            <select name="otp_channel" id="otpChannelSelect" onchange="document.getElementById('whatsappOtpConfig').classList.toggle('hidden', this.value !== 'whatsapp')"
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                <option value="email" <?php echo e($otpCurrent === 'email' ? 'selected' : ''); ?>>Email</option>
+                <option value="whatsapp" <?php echo e($otpCurrent === 'whatsapp' ? 'selected' : ''); ?>>WhatsApp</option>
+            </select>
+            <p class="text-xs text-gray-400 mt-1">Si WhatsApp échoue ou si l'utilisateur n'a pas de numéro de téléphone, le code est envoyé par email.</p>
+        </div>
+
+        <div id="whatsappOtpConfig" class="<?php echo e($otpCurrent === 'whatsapp' ? '' : 'hidden'); ?> space-y-4 bg-green-50 border border-green-200 rounded-xl p-4">
+            <p class="text-xs font-semibold text-green-700"><i class="fab fa-whatsapp"></i> Configuration API WhatsApp Cloud (Meta)</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1.5">Token d'accès API</label>
+                    <input type="password" name="whatsapp_api_token" placeholder="<?php echo e(($settings['whatsapp_api_token']->value ?? '') ? 'Laisser vide pour conserver' : 'EAAxxxxxxx...'); ?>"
+                        class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1.5">Phone Number ID</label>
+                    <input type="text" name="whatsapp_phone_number_id" value="<?php echo e($settings['whatsapp_phone_number_id']->value ?? ''); ?>" placeholder="Ex: 123456789012345"
+                        class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                </div>
+            </div>
+            <p class="text-xs text-gray-500">Le code est envoyé au numéro de téléphone renseigné sur le profil de l'utilisateur (format international, ex: 225 07 01 02 03 04).</p>
+        </div>
+
+        <button type="submit"
+            class="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl text-sm transition flex items-center gap-2">
+            <i class="fas fa-save"></i> Enregistrer
+        </button>
+    </form>
+</div>
+<?php if($otpScopeValue === ''): ?>
+<script>
+(function () {
+    const OTP_CHANNEL_MAP = <?php echo json_encode($otpChannelMap, 15, 512) ?>;
+    const scopeSelect = document.getElementById('otpAdminScopeSelect');
+    const channelSelect = document.getElementById('otpChannelSelect');
+    scopeSelect.addEventListener('change', function () {
+        const value = OTP_CHANNEL_MAP[this.value] || OTP_CHANNEL_MAP[''] || 'email';
+        channelSelect.value = value;
+        document.getElementById('whatsappOtpConfig').classList.toggle('hidden', value !== 'whatsapp');
+    });
+})();
+</script>
+<?php endif; ?>
+
+
 <div class="mt-6 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
     <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
         <div class="h-10 w-10 bg-blue-100 rounded-xl flex items-center justify-center">
@@ -9841,7 +10551,10 @@ function sigToggleApiKey() {
 $permissionTree = [
     'dashboard'        => ['label' => 'Tableau de bord', 'children' => []],
     'courrier'         => ['label' => 'Gestion Courrier', 'children' => [
+        'courrier.tableau-de-bord'  => 'Tableau de bord',
         'courrier.enregistrement'   => 'Enregistrement',
+      'courrier.envoi'            => 'Envoi',
+      'courrier.reception'        => 'Réception',
         'courrier.liste'            => 'Liste des courriers',
         'courrier.imputation'       => 'Imputation',
         'courrier.en-traitement'    => 'En traitement',
@@ -9875,6 +10588,7 @@ $permissionTree = [
     'reception'        => ['label' => 'Réception', 'children' => [
         'reception.view'    => 'Voir les courriers reçus',
         'reception.process' => 'Traiter / accuser réception',
+      'reception.archives' => 'Voir le sous-onglet Archives',
     ]],
     'act-requests'     => ['label' => "Demandes d'actes", 'children' => [
         'act-requests.view'    => 'Voir',
@@ -9900,6 +10614,7 @@ $permissionTree = [
       'administration.instructions'        => 'Instructions',
         'administration.user-profiles'      => 'Profils & Rôles',
         'administration.antivirus'          => 'Journal Antivirus',
+        'administration.ai-integration'     => 'Intelligence Artificielle (IA)',
     ]],
     'personnel'        => ['label' => 'Gestion du personnel', 'children' => [
         'personnel.dashboard'  => 'Tableau de bord',
@@ -10379,12 +11094,65 @@ function instrSearch(q) {
 
 <?php elseif($tab === 'courrier-archiving'): ?>
 <?php
-    $archivalDays = $courrierArchivalDays ?? 0;
+  $archivalScopeValue = '';
+  $archivalScopeType = null;
+  $archivalScopeId = null;
+
+  if (isset($adminScope) && $adminScope) {
+    $archivalScopeType = $adminScope['type'];
+    $archivalScopeId = $adminScope['id'];
+    $archivalScopeValue = $archivalScopeType . ':' . $archivalScopeId;
+  } else {
+    $requestedArchivalScope = (string) request('archival_admin_scope', '');
+    if (preg_match('/^(emitter|recipient):[0-9a-fA-F-]{36}$/', $requestedArchivalScope)) {
+      [$archivalScopeType, $archivalScopeId] = explode(':', $requestedArchivalScope, 2);
+      $archivalScopeValue = $requestedArchivalScope;
+    }
+  }
+
+  $archivalScopeLabel = 'Globale (toutes administrations)';
+  if ($archivalScopeType === 'emitter' && $archivalScopeId) {
+    $archivalScopeLabel = ($emitters->firstWhere('id', $archivalScopeId)->name ?? $archivalScopeId) . ' (Émettrice)';
+  } elseif ($archivalScopeType === 'recipient' && $archivalScopeId) {
+    $archivalScopeLabel = ($recipients->firstWhere('id', $archivalScopeId)->name ?? $archivalScopeId) . ' (Destinataire)';
+  }
+
+  $resolveArchivalDays = function (string $baseKey) use ($settings, $archivalScopeValue) {
+    if ($archivalScopeValue !== '') {
+      $scopedKey = $baseKey . ':' . $archivalScopeValue;
+      if ($settings->has($scopedKey)) {
+        return max(0, (int) ($settings->get($scopedKey)->value ?? 0));
+      }
+    }
+    return max(0, (int) ($settings->get($baseKey)->value ?? 0));
+  };
+
+  $archivalDays = $resolveArchivalDays('courrier_archival_days');
+  $receptionArchivalDaysValue = $resolveArchivalDays('reception_archival_days');
+
+  $courrierStatsQuery = \App\Models\Courrier::query();
+  if ($archivalScopeId) {
+    $courrierStatsQuery->where('administration_id', $archivalScopeId);
+  }
+
     $archivalThresholdDate = $archivalDays > 0 ? now()->subDays($archivalDays) : null;
     $archivedCount = $archivalThresholdDate
-        ? \App\Models\Courrier::where('created_at', '<', $archivalThresholdDate)->count()
+    ? (clone $courrierStatsQuery)->where('created_at', '<', $archivalThresholdDate)->count()
         : 0;
-    $totalCount = \App\Models\Courrier::count();
+  $totalCount = (clone $courrierStatsQuery)->count();
+
+  $receptionStatsQuery = \App\Models\DocumentShare::query();
+  if ($archivalScopeType === 'recipient' && $archivalScopeId) {
+    $receptionStatsQuery->where('recipient_administration_id', $archivalScopeId);
+  } elseif ($archivalScopeType === 'emitter') {
+    $receptionStatsQuery->whereRaw('1 = 0');
+  }
+
+  $receptionArchivalThresholdDate = $receptionArchivalDaysValue > 0 ? now()->subDays($receptionArchivalDaysValue) : null;
+  $receptionArchivedCount = $receptionArchivalThresholdDate
+    ? (clone $receptionStatsQuery)->where('created_at', '<', $receptionArchivalThresholdDate)->distinct('document_id')->count('document_id')
+    : 0;
+  $receptionTotalCount = (clone $receptionStatsQuery)->distinct('document_id')->count('document_id');
 ?>
 
 <div class="max-w-3xl mx-auto space-y-5">
@@ -10449,6 +11217,38 @@ function instrSearch(q) {
             <?php echo method_field('PUT'); ?>
             <input type="hidden" name="tab" value="courrier-archiving">
 
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">Administration concernée</label>
+            <?php if(isset($adminScope) && $adminScope): ?>
+              <input type="hidden" name="archival_admin_scope" value="<?php echo e($archivalScopeValue); ?>">
+              <select disabled
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm bg-gray-100 text-gray-500 cursor-not-allowed">
+                <option selected><?php echo e($archivalScopeLabel); ?></option>
+              </select>
+              <p class="mt-2 text-xs text-gray-400">
+                Ce paramétrage s'applique uniquement à votre administration.
+              </p>
+            <?php else: ?>
+              <select id="archivalScopeSelect" name="archival_admin_scope"
+                class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-stone-400">
+                <option value="" <?php echo e($archivalScopeValue === '' ? 'selected' : ''); ?>>Globale (toutes administrations)</option>
+                <optgroup label="Administrations émettrices">
+                  <?php $__currentLoopData = $emitters; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $emitter): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                  <option value="emitter:<?php echo e($emitter->id); ?>" <?php echo e($archivalScopeValue === 'emitter:' . $emitter->id ? 'selected' : ''); ?>><?php echo e($emitter->name); ?></option>
+                  <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                </optgroup>
+                <optgroup label="Administrations destinataires">
+                  <?php $__currentLoopData = $recipients; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $recipient): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                  <option value="recipient:<?php echo e($recipient->id); ?>" <?php echo e($archivalScopeValue === 'recipient:' . $recipient->id ? 'selected' : ''); ?>><?php echo e($recipient->name); ?></option>
+                  <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                </optgroup>
+              </select>
+              <p class="mt-2 text-xs text-gray-400">
+                En tant que SUPER ADMIN, choisissez l'administration sur laquelle appliquer ces paramètres.
+              </p>
+            <?php endif; ?>
+          </div>
+
             <div>
                 <label class="block text-sm font-semibold text-gray-700 mb-2">
                     Délai d'archivage <span class="text-red-500">*</span>
@@ -10467,6 +11267,34 @@ function instrSearch(q) {
                 </p>
             </div>
 
+              <div class="border-t border-gray-100 pt-5">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                  Délai d'archivage des fichiers reçus (Réception)
+                </label>
+                <div class="flex items-center gap-3">
+                  <input type="number" name="reception_archival_days"
+                    value="<?php echo e($receptionArchivalDaysValue > 0 ? $receptionArchivalDaysValue : ''); ?>"
+                    min="1" max="3650" step="1"
+                    placeholder="ex : 365"
+                    class="w-40 border border-gray-300 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-stone-400 text-center">
+                  <span class="text-sm text-gray-500 font-medium">jours</span>
+                </div>
+                <p class="mt-2 text-xs text-gray-400">
+                  Les documents reçus plus anciens seront masqués de l'onglet Réception et visibles dans son sous-onglet <strong>Archives</strong>.
+                  Laissez vide pour désactiver l'archivage des fichiers reçus.
+                </p>
+                <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div class="bg-red-50 rounded-xl p-3 text-center border border-red-100">
+                    <div class="text-xl font-black text-red-600"><?php echo e(number_format($receptionArchivedCount)); ?></div>
+                    <div class="text-xs text-red-400 mt-1">Fichiers reçus archivés</div>
+                  </div>
+                  <div class="bg-green-50 rounded-xl p-3 text-center border border-green-100">
+                    <div class="text-xl font-black text-green-600"><?php echo e(number_format(max($receptionTotalCount - $receptionArchivedCount, 0))); ?></div>
+                    <div class="text-xs text-green-500 mt-1">Fichiers reçus actifs</div>
+                  </div>
+                </div>
+              </div>
+
             
             <div>
                 <p class="text-xs font-semibold text-gray-500 mb-2">Suggestions rapides :</p>
@@ -10480,11 +11308,25 @@ function instrSearch(q) {
 
                     </button>
                     <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                      <?php $__currentLoopData = [30 => 'Réception 1 mois', 90 => 'Réception 3 mois', 180 => 'Réception 6 mois', 365 => 'Réception 1 an']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $days => $label): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                      <button type="button"
+                        onclick="document.querySelector('[name=reception_archival_days]').value = '<?php echo e($days); ?>'"
+                        class="px-3 py-1.5 text-xs rounded-lg border font-semibold transition
+                          <?php echo e($receptionArchivalDaysValue === $days ? 'bg-stone-600 text-white border-stone-600' : 'border-gray-300 text-gray-600 hover:bg-gray-100'); ?>">
+                        <?php echo e($label); ?>
+
+                      </button>
+                      <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
                     <button type="button"
                         onclick="document.querySelector('[name=courrier_archival_days]').value = ''"
                         class="px-3 py-1.5 text-xs rounded-lg border font-semibold transition border-red-200 text-red-500 hover:bg-red-50">
                         Désactiver
                     </button>
+                      <button type="button"
+                        onclick="document.querySelector('[name=reception_archival_days]').value = ''"
+                        class="px-3 py-1.5 text-xs rounded-lg border font-semibold transition border-red-200 text-red-500 hover:bg-red-50">
+                        Désactiver Réception
+                      </button>
                 </div>
             </div>
 
@@ -10493,6 +11335,10 @@ function instrSearch(q) {
                 <i class="fas fa-info-circle text-blue-400 mr-1"></i>
                 <span id="archival-preview-text"></span>
             </div>
+                  <div id="reception-archival-preview" class="p-4 bg-gray-50 rounded-xl border border-gray-200 text-sm text-gray-600 hidden">
+                    <i class="fas fa-info-circle text-blue-400 mr-1"></i>
+                    <span id="reception-archival-preview-text"></span>
+                  </div>
 
             <div class="flex items-center gap-3 pt-2">
                 <button type="submit"
@@ -10519,6 +11365,7 @@ function instrSearch(q) {
             <li class="flex items-center gap-2"><i class="fas fa-spinner text-blue-400 w-4"></i> <strong>En traitement</strong> — les courriers en cours archivés sont masqués</li>
             <li class="flex items-center gap-2"><i class="fas fa-binoculars text-blue-400 w-4"></i> <strong>Suivi imputation</strong> — les courriers traités archivés sont masqués</li>
             <li class="flex items-center gap-2"><i class="fas fa-check-circle text-blue-400 w-4"></i> <strong>Courrier traité</strong> — les courriers traités archivés ne sont plus listés</li>
+          <li class="flex items-center gap-2"><i class="fas fa-inbox text-blue-400 w-4"></i> <strong>Réception</strong> — les anciens fichiers reçus sont déplacés vers le sous-onglet Archives</li>
         </ul>
         <p class="mt-3 text-xs text-blue-600">
             <i class="fas fa-database mr-1"></i>
@@ -10535,19 +11382,54 @@ if (document.querySelector('[name=courrier_archival_days]')) {
     var input = document.querySelector('[name=courrier_archival_days]');
     var preview = document.getElementById('archival-preview');
     var previewText = document.getElementById('archival-preview-text');
-    if (!input || !preview || !previewText) return;
-    function updatePreview() {
-        var days = parseInt(input.value, 10);
-        if (!days || days <= 0) { preview.classList.add('hidden'); return; }
-        var date = new Date();
-        date.setDate(date.getDate() - days);
-        var formatted = date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
-        previewText.textContent = 'Les courriers créés avant le ' + formatted + ' seront archivés et masqués des sous-onglets.';
-        preview.classList.remove('hidden');
-    }
-    input.addEventListener('input', updatePreview);
-    updatePreview();
+  var receptionInput = document.querySelector('[name=reception_archival_days]');
+  var receptionPreview = document.getElementById('reception-archival-preview');
+  var receptionPreviewText = document.getElementById('reception-archival-preview-text');
+  if (!input || !preview || !previewText || !receptionInput || !receptionPreview || !receptionPreviewText) return;
+
+  function updateSinglePreview(field, container, textNode, messagePrefix) {
+    var days = parseInt(field.value, 10);
+    if (!days || days <= 0) { container.classList.add('hidden'); return; }
+    var date = new Date();
+    date.setDate(date.getDate() - days);
+    var formatted = date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+    textNode.textContent = messagePrefix + formatted + '.';
+    container.classList.remove('hidden');
+  }
+
+  function updatePreview() {
+    updateSinglePreview(
+      input,
+      preview,
+      previewText,
+      'Les courriers créés avant le '
+    );
+    updateSinglePreview(
+      receptionInput,
+      receptionPreview,
+      receptionPreviewText,
+      'Les fichiers reçus partagés avant le '
+    );
+  }
+
+  input.addEventListener('input', updatePreview);
+  receptionInput.addEventListener('input', updatePreview);
+  updatePreview();
 })();
+}
+
+var archivalScopeSelect = document.getElementById('archivalScopeSelect');
+if (archivalScopeSelect) {
+  archivalScopeSelect.addEventListener('change', function () {
+    var url = new URL(window.location.href);
+    url.searchParams.set('tab', 'courrier-archiving');
+    if (this.value) {
+      url.searchParams.set('archival_admin_scope', this.value);
+    } else {
+      url.searchParams.delete('archival_admin_scope');
+    }
+    window.location.href = url.toString();
+  });
 }
 </script>
 <?php $__env->stopPush(); ?>
@@ -10728,7 +11610,7 @@ function editModalHandleChild(childCb) {
 <script src="<?php echo e(asset('vendor/quill/quill.min.js')); ?>"
     onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js';"></script>
 <style>
-/* -- Conteneur �diteur ----------------------------------------------- */
+/* -- Conteneur éditeur ----------------------------------------------- */
 #tpl-quill-editor .ql-editor {
     min-height: 280px;
     font-size: 13px;
@@ -10751,7 +11633,7 @@ function editModalHandleChild(childCb) {
     border-color: #cbd5e1;
     font-size: 13px;
 }
-/* -- S�lecteurs police / taille -------------------------------------- */
+/* -- Sélecteurs police / taille -------------------------------------- */
 #tpl-quill-editor .ql-font .ql-picker-label,
 #tpl-quill-editor .ql-size .ql-picker-label {
     font-size: 11px;
@@ -10766,7 +11648,7 @@ function editModalHandleChild(childCb) {
 .ql-font-georgia     { font-family: Georgia, serif; }
 .ql-font-verdana     { font-family: Verdana, sans-serif; }
 .ql-font-tahoma      { font-family: Tahoma, sans-serif; }
-/* -- Rendu des polices dans l'�diteur -------------------------------- */
+/* -- Rendu des polices dans l'éditeur -------------------------------- */
 .ql-editor .ql-font-arial       { font-family: Arial, sans-serif !important; }
 .ql-editor .ql-font-times       { font-family: 'Times New Roman', serif !important; }
 .ql-editor .ql-font-courier     { font-family: 'Courier New', monospace !important; }
@@ -10817,23 +11699,23 @@ function editModalHandleChild(childCb) {
 
         _quill = new Quill('#tpl-quill-editor', {
             theme: 'snow',
-            placeholder: 'R�digez votre template ici� Ex: Je soussign� {{nom}}, n� le {{date_naissance}}, demande�',
+            placeholder: 'Rédigez votre template ici… Ex: Je soussigné {{nom}}, né le {{date_naissance}}, demande…',
             modules: {
                 toolbar: [
-                    /* Ligne 1 � Police, taille, titres */
+                /* Ligne 1 • Police, taille, titres */
                     [
                         { 'font': ['arial','times','courier','georgia','verdana','tahoma'] },
                         { 'size': ['8px','10px','12px','14px','16px','18px','20px','24px','36px','48px'] },
                         { 'header': [1, 2, 3, 4, false] }
                     ],
-                    /* Ligne 2 � Style texte */
+                /* Ligne 2 • Style texte */
                     ['bold', 'italic', 'underline', 'strike'],
                     [{ 'color': [] }, { 'background': [] }],
-                    /* Ligne 3 � Alignement, listes */
+                /* Ligne 3 • Alignement, listes */
                     [{ 'align': [] }],
                     [{ 'list': 'ordered' }, { 'list': 'bullet' }, { 'list': 'check' }],
                     [{ 'indent': '-1' }, { 'indent': '+1' }],
-                    /* Ligne 4 � Divers */
+                /* Ligne 4 • Divers */
                     ['blockquote', 'code-block'],
                     [{ 'script': 'sub' }, { 'script': 'super' }],
                     ['link', 'image'],
@@ -10862,7 +11744,7 @@ function editModalHandleChild(childCb) {
         });
     }
 
-    /* -- Recharger le contenu quand un template est s�lectionn� -- */
+    /* -- Recharger le contenu quand un template est sélectionné -- */
     var _origTplSelect = window.tplSelect;
     window.tplSelect = function(id) {
         if (_origTplSelect) _origTplSelect(id);
@@ -10877,7 +11759,7 @@ function editModalHandleChild(childCb) {
         }, 400);
     };
 
-    /* -- Ins�rer une variable {{}} � la position du curseur ------ */
+    /* -- Insérer une variable {{}} à la position du curseur ------ */
     window.tplQuillInsertVar = function(varText) {
         if (!_quill) return;
         var range = _quill.getSelection(true);
@@ -10888,7 +11770,7 @@ function editModalHandleChild(childCb) {
         _quill.focus();
     };
 
-    /* -- Ins�rer une variable personnalis�e ----------------------- */
+    /* -- Insérer une variable personnalisée ----------------------- */
     window.tplQuillInsertCustomVar = function() {
         var name = prompt('Nom de la variable (ex: nom_directeur, date_signature) :');
         if (!name) return;
@@ -10897,7 +11779,7 @@ function editModalHandleChild(childCb) {
         tplQuillInsertVar('[' + name + ']');
     };
 
-    /* -- Compteur de mots/caract�res ------------------------------- */
+    /* -- Compteur de mots/caractères ------------------------------- */
     window.tplQuillGetStats = function() {
         if (!_quill) return { words: 0, chars: 0 };
         var text = _quill.getText().trim();

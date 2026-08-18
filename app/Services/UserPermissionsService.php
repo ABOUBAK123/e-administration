@@ -69,6 +69,11 @@ class UserPermissionsService
             'act-requests.view'    => 'Voir les demandes',
             'act-requests.process' => 'Traiter les demandes',
         ]],
+        'act-templates'           => ['label' => 'Modèles d\'actes',        'children' => [
+            'act-templates.view'    => 'Voir les modèles',
+            'act-templates.create'  => 'Créer un modèle',
+            'act-templates.edit'    => 'Modifier un modèle',
+        ]],
         'meetings'                => ['label' => 'Réunions',                'children' => [
             'meetings.view'        => 'Voir les réunions',
             'meetings.create'      => 'Créer des réunions',
@@ -109,6 +114,28 @@ class UserPermissionsService
     ];
 
     /**
+     * Résout les permissions de menu par défaut pour un administrateur.
+     */
+    private function defaultAdminMenuPermissions(): array
+    {
+        return [
+            'dashboard',
+            'courrier',
+            'documents',
+            'workflows',
+            'signatures',
+            'reception',
+            'act-requests',
+            'act-templates',
+            'meetings',
+            'administration',
+            'qrcode',
+            'personnel',
+            'templates-shared',
+        ];
+    }
+
+    /**
      * Résout les permissions d'un utilisateur Laravel.
      *
      * @return array{isElevated: bool, permissions: string[]}
@@ -133,16 +160,23 @@ class UserPermissionsService
 
         // Profil applicatif associé (s'applique à tous les rôles système, y compris admin)
         if ($profile) {
-            if ($profile && is_array($profile->permissions)) {
+            if (is_array($profile->permissions)) {
                 $perms = $profile->permissions;
                 $menuPerms = $perms['menuPermissions'] ?? [];
                 if (!empty($menuPerms)) {
                     return ['isElevated' => false, 'permissions' => $menuPerms];
                 }
             }
+
+            // Certains profils admin existent mais ne portent aucune permission de menu.
+            // Dans ce cas, on leur donne un accès de base aux blocs principaux pour garder
+            // le menu cohérent avec les modules réellement présents dans l'application.
+            if ($user->role === 'admin' || $this->isSuperAdminProfile($profile)) {
+                return ['isElevated' => false, 'permissions' => $this->defaultAdminMenuPermissions()];
+            }
         }
 
-        // Fallback minimal
+        // Fallback minimal pour les comptes non admin qui n'ont pas de profil configuré.
         return ['isElevated' => false, 'permissions' => ['dashboard']];
     }
 

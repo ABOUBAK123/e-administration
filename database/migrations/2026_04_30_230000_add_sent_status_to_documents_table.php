@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (!Schema::hasTable('documents')) {
+        if (!Schema::hasTable('documents') || !in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
             return;
         }
 

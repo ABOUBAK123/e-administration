@@ -160,15 +160,24 @@
                         @foreach($fields as $field)
                             @php
                                 $label = trim((string)($field['label'] ?? ''));
-                                $type  = (string)($field['inputType'] ?? 'text');
+                                $type  = (string)($field['inputType'] ?? $field['field_type'] ?? 'text');
                                 $key   = \Illuminate\Support\Str::of($label)->ascii()->lower()->replace("'", '_')->replaceMatches('/[^a-z0-9]+/', '_')->trim('_')->toString();
+                                $selectOptions = array_values(array_filter(array_map(static fn ($option) => trim((string) $option), (array) ($field['options'] ?? $field['values'] ?? [])), static fn ($option) => $option !== ''));
                             @endphp
                             @if($label !== '' && $key !== '')
-                                <div class="{{ $type === 'textarea' ? 'md:col-span-2' : '' }}">
+                                <div class="{{ in_array($type, ['textarea','select'], true) && $type === 'textarea' ? 'md:col-span-2' : '' }}">
                                     <label class="block text-xs font-medium text-gray-700 mb-1">{{ $label }} *</label>
                                     @if($type === 'textarea')
                                         <textarea name="extra[{{ $key }}]" rows="3" required
                                                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 min-h-[88px]">{{ old('extra.' . $key) }}</textarea>
+                                    @elseif($type === 'select')
+                                        <select name="extra[{{ $key }}]" required
+                                                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+                                            <option value="">-- Sélectionner --</option>
+                                            @foreach($selectOptions as $option)
+                                                <option value="{{ $option }}" {{ old('extra.' . $key) === $option ? 'selected' : '' }}>{{ $option }}</option>
+                                            @endforeach
+                                        </select>
                                     @else
                                         @php $htmlType = match($type) { 'date'=>'date','number'=>'number','email'=>'email','phone'=>'tel', default=>'text' }; @endphp
                                         <input type="{{ $htmlType }}" name="extra[{{ $key }}]" value="{{ old('extra.' . $key) }}" required

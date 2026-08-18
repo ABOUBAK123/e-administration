@@ -14,10 +14,15 @@
         'title'        => $d->title,
         'description'  => $d->description,
         'file_path'    => $d->file_path,
+        'final_file_path' => $d->final_file_path,
         'file_size'    => $d->file_size,
         'mime_type'    => $d->mime_type,
         'status'       => $d->status,
         'shares_count' => $sharesCount[$d->id] ?? 0,
+        'is_courrier_depart_tagged' => str_contains(mb_strtolower(trim((string) ($d->title ?? '')) . ' ' . trim((string) ($d->description ?? '')), 'UTF-8'), 'courrier depart')
+            || str_contains(mb_strtolower(trim((string) ($d->title ?? '')) . ' ' . trim((string) ($d->description ?? '')), 'UTF-8'), '[courrier_depart]'),
+        'next_courrier_depart_number' => $nextCourrierDepart ?? null,
+        'act_validation' => $actValidationByDocument[(string) $d->id] ?? null,
         'created_at'   => $d->created_at?->toISOString(),
         'updated_at'   => $d->updated_at?->toISOString(),
     ])->values();
@@ -47,8 +52,8 @@
 
 
 <!-- Inputs fichiers cachés -->
-<input type="file" id="fileInput" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.csv">
-<input type="file" id="folderInput" class="hidden" multiple webkitdirectory directory>
+<input type="file" id="fileInput" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.csv,.zip">
+<input type="file" id="folderInput" class="hidden" multiple webkitdirectory directory accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.csv,.zip">
 
 <!-- Barre d'actions supérieure -->
 <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
@@ -102,6 +107,9 @@
     </button>
     <input type="text" id="labelSearch" oninput="applyFilters()" placeholder="Code étiquette (ex: ETQ-RH-001)"
            class="hidden ml-auto w-full sm:w-72 border border-gray-300 rounded-lg px-3 py-1.5 text-xs">
+    <a href="<?php echo e(route('documents.trash')); ?>" class="ml-auto px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 hover:bg-red-100 flex items-center gap-1.5">
+        <i class="fas fa-trash-alt"></i> Corbeille
+    </a>
 </div>
 
 <!-- Barre de progression upload -->
@@ -293,8 +301,8 @@
 
 <!-- Modal partage -->
 <div id="shareModal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-    <div class="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-orange-300">
-        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+    <div class="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-orange-300 flex flex-col max-h-[90vh]">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
             <div>
                 <h3 class="text-sm font-semibold text-gray-800">Partager le fichier</h3>
                 <p class="text-xs text-gray-500 mt-0.5" id="shareDocTitle"></p>
@@ -302,7 +310,7 @@
             <button onclick="closeShareModal()" class="h-8 w-8 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 text-xl">&times;</button>
         </div>
 
-        <div class="px-5 pt-4">
+        <div class="px-5 pt-4 pb-2 overflow-y-auto flex-1">
             <!-- Modes -->
             <div class="inline-flex rounded-lg bg-white p-1 mb-4 gap-1 border border-gray-100 flex-wrap">
                 <button onclick="setShareMode('internal')" id="sm-internal"
@@ -414,6 +422,14 @@
                     <input type="tel" id="shareApplicantPhone" placeholder="Ex: 0700000000"
                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 </div>
+                <div id="shareRibWrapper" class="hidden">
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">
+                        RIB <span class="text-red-500">*</span>
+                    </label>
+                      <input type="text" id="shareApplicantRib" placeholder="Ex: CI650 01001 010485800008 06" oninput="formatShareRib(this)" onblur="formatShareRib(this)"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono tracking-wide">
+                    <p class="text-xs text-gray-400 mt-1">Obligatoire pour les établissements bancaires.</p>
+                </div>
             </div>
 
             <!-- Délai de validité -->
@@ -434,7 +450,7 @@
             <div id="shareStatus" class="hidden mt-3 rounded-lg px-3 py-2 text-xs"></div>
         </div>
 
-        <div class="px-5 py-4 mt-2 border-t border-gray-100 flex justify-end gap-2">
+        <div class="px-5 py-4 border-t border-gray-100 flex justify-end gap-2 flex-shrink-0">
             <button onclick="closeShareModal()" class="px-3 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">Annuler</button>
             <button onclick="submitShare()" class="px-3 py-2 text-xs font-semibold rounded-lg bg-[#2453d6] text-white hover:bg-[#1f47bb]">Partager</button>
         </div>
@@ -453,10 +469,12 @@ const ROUTES = {
     destroy:          (id) => `${_BASE}/${id}`,
     versions:         (id) => `${_BASE}/${id}/versions`,
     status:           (id) => `${_BASE}/${id}/status`,
+    convertPdf:       (id) => `${_BASE}/${id}/convert-pdf`,
     createNew:        '<?php echo e(url("documents/new")); ?>',
     uploadAjax:       '<?php echo e(url("documents/upload-ajax")); ?>',
     shareLookupTracking: '<?php echo e(route("documents.share.lookupTracking")); ?>',
     download:         (id) => `${_BASE}/${id}/download`,
+    validateActRequest: (id) => `${_BASE}/${id}/validate-act-request`,
     onlyofficeConfig: '<?php echo e(url("documents/onlyoffice-config")); ?>',
 };
 
@@ -530,6 +548,45 @@ function resetRecipientSectorFilter() {
         sectorOptions.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
 }
 
+function toggleRibField() {
+    const sector = (document.getElementById('shareAdminSector').value || '').toLowerCase();
+    const wrapper = document.getElementById('shareRibWrapper');
+    const isBanque = sector === 'banques';
+    wrapper.classList.toggle('hidden', !isBanque);
+    if (!isBanque) document.getElementById('shareApplicantRib').value = '';
+}
+
+function formatShareRib(input) {
+    if (!input) return;
+
+    const raw = String(input.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!raw) {
+        input.value = '';
+        return;
+    }
+
+    // Masque attendu: CI + 3 chiffres + 5 chiffres + 12 chiffres + 2 chiffres.
+    let normalized = raw;
+    if (normalized.startsWith('CI')) {
+        const digits = normalized.slice(2).replace(/\D/g, '').slice(0, 22);
+        const p1 = digits.slice(0, 3);
+        const p2 = digits.slice(3, 8);
+        const p3 = digits.slice(8, 20);
+        const p4 = digits.slice(20, 22);
+
+        const parts = [];
+        if (p1) parts.push('CI' + p1);
+        if (p2) parts.push(p2);
+        if (p3) parts.push(p3);
+        if (p4) parts.push(p4);
+        input.value = parts.join(' ');
+        return;
+    }
+
+    // Fallback pendant la saisie si le préfixe CI n'est pas encore saisi.
+    input.value = normalized.slice(0, 24);
+}
+
 function filterRecipientAdministrations() {
     const sector = (document.getElementById('shareAdminSector').value || '').trim().toLowerCase();
     const select = document.getElementById('shareAdminId');
@@ -549,6 +606,7 @@ function filterRecipientAdministrations() {
             select.value = '';
         }
     }
+    toggleRibField();
 }
 
 async function lookupShareByTrackingNumber() {
@@ -562,8 +620,12 @@ async function lookupShareByTrackingNumber() {
         statusEl.classList.remove('hidden');
     };
 
+    const adminSelect = document.getElementById('shareAdminId');
+    const sectorSelect = document.getElementById('shareAdminSector');
+
     if (!trackingNumber) {
         statusEl.classList.add('hidden');
+        unlockRecipientAdministration(adminSelect, sectorSelect);
         return;
     }
 
@@ -580,16 +642,45 @@ async function lookupShareByTrackingNumber() {
         }
 
         const result = data.data;
+        unlockRecipientAdministration(adminSelect, sectorSelect);
+
+        // Sélectionner le secteur de l'administration liée au numéro de suivi
+        const foundAdmin = RECIPIENT_ADMINS.find((a) => String(a.id) === String(result.recipient_administration_id || ''));
+        sectorSelect.value = foundAdmin ? (foundAdmin.sector || '') : '';
+
         filterRecipientAdministrations();
-        document.getElementById('shareAdminId').value = result.recipient_administration_id || '';
+        adminSelect.value = result.recipient_administration_id || '';
         document.getElementById('shareFullName').value = result.applicant_full_name || '';
+        document.getElementById('shareMatricule').value = result.applicant_matricule || '';
         document.getElementById('shareApplicantEmail').value = result.applicant_email || '';
         document.getElementById('shareApplicantPhone').value = result.applicant_phone || '';
 
         const adminLabel = result.recipient_administration_name || 'Administration trouvee';
+        if (result.recipient_administration_id) {
+            lockRecipientAdministration(adminSelect, sectorSelect);
+        }
         showStatus(`Informations chargees (${adminLabel}).`, true);
     } catch (err) {
+        unlockRecipientAdministration(adminSelect, sectorSelect);
         showStatus(err.message || 'Impossible de recuperer les informations de suivi.', false);
+    }
+}
+
+function lockRecipientAdministration(adminSelect, sectorSelect) {
+    adminSelect.disabled = true;
+    adminSelect.classList.add('bg-gray-100', 'cursor-not-allowed', 'text-gray-500');
+    if (sectorSelect) {
+        sectorSelect.disabled = true;
+        sectorSelect.classList.add('bg-gray-100', 'cursor-not-allowed', 'text-gray-500');
+    }
+}
+
+function unlockRecipientAdministration(adminSelect, sectorSelect) {
+    adminSelect.disabled = false;
+    adminSelect.classList.remove('bg-gray-100', 'cursor-not-allowed', 'text-gray-500');
+    if (sectorSelect) {
+        sectorSelect.disabled = false;
+        sectorSelect.classList.remove('bg-gray-100', 'cursor-not-allowed', 'text-gray-500');
     }
 }
 
@@ -600,6 +691,7 @@ const getFolder = (doc) => {
     const m = doc.description.match(/^Dossier:\s*(.+)$/i);
     return m ? m[1].trim() : null;
 };
+const escAttr = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 const getFavoriteIds = () => prefs.filter(p => p.isFavorite).map(p => p.documentId);
 const getLabels = (id) => (prefs.find(p => p.documentId === id) || {}).labelCodes || [];
 const isFav = (id) => prefs.some(p => p.documentId === id && p.isFavorite);
@@ -608,10 +700,12 @@ const ext = (doc) => {
     const n = (doc.title || '').toLowerCase();
     const i = n.lastIndexOf('.');
     if (i >= 0 && i < n.length - 1) return n.slice(i + 1);
-    // Fallback sur file_path
-    const fp = (doc.file_path || '').toLowerCase();
+    // Fallback sur final_file_path puis file_path
+    const fp = (doc.final_file_path || doc.file_path || '').toLowerCase();
     const j = fp.lastIndexOf('.');
-    return j >= 0 ? fp.slice(j + 1) : '';
+    if (j >= 0) return fp.slice(j + 1);
+    if ((doc.mime_type || '').toLowerCase() === 'application/pdf') return 'pdf';
+    return '';
 };
 const iconClass = (doc) => {
     if (isFolder(doc)) return 'fas fa-folder text-blue-600';
@@ -646,6 +740,105 @@ function post(url, body = {}) {
         headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF, Accept: 'application/json' },
         body: JSON.stringify(body),
     }).then(r => r.json());
+}
+
+// ---- Glisser-déposer : déplacer un fichier vers un dossier ----
+let _draggedDocId = null;
+
+async function moveDocumentToFolder(docId, folderName) {
+    const doc = allDocs.find(d => d.id === docId);
+    if (!doc) return;
+    if (isFolder(doc)) return; // pas de dossiers imbriqués via glisser-déposer
+    if (!doc.is_owner) {
+        showToast('Vous ne pouvez déplacer que vos propres documents.');
+        return;
+    }
+    const dest = folderName || '';
+    if ((getFolder(doc) || '') === dest) return; // déjà à cet endroit
+
+    try {
+        await post(ROUTES.move(docId), { folder: dest });
+        doc.description = dest ? `Dossier: ${dest}` : null;
+        renderTable();
+        showToast(dest ? `« ${doc.title} » déplacé vers « ${dest} »` : `« ${doc.title} » déplacé à la racine`);
+    } catch (e) {
+        showToast('Erreur lors du déplacement du document.');
+    }
+}
+
+function initDragAndDrop() {
+    const tbody = document.getElementById('docTableBody');
+    const rootTab = document.getElementById('tab-root');
+    const tabsContainer = document.getElementById('folderTabsContainer');
+
+    tbody.addEventListener('dragstart', (e) => {
+        const row = e.target.closest('tr[data-doc-id]');
+        if (!row || row.dataset.draggable !== 'true') { e.preventDefault(); return; }
+        _draggedDocId = row.dataset.docId;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', _draggedDocId);
+        row.classList.add('opacity-50');
+    });
+
+    tbody.addEventListener('dragend', (e) => {
+        const row = e.target.closest('tr[data-doc-id]');
+        if (row) row.classList.remove('opacity-50');
+        document.querySelectorAll('.folder-drop-active').forEach(el => el.classList.remove('folder-drop-active', 'bg-blue-50', 'ring-2', 'ring-blue-400'));
+        _draggedDocId = null;
+    });
+
+    tbody.addEventListener('dragover', (e) => {
+        const row = e.target.closest('tr[data-folder-target="true"]');
+        if (!row) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        row.classList.add('folder-drop-active', 'bg-blue-50');
+    });
+
+    tbody.addEventListener('dragleave', (e) => {
+        const row = e.target.closest('tr[data-folder-target="true"]');
+        if (row) row.classList.remove('folder-drop-active', 'bg-blue-50');
+    });
+
+    tbody.addEventListener('drop', (e) => {
+        const row = e.target.closest('tr[data-folder-target="true"]');
+        if (!row) return;
+        e.preventDefault();
+        row.classList.remove('folder-drop-active', 'bg-blue-50');
+        const docId = e.dataTransfer.getData('text/plain') || _draggedDocId;
+        const folderName = row.dataset.folderName;
+        if (docId && folderName) moveDocumentToFolder(docId, folderName);
+    });
+
+    // Onglet « Racine » comme zone de dépôt (retour à la racine)
+    rootTab.addEventListener('dragover', (e) => { e.preventDefault(); rootTab.classList.add('folder-drop-active', 'ring-2', 'ring-blue-400'); });
+    rootTab.addEventListener('dragleave', () => rootTab.classList.remove('folder-drop-active', 'ring-2', 'ring-blue-400'));
+    rootTab.addEventListener('drop', (e) => {
+        e.preventDefault();
+        rootTab.classList.remove('folder-drop-active', 'ring-2', 'ring-blue-400');
+        const docId = e.dataTransfer.getData('text/plain') || _draggedDocId;
+        if (docId) moveDocumentToFolder(docId, '');
+    });
+
+    // Onglets de dossiers (créés dynamiquement) comme zones de dépôt
+    tabsContainer.addEventListener('dragover', (e) => {
+        const btn = e.target.closest('.folder-tab');
+        if (!btn) return;
+        e.preventDefault();
+        btn.classList.add('folder-drop-active', 'ring-2', 'ring-blue-400');
+    });
+    tabsContainer.addEventListener('dragleave', (e) => {
+        const btn = e.target.closest('.folder-tab');
+        if (btn) btn.classList.remove('folder-drop-active', 'ring-2', 'ring-blue-400');
+    });
+    tabsContainer.addEventListener('drop', (e) => {
+        const btn = e.target.closest('.folder-tab');
+        if (!btn) return;
+        e.preventDefault();
+        btn.classList.remove('folder-drop-active', 'ring-2', 'ring-blue-400');
+        const docId = e.dataTransfer.getData('text/plain') || _draggedDocId;
+        if (docId) moveDocumentToFolder(docId, btn.dataset.folder);
+    });
 }
 
 // ---- Onglets dossiers ----
@@ -776,17 +969,27 @@ function renderTable() {
         const labels = getLabels(doc.id);
         const canManage = !!doc.is_owner;
         const canShare = !!doc.can_share;
+        const canConvertPdf = canManage && !isFolder(doc) && ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp'].includes(ext(doc));
+        const canValidateActRequest = !!(doc.act_validation && doc.act_validation.can_validate);
         const labelsHtml = labels.slice(0, 3).map(c =>
             `<span class="inline-flex items-center rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-semibold">${c}</span>`
         ).join('') + (labels.length > 3 ? `<span class="inline-flex items-center rounded-md bg-gray-50 text-gray-600 border border-gray-200 px-1.5 py-0.5 text-[10px] font-semibold">+${labels.length - 3}</span>` : '');
 
-        return `<tr class="border-b hover:bg-gray-50 cursor-pointer" ondblclick="handleDblClick(event, '${doc.id}')">
+        return `<tr class="border-b hover:bg-gray-50 cursor-pointer" ondblclick="handleDblClick(event, '${doc.id}')"
+            data-doc-id="${doc.id}"
+            data-draggable="${canManage && !isFolder(doc) ? 'true' : 'false'}"
+            draggable="${canManage && !isFolder(doc) ? 'true' : 'false'}"
+            ${isFolder(doc) ? `data-folder-target="true" data-folder-name="${escAttr(doc.title)}"` : ''}
+        >
             <td class="py-3 px-4">
                 <div class="flex items-center gap-3">
                     <i class="${iconClass(doc)} text-lg"></i>
                     <div class="min-w-0">
                         <span class="font-medium text-gray-800 block truncate">${doc.title}</span>
                         ${canShare ? '' : `<span class="inline-flex items-center rounded-md bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold">Partagé avec moi • ${doc.can_edit_content ? 'Modification' : 'Lecture seule'}</span>`}
+                        ${(doc.is_courrier_depart_tagged && doc.next_courrier_depart_number)
+                            ? `<span class="inline-flex items-center rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 text-[10px] font-semibold mt-1">N° courrier départ disponible: ${doc.next_courrier_depart_number}</span>`
+                            : ''}
                         ${labels.length > 0 ? `<div class="mt-1 flex flex-wrap gap-1">${labelsHtml}</div>` : ''}
                     </div>
                 </div>
@@ -831,9 +1034,16 @@ function renderTable() {
                             <i class="fas fa-folder-open text-gray-400 w-4"></i> Déplacer ou copier
                         </button>
                         <hr class="my-1 border-gray-100">` : ''}
-                        <a href="${ROUTES.download(doc.id)}" class="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                        ${canValidateActRequest ? `<button onclick="handleValidateActRequest('${doc.id}')" class="w-full flex items-center gap-3 px-4 py-2 text-sm text-emerald-700 hover:bg-emerald-50">
+                            <i class="fas fa-check-circle text-emerald-500 w-4"></i> Valider la demande d'acte
+                        </button>` : ''}
+                        ${canValidateActRequest ? '<hr class="my-1 border-gray-100">' : ''}
+                        <button onclick="handleDownload('${doc.id}')" class="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                             <i class="fas fa-download text-gray-400 w-4"></i> Télécharger
-                        </a>
+                        </button>
+                        ${canConvertPdf ? `<button onclick="handleConvertPdf('${doc.id}')" class="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                            <i class="fas fa-file-pdf text-red-400 w-4"></i> Convertir en PDF
+                        </button>` : ''}
                         ${canManage ? '<hr class="my-1 border-gray-100">' : ''}
                         ${canManage ? `<button onclick="handleDelete('${doc.id}')" class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50">
                             <i class="fas fa-trash-alt text-red-400 w-4"></i> Supprimer
@@ -893,29 +1103,83 @@ async function handleFavorite(id) {
     renderTable();
 }
 
-// ---- Renommer (modal) ----
-function handleRename(id) {
+async function handleConvertPdf(id) {
     toggleActions(id);
-    _renameDocId = id;
-    const doc = allDocs.find(d => d.id === id);
-    const input = document.getElementById('renameInput');
-    input.value = doc.title;
-    document.getElementById('renameError').classList.add('hidden');
-    document.getElementById('renameModal').classList.remove('hidden');
-    setTimeout(() => { input.select(); }, 50);
+    const doc = allDocs.find((d) => d.id === id);
+    if (!doc) return;
+
+    const confirmed = window.confirm(`Convertir « ${doc.title} » en PDF ?`);
+    if (!confirmed) return;
+
+    try {
+        const resp = await fetch(ROUTES.convertPdf(id), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF, Accept: 'application/json' },
+            body: JSON.stringify({}),
+        });
+
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            showToast(data.message || 'Conversion PDF impossible.');
+            return;
+        }
+
+        if (data.final_file_path) {
+            if (data.title) {
+                doc.title = data.title;
+            }
+            if (data.file_path) {
+                doc.file_path = data.file_path;
+            }
+            doc.final_file_path = data.final_file_path;
+            doc.mime_type = 'application/pdf';
+        }
+        if (typeof data.file_size !== 'undefined') {
+            doc.file_size = Number(data.file_size) || doc.file_size;
+        }
+
+        renderTable();
+        showToast(data.message || 'Document converti en PDF.');
+    } catch (e) {
+        showToast('Erreur lors de la conversion PDF.');
+    }
 }
-async function confirmRename() {
-    const input = document.getElementById('renameInput');
-    const newTitle = input.value.trim();
-    const errEl = document.getElementById('renameError');
-    if (!newTitle) { errEl.textContent = 'Le nom ne peut pas être vide.'; errEl.classList.remove('hidden'); return; }
-    const doc = allDocs.find(d => d.id === _renameDocId);
-    if (newTitle === doc.title) { document.getElementById('renameModal').classList.add('hidden'); return; }
-    const data = await post(ROUTES.rename(_renameDocId), { title: newTitle });
-    doc.title = data.title;
-    document.getElementById('renameModal').classList.add('hidden');
-    renderTable();
-    showToast(`Document renommé en « ${data.title} »`);
+
+async function handleValidateActRequest(id) {
+    toggleActions(id);
+    const doc = allDocs.find((d) => d.id === id);
+    if (!doc || !doc.act_validation || !doc.act_validation.can_validate) {
+        alert('Vous n\'êtes pas autorisé à valider cette demande.');
+        return;
+    }
+
+    const trackingNumber = doc.act_validation.tracking_number || '';
+    const ask = confirm(`Confirmer la validation de la demande ${trackingNumber ? 'N° ' + trackingNumber : ''} ?`);
+    if (!ask) return;
+
+    try {
+        const resp = await fetch(ROUTES.validateActRequest(id), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': CSRF,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({})
+        });
+
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            throw new Error(data.message || 'La validation a échoué.');
+        }
+
+        doc.act_validation.can_validate = false;
+        doc.act_validation.validated_at = new Date().toISOString();
+        renderTable();
+        alert(data.message || 'Validation enregistrée.');
+    } catch (e) {
+        alert(e.message || 'La validation a échoué.');
+    }
 }
 
 // ---- Déplacer (modal) ----
@@ -1082,6 +1346,57 @@ async function handleChangeStatus(status) {
     showToast(`Statut mis à jour : ${statusLabel[data.status] || data.status}`);
 }
 
+// ---- Téléchargement (fichier ou dossier en ZIP) ----
+async function handleDownload(id) {
+    toggleActions(id);
+    const doc = allDocs.find(d => d.id === id);
+    if (!doc) {
+        showToast('Document introuvable. Rafraîchissez la page et réessayez.');
+        return;
+    }
+
+    if (!isFolder(doc)) {
+        window.location.href = ROUTES.download(id);
+        return;
+    }
+
+    // Pour un dossier, on passe par fetch afin d'afficher un message clair
+    // (dossier vide, erreur serveur, etc.) au lieu de naviguer vers une page d'erreur.
+    try {
+        const resp = await fetch(ROUTES.download(id), {
+            headers: { Accept: 'application/json', 'X-CSRF-TOKEN': CSRF },
+        });
+
+        if (!resp.ok) {
+            let message = "Impossible de télécharger ce dossier.";
+            try {
+                const data = await resp.json();
+                if (data && data.message) message = data.message;
+            } catch (e) {
+                // Réponse non JSON (page d'erreur HTML) : on garde le message générique.
+            }
+            showToast(message);
+            return;
+        }
+
+        const blob = await resp.blob();
+        const disposition = resp.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        const filename = match ? match[1] : `${doc.title}.zip`;
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        showToast('Erreur réseau lors du téléchargement du dossier.');
+    }
+}
+
 // ---- Toast ----
 function showToast(msg, duration = 3000) {
     const toast = document.getElementById('toastMsg');
@@ -1119,29 +1434,45 @@ async function handleMenuAction(action) {
         title = title.trim();
     }
 
-    const data = await post(ROUTES.createNew, { title, type, folder: activeFolderTab });
+    let data;
+    try {
+        data = await post(ROUTES.createNew, { title, type, folder: activeFolderTab });
+    } catch(err) {
+        showToast(err.message || 'Erreur lors de la création.');
+        return;
+    }
+    if (!data?.id) {
+        showToast(data?.message || 'Erreur lors de la création.');
+        return;
+    }
     allDocs.unshift(data);
     renderTable();
 
     // Ouvrir immédiatement dans l'éditeur si c'est un fichier Office
     const e = (title || '').split('.').pop().toLowerCase();
-    if (['docx','xlsx','pptx'].includes(e) && data.id) {
+    if (['docx','xlsx','pptx'].includes(e)) {
         openInOnlyOffice(data.id);
     }
 }
 
 // ---- Upload fichiers ----
-async function uploadFile(file) {
+async function uploadFile(file, folder = undefined) {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('title', file.name);
-    if (activeFolderTab) fd.append('folder', activeFolderTab);
+    const targetFolder = folder !== undefined ? folder : activeFolderTab;
+    if (targetFolder) fd.append('folder', targetFolder);
     const resp = await fetch(ROUTES.uploadAjax, {
         method: 'POST',
         headers: { 'X-CSRF-TOKEN': CSRF, Accept: 'application/json' },
         body: fd,
     });
-    return resp.json();
+    const data = await resp.json();
+    if (!resp.ok) {
+        const msg = data?.errors?.file?.[0] || data?.message || 'Erreur lors de l\'envoi du fichier.';
+        throw new Error(msg);
+    }
+    return data;
 }
 
 document.getElementById('folderInput').addEventListener('change', async (e) => {
@@ -1156,8 +1487,9 @@ document.getElementById('folderInput').addEventListener('change', async (e) => {
     for (const folderName of folderNames) {
         try {
             const data = await post(ROUTES.createNew, { title: folderName, type: 'folder', folder: null });
-            allDocs.unshift(data);
-        } catch(err) { console.error('Dossier error:', err); }
+            if (data?.id) allDocs.unshift(data);
+            else showToast(data?.message || `Erreur création dossier « ${folderName} »`);
+        } catch(err) { showToast(err.message || `Erreur création dossier « ${folderName} »`); }
     }
 
     const total = files.length;
@@ -1173,13 +1505,13 @@ document.getElementById('folderInput').addEventListener('change', async (e) => {
         const rel = file.webkitRelativePath || '';
         const top = rel.split('/')[0] || null;
         try {
-            const data = await uploadFile(file);
+            const data = await uploadFile(file, top);
             if (data.id) allDocs.unshift({ id: data.id, title: data.title,
                 description: top ? `Dossier: ${top}` : null,
                 mime_type: data.mime_type, file_path: data.file_path,
                 file_size: data.file_size || 0, shares_count: 0,
                 status: 'draft', created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-        } catch(err) { console.error('File error:', err); }
+        } catch(err) { showToast(`${file.name} : ${err.message}`); }
         done++;
         progressBar.style.width = `${Math.round(done / total * 100)}%`;
         progressText.textContent = `${done} / ${total}`;
@@ -1216,7 +1548,7 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
                     updated_at: new Date().toISOString(),
                 });
             }
-        } catch(err) { console.error('Upload error:', err); }
+        } catch(err) { showToast(`${file.name} : ${err.message}`); }
         done++;
         progressBar.style.width = `${Math.round(done / total * 100)}%`;
         progressText.textContent = `${done} / ${total}`;
@@ -1241,8 +1573,11 @@ function openShareModal(id) {
     document.getElementById('shareMatricule').value = '';
     document.getElementById('shareApplicantEmail').value = '';
     document.getElementById('shareApplicantPhone').value = '';
+    document.getElementById('shareApplicantRib').value = '';
+    document.getElementById('shareRibWrapper').classList.add('hidden');
     document.getElementById('shareTrackingNumber').value = '';
     document.getElementById('shareTrackingStatus').classList.add('hidden');
+    unlockRecipientAdministration(document.getElementById('shareAdminId'), document.getElementById('shareAdminSector'));
     document.getElementById('shareHasDelay').checked = false;
     document.getElementById('delayFields').classList.add('hidden');
     resetInternalShareOptions();
@@ -1325,14 +1660,18 @@ async function submitShare() {
         const mat = document.getElementById('shareMatricule').value.trim();
         const email = document.getElementById('shareApplicantEmail').value.trim();
         const phone = document.getElementById('shareApplicantPhone').value.trim();
+        const sector = (document.getElementById('shareAdminSector').value || '').toLowerCase();
+        const rib = document.getElementById('shareApplicantRib').value.trim();
         if (!trackingNumber || !adminId || !fullName || !mat || !email) { show('Tous les champs sont obligatoires.', false); return; }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { show('Adresse email invalide.', false); return; }
+        if (sector === 'banques' && !rib) { show('Le RIB est obligatoire pour les établissements bancaires.', false); return; }
         payload.trackingNumber = trackingNumber;
         payload.recipientAdministrationId = adminId;
         payload.applicantFullName = fullName;
         payload.applicantMatricule = mat;
         payload.applicantEmail = email;
         if (phone) payload.applicantPhone = phone;
+        if (rib) payload.applicantRib = rib;
     }
 
     await post(ROUTES.share(shareDocId), payload).then(data => {
@@ -1464,6 +1803,7 @@ function maybeOpenOnlyOfficeFromQuery() {
 
 // Init
 renderTable();
+initDragAndDrop();
 maybeOpenOnlyOfficeFromQuery();
 </script>
 
@@ -1478,6 +1818,5 @@ maybeOpenOnlyOfficeFromQuery();
 </div>
 
 <?php $__env->stopSection(); ?>
-
 
 <?php echo $__env->make('layouts.app', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?><?php /**PATH C:\wamp64\www\e-administration_laravel\resources\views/documents/index.blade.php ENDPATH**/ ?>

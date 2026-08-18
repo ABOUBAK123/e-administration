@@ -253,6 +253,13 @@
         </a>
         <?php endif; ?>
 
+        <?php if($canMenu('act-templates')): ?>
+        <a href="<?php echo e(route('act-templates.index')); ?>"
+           class="nav-link <?php echo e(request()->routeIs('act-templates.*') ? 'active' : ''); ?>">
+            <i class="fas fa-file-contract"></i> Modèles d'actes
+        </a>
+        <?php endif; ?>
+
         <?php if($canMenu('workflows')): ?>
         <a href="<?php echo e(route('workflows.index')); ?>"
            class="nav-link <?php echo e(request()->routeIs('workflows.*') ? 'active' : ''); ?>">

@@ -17,7 +17,7 @@ return new class extends Migration
             $table->string('sender_name', 255);
             $table->string('sender_initials', 8)->nullable();
             $table->text('text');
-            $table->string('room', 255)->index();
+            $table->string('room', 191)->index();
             $table->timestamp('created_at')->useCurrent()->index();
         });
     }

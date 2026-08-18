@@ -17,7 +17,7 @@ return new class extends Migration
             $table->foreign('document_id')->references('id')->on('documents')->onDelete('cascade');
             $table->text('data');
             $table->json('metadata')->nullable();
-            $table->string('verification_code', 255)->unique();
+            $table->string('verification_code', 125)->unique();
             $table->enum('status', ['active', 'revoked', 'expired'])->default('active')->index();
             $table->integer('scan_count')->default(0);
             $table->uuid('created_by')->index();

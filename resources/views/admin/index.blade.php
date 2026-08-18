@@ -7813,17 +7813,30 @@ document.addEventListener('DOMContentLoaded', function() {
             onkeydown="if(event.key==='Enter'){event.preventDefault();actAddField();}"
             placeholder="Nom du champ (ex: Date de naissance)"
             class="border border-gray-300 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
-          <select id="act-field-type"
+          <select id="act-field-type" onchange="actUpdateFieldTypePanel()"
             class="border border-gray-300 rounded-xl px-3 py-3 text-sm focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
             <option value="text">Texte</option>
             <option value="date">Date</option>
             <option value="number">Nombre</option>
             <option value="phone">Telephone</option>
             <option value="email">Email</option>
+            <option value="select">Liste / Sélection</option>
             <option value="textarea">Texte long</option>
           </select>
           <button type="button" onclick="actAddField()"
             class="px-4 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition">Ajouter</button>
+        </div>
+        <div id="act-field-options-panel" class="hidden rounded-xl border border-dashed border-amber-200 bg-amber-50/50 p-3 space-y-2">
+          <label class="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Options de la liste</label>
+          <div class="flex gap-2">
+            <input type="text" id="act-field-option-input"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();actAddFieldOption();}"
+              placeholder="Entrez une option puis appuyez sur Entrée"
+              class="flex-1 border border-amber-200 rounded-xl px-3 py-2 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none">
+            <button type="button" onclick="actAddFieldOption()"
+              class="px-3 py-2 rounded-xl bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 transition">Ajouter option</button>
+          </div>
+          <div id="act-field-options-tags" class="flex flex-wrap gap-2 min-h-[24px]"></div>
         </div>
         <div id="act-fields-tags" class="flex flex-wrap gap-2 min-h-[28px]"></div>
         <input type="hidden" name="applicant_fields" id="act-fields-json"
@@ -7917,7 +7930,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 @push('scripts')
 <script>
-var actDocs = [], actFields = [];
+var actDocs = [], actFields = [], actFieldOptions = [];
 function actRenderDocs() {
     var c = document.getElementById('act-docs-tags'); c.innerHTML = '';
     actDocs.forEach(function(doc, i) {
@@ -7934,12 +7947,47 @@ function actAddDoc() {
 }
 function actRemoveDoc(i) { actDocs.splice(i,1); actRenderDocs(); }
 
+function actRenderFieldOptions() {
+    var c = document.getElementById('act-field-options-tags');
+    if (!c) return;
+    c.innerHTML = '';
+    actFieldOptions.forEach(function(option, i) {
+        var s = document.createElement('span');
+        s.className = 'inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white px-2.5 py-1 text-[11px] text-amber-700';
+        s.innerHTML = option + ' <button type="button" onclick="actRemoveFieldOption('+i+')" class="text-amber-600 hover:text-amber-800 font-bold">&times;</button>';
+        c.appendChild(s);
+    });
+}
+function actAddFieldOption() {
+    var input = document.getElementById('act-field-option-input');
+    if (!input) return;
+    var val = input.value.trim();
+    if (!val) return;
+    if (!actFieldOptions.includes(val)) actFieldOptions.push(val);
+    input.value = '';
+    actRenderFieldOptions();
+}
+function actRemoveFieldOption(i) { actFieldOptions.splice(i,1); actRenderFieldOptions(); }
+function actUpdateFieldTypePanel() {
+    var type = document.getElementById('act-field-type').value;
+    var panel = document.getElementById('act-field-options-panel');
+    if (panel) panel.classList.toggle('hidden', type !== 'select');
+    if (type !== 'select') {
+        actFieldOptions = [];
+        actRenderFieldOptions();
+    }
+}
+
 function actRenderFields() {
     var c = document.getElementById('act-fields-tags'); c.innerHTML = '';
     actFields.forEach(function(f, i) {
+        var labelText = f.label + ' (' + f.inputType + ')';
+        if (f.inputType === 'select' && Array.isArray(f.options) && f.options.length) {
+            labelText += ' [' + f.options.length + ' choix]';
+        }
         var s = document.createElement('span');
         s.className = 'inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs text-indigo-700';
-        s.innerHTML = f.label+' ('+f.inputType+') <button type="button" onclick="actRemoveField('+i+')" class="text-indigo-600 hover:text-indigo-800 font-bold">&times;</button>';
+        s.innerHTML = labelText + ' <button type="button" onclick="actRemoveField('+i+')" class="text-indigo-600 hover:text-indigo-800 font-bold">&times;</button>';
         c.appendChild(s);
     });
     document.getElementById('act-fields-json').value = JSON.stringify(actFields);
@@ -7948,9 +7996,21 @@ function actAddField() {
     var label = document.getElementById('act-field-label').value.trim();
     var type  = document.getElementById('act-field-type').value;
     if (!label) return;
-    actFields.push({label:label, inputType:type});
+    if (type === 'select' && actFieldOptions.length === 0) {
+        alert('Ajoutez au moins une option pour une liste de sélection.');
+        return;
+    }
+    var field = {label:label, inputType:type};
+    if (type === 'select') {
+        field.options = actFieldOptions.slice();
+    }
+    actFields.push(field);
     document.getElementById('act-field-label').value = '';
+    actFieldOptions = [];
+    actRenderFieldOptions();
     actRenderFields();
+    document.getElementById('act-field-type').value = 'text';
+    actUpdateFieldTypePanel();
 }
 function actRemoveField(i) { actFields.splice(i,1); actRenderFields(); }
 
@@ -7982,6 +8042,9 @@ document.addEventListener('DOMContentLoaded', function() {
     try { actDocs   = JSON.parse(document.getElementById('act-docs-json').value   || '[]'); } catch(e){}
     try { actFields = JSON.parse(document.getElementById('act-fields-json').value || '[]'); } catch(e){}
     actRenderDocs(); actRenderFields();
+    actFieldOptions = [];
+    actRenderFieldOptions();
+    actUpdateFieldTypePanel();
     var a = document.getElementById('act-admin-select');
     if (a && a.value) actFilterDirections(a.value);
     toggleActAutoGenerateFields();

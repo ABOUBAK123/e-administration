@@ -166,6 +166,20 @@
                     <p class="text-[11px] text-gray-500 mt-1">Les templates Office sont convertis automatiquement en PDF pour le circuit de signature. La source editable est conservee dans les versions si la conversion reussit.</p>
                 </div>
 
+                <div class="mb-4">
+                    <label for="gen-folder" class="block text-xs font-semibold text-gray-700 mb-1">Dossier de destination</label>
+                    <select id="gen-folder" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#2453d6] outline-none bg-white transition">
+                        <option value="">Aucun (racine de Mes Documents)</option>
+                        <?php $__currentLoopData = $folders ?? []; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $folderName): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                            <option value="<?php echo e($folderName); ?>"><?php echo e($folderName); ?></option>
+                        <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                        <option value="__new__">+ Nouveau dossier…</option>
+                    </select>
+                    <input id="gen-folder-new" type="text" placeholder="Nom du nouveau dossier"
+                        class="hidden mt-2 w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#2453d6] outline-none bg-white transition">
+                    <p class="text-[11px] text-gray-500 mt-1">Le document généré sera placé dans ce dossier de "Mes Documents".</p>
+                </div>
+
                 <div id="gen-fields-container" class="space-y-4"></div>
                 <div id="gen-no-fields" class="hidden text-center py-10">
                     <div class="w-16 h-16 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-4">
@@ -228,6 +242,22 @@
     var RE_VAR_CURLY = new RegExp(OB + OB + '\\s*([^' + CB + ']+?)\\s*' + CB + CB, 'g');
     var RE_VAR_SQUARE = /\[([^\[\]]+?)\]/g;
 
+    // Variables injectees automatiquement par le backend a la generation.
+    // Elles ne doivent pas apparaitre comme champs a saisir.
+    var AUTO_KEYS = new Set([
+        'document_number',
+        'qr_verify_url',
+        'date_du_jour',
+        'date_today',
+        'date',
+        'aujourd_hui',
+        'date_generation',
+        'nom_responsable',
+        'responsable',
+        'signataire',
+        'nom_signataire'
+    ]);
+
     function cleanVarToken(token) {
         return String(token || '').trim();
     }
@@ -256,6 +286,7 @@
         // 1. Variables BDD (priorité max — ont label, type, etc.)
         (dbVars || []).forEach(function(v) {
             if (!v || !v.key) return;
+            if (AUTO_KEYS.has(v.key)) return;
             map.set(v.key, {
                 key: v.key, label: v.label || v.key,
                 ft: v.field_type || 'text',
@@ -267,6 +298,7 @@
         // 2. Variables extraites du XML docx (si pas déjà dans BDD)
         (docxVars || []).forEach(function(v) {
             if (!v || !v.key) return;
+            if (AUTO_KEYS.has(v.key)) return;
             if (!map.has(v.key)) {
                 map.set(v.key, {
                     key: v.key, label: v.label || v.key,
@@ -279,6 +311,7 @@
         });
         // 3. Variables extraites du champ content texte (si pas déjà présentes)
         Object.keys(cmap).forEach(function(slug) {
+            if (AUTO_KEYS.has(slug)) return;
             if (!map.has(slug)) {
                 map.set(slug, { key: slug, label: cmap[slug], ft: 'text', ph: '', def: '', req: false, opts: [] });
             }
@@ -355,8 +388,27 @@
             outputFormatEl.value = 'pdf';
         }
 
-        var cmap   = extractContentVars(tpl.content || '');
-        var fields = buildFields(tpl.db_vars || [], cmap, tpl.docx_vars || []);
+        var folderEl = document.getElementById('gen-folder');
+        var folderNewEl = document.getElementById('gen-folder-new');
+        if (folderEl) { folderEl.value = ''; }
+        if (folderNewEl) { folderNewEl.value = ''; folderNewEl.classList.add('hidden'); }
+
+        var fileType = String(tpl.file_type || '').toLowerCase();
+        var isOffice = ['docx', 'xlsx', 'pptx'].indexOf(fileType) !== -1;
+        var docxVars = Array.isArray(tpl.docx_vars) ? tpl.docx_vars : [];
+        var dbVars = Array.isArray(tpl.db_vars) ? tpl.db_vars : [];
+
+        // Si le core DOCX a des variables, il devient la reference stricte.
+        // Evite d'afficher des champs historiques de la BDD qui n'existent plus dans le fichier.
+        if (isOffice && docxVars.length > 0) {
+            var coreKeys = new Set(docxVars.map(function(v) { return v && v.key ? String(v.key) : ''; }));
+            dbVars = dbVars.filter(function(v) { return v && v.key && coreKeys.has(String(v.key)); });
+        }
+
+        // Pour les templates Office, la source de verite est le fichier (db_vars/docx_vars).
+        // Evite d'ajouter des champs fantomes issus du texte brut extrait dans content.
+        var cmap   = isOffice ? {} : extractContentVars(tpl.content || '');
+        var fields = buildFields(dbVars, cmap, docxVars);
         var cont   = document.getElementById('gen-fields-container');
         var noF    = document.getElementById('gen-no-fields');
         var hint   = document.getElementById('gen-hint');
@@ -419,6 +471,18 @@
 
         if (miss.length > 0) { showFb('error', 'Champs obligatoires : ' + miss.join(', ')); return; }
 
+        var folderEl = document.getElementById('gen-folder');
+        var folderNewEl = document.getElementById('gen-folder-new');
+        var folderValue = '';
+        if (folderEl) {
+            if (folderEl.value === '__new__') {
+                folderValue = folderNewEl ? folderNewEl.value.trim() : '';
+                if (!folderValue) { showFb('error', 'Veuillez saisir un nom de dossier.'); return; }
+            } else {
+                folderValue = folderEl.value;
+            }
+        }
+
         hideFb(); btn.disabled = true; prog.classList.remove('hidden');
         var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 
@@ -428,6 +492,7 @@
             body: JSON.stringify({
                 values: vals,
                 output_format: outputFormatEl ? outputFormatEl.value : 'pdf',
+                folder: folderValue,
             }),
         })
         .then(function(r) { return r.json(); })
@@ -447,6 +512,16 @@
     }
 
     document.addEventListener('DOMContentLoaded', function() {
+
+        /* Bascule vers le champ texte libre quand "+ Nouveau dossier…" est choisi */
+        var folderSelectEl = document.getElementById('gen-folder');
+        var folderNewInputEl = document.getElementById('gen-folder-new');
+        if (folderSelectEl && folderNewInputEl) {
+            folderSelectEl.addEventListener('change', function() {
+                folderNewInputEl.classList.toggle('hidden', folderSelectEl.value !== '__new__');
+                if (folderSelectEl.value === '__new__') { folderNewInputEl.focus(); }
+            });
+        }
 
         /* Délégation : clic sur .js-open-generate */
         document.addEventListener('click', function(e) {

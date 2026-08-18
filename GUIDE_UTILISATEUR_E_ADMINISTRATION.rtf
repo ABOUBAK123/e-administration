@@ -1,0 +1,535 @@
+{\rtf1\ansi\deff0
+{\fonttbl{\f0 Calibri;}}
+\fs22
+\par \fs34 \b Guide Utilisateur Complet - E-Administration Connect & Sign \b0 \fs22\par
+\par
+\par Version: 1.0\par
+\par Date: 30/07/2026\par
+\par Public: utilisateurs, managers, signataires, administrateurs, super administrateurs\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 1. Introduction \b0 \fs22\par
+\par
+\par E-Administration Connect & Sign est une plateforme de gestion documentaire et de traitement de courrier administratif. Elle couvre:\par
+\par
+\par \tab - la gestion du courrier entrant/sortant,\par
+\par \tab - le cycle de vie des documents,\par
+\par \tab - les circuits de validation (workflows),\par
+\par \tab - la signature electronique,\par
+\par \tab - la reception et les imputations,\par
+\par \tab - la verification par QR code,\par
+\par \tab - la gestion RH (personnel),\par
+\par \tab - l'administration technique et fonctionnelle.\par
+\par
+\par Le contenu de ce guide est elabore a partir de l'analyse des ecrans, menus et routes de l'application.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 2. Profils et droits \b0 \fs22\par
+\par
+\par L'application applique des permissions fines selon le profil.\par
+\par
+\par \fs24 \b 2.1 Profils usuels \b0 \fs22\par
+\par
+\par \tab - Utilisateur: consultation, traitement selon droits attribues.\par
+\par \tab - Manager: fonctions avancees de suivi/validation selon parametrage.\par
+\par \tab - Signataire: actions de signature sur documents/processus.\par
+\par \tab - Administrateur: gestion des parametrages d'administration.\par
+\par \tab - Super administrateur: acces global multi-administrations.\par
+\par
+\par \fs24 \b 2.2 Bonnes pratiques de gouvernance \b0 \fs22\par
+\par
+\par \tab - attribuer les droits minimum necessaires,\par
+\par \tab - separer les fonctions d'administration technique et metier,\par
+\par \tab - revoir periodiquement les droits,\par
+\par \tab - utiliser les profils applicatifs plutot que des privileges ad hoc.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 3. Connexion et securite d'acces \b0 \fs22\par
+\par
+\par \fs28 \b 3.1 Connexion \b0 \fs22\par
+\par
+\par \tab - Saisir email + mot de passe.\par
+\par \tab - Si la double authentification est active, saisir le code OTP recu.\par
+\par
+\par \fs28 \b 3.2 OTP (double authentification) \b0 \fs22\par
+\par
+\par \tab - OTP via email ou WhatsApp selon parametrage administration.\par
+\par \tab - Possibilite de renvoi du code OTP.\par
+\par \tab - Le super admin peut etre exempt selon la regle metier configuree.\par
+\par \tab - Un administrateur peut activer/desactiver la 2FA utilisateur par utilisateur depuis Administration > Utilisateurs.\par
+\par
+\par \fs28 \b 3.3 Mot de passe oublie \b0 \fs22\par
+\par
+\par \tab - Depuis l'ecran de connexion, utiliser "Mot de passe oublie".\par
+\par \tab - Un lien de reinitialisation est envoye a l'adresse email.\par
+\par
+\par \fs28 \b 3.4 Langue \b0 \fs22\par
+\par
+\par \tab - Changement de langue supporte (fr, en, es, pt, ar) selon disponibilite.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 4. Navigation generale \b0 \fs22\par
+\par
+\par Le menu lateral donne acces aux principaux modules (selon droits):\par
+\par
+\par \tab - Tableau de bord,\par
+\par \tab - Gestion courrier,\par
+\par \tab - Mes documents,\par
+\par \tab - Templates partages,\par
+\par \tab - Workflows,\par
+\par \tab - Signatures,\par
+\par \tab - Reception,\par
+\par \tab - Demandes d'actes,\par
+\par \tab - Gestion du personnel,\par
+\par \tab - Reunions,\par
+\par \tab - Verification QR,\par
+\par \tab - Administration.\par
+\par
+\par Le menu exact peut varier selon votre profil et votre perimetre d'administration.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 5. Tableau de bord \b0 \fs22\par
+\par
+\par Le dashboard permet un suivi rapide:\par
+\par
+\par \tab - volumes utilisateurs/documents/signatures/workflows,\par
+\par \tab - vue de synthese operationnelle,\par
+\par \tab - acces rapide aux modules cle.\par
+\par
+\par Usage recommande:\par
+\par
+\par \tab - verifier quotidiennement les indicateurs,\par
+\par \tab - detecter les retards de traitement,\par
+\par \tab - prioriser les actions en attente.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 6. Gestion du courrier \b0 \fs22\par
+\par
+\par Le module Courrier comporte plusieurs sous-vues metier.\par
+\par
+\par \fs28 \b 6.1 Enregistrement \b0 \fs22\par
+\par
+\par \tab - creation/enregistrement d'un courrier,\par
+\par \tab - liaison aux metadonnees attendues,\par
+\par \tab - depot de document principal et pieces associees.\par
+\par
+\par \fs28 \b 6.2 Liste \b0 \fs22\par
+\par
+\par \tab - consultation des courriers,\par
+\par \tab - tri/recherche selon criteres,\par
+\par \tab - acces au detail et aux actions autorisees.\par
+\par
+\par \fs28 \b 6.3 Imputation \b0 \fs22\par
+\par
+\par \tab - affectation d'un courrier a une direction, entite ou utilisateur,\par
+\par \tab - suivi des imputations en cours.\par
+\par
+\par \fs28 \b 6.4 En traitement \b0 \fs22\par
+\par
+\par \tab - execution des actions metier sur les courriers recus,\par
+\par \tab - validation/rejet selon regles.\par
+\par
+\par \fs28 \b 6.5 Suivi imputation \b0 \fs22\par
+\par
+\par \tab - visualisation de l'historique des affectations,\par
+\par \tab - tracabilite du circuit de traitement.\par
+\par
+\par \fs28 \b 6.6 Traite \b0 \fs22\par
+\par
+\par \tab - courriers finalises,\par
+\par \tab - consultation des statuts de fin de cycle.\par
+\par
+\par \fs28 \b 6.7 Archives \b0 \fs22\par
+\par
+\par \tab - consultation des courriers archives,\par
+\par \tab - affichage conditionne par regles d'archivage configurees.\par
+\par
+\par \fs28 \b 6.8 Fonctions avancees \b0 \fs22\par
+\par
+\par \tab - scan OCR,\par
+\par \tab - validation/rejet de traitement,\par
+\par \tab - visualisation detaillee.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 7. Mes documents \b0 \fs22\par
+\par
+\par \fs28 \b 7.1 Creation et import \b0 \fs22\par
+\par
+\par \tab - creation de document,\par
+\par \tab - upload classique et upload AJAX,\par
+\par \tab - creation de nouveaux documents editables.\par
+\par
+\par \fs28 \b 7.2 Gestion documentaire \b0 \fs22\par
+\par
+\par \tab - consultation liste/detail,\par
+\par \tab - renommage,\par
+\par \tab - deplacement,\par
+\par \tab - ajout/edition d'etiquettes,\par
+\par \tab - mise en favori,\par
+\par \tab - changement de statut,\par
+\par \tab - conversion PDF.\par
+\par
+\par \fs28 \b 7.3 Partage et collaboration \b0 \fs22\par
+\par
+\par \tab - partage de document,\par
+\par \tab - telechargement securise via lien partage,\par
+\par \tab - consultation des versions.\par
+\par
+\par \fs28 \b 7.4 Corbeille \b0 \fs22\par
+\par
+\par \tab - suppression logique,\par
+\par \tab - restauration,\par
+\par \tab - suppression definitive.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 8. Templates partages \b0 \fs22\par
+\par
+\par \tab - consultation des templates disponibles,\par
+\par \tab - generation de document a partir d'un template,\par
+\par \tab - standardisation des actes/documents recurrents.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 9. Workflows \b0 \fs22\par
+\par
+\par \fs28 \b 9.1 Gestion des workflows \b0 \fs22\par
+\par
+\par \tab - creation,\par
+\par \tab - edition,\par
+\par \tab - suppression,\par
+\par \tab - consultation detaillee.\par
+\par
+\par \fs28 \b 9.2 Execution \b0 \fs22\par
+\par
+\par \tab - lancer un workflow,\par
+\par \tab - faire avancer une etape,\par
+\par \tab - rejeter une etape,\par
+\par \tab - dupliquer un workflow existant.\par
+\par
+\par \fs28 \b 9.3 Modeles de workflow \b0 \fs22\par
+\par
+\par \tab - creation de templates de workflow,\par
+\par \tab - reutilisation pour accelerer les processus standards.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 10. Signatures electroniques \b0 \fs22\par
+\par
+\par \fs28 \b 10.1 Espace signatures \b0 \fs22\par
+\par
+\par \tab - liste des demandes/actions de signature,\par
+\par \tab - suivi des statuts.\par
+\par
+\par \fs28 \b 10.2 Signature depuis upload \b0 \fs22\par
+\par
+\par \tab - importer un document a signer,\par
+\par \tab - lancer la demande de signature.\par
+\par
+\par \fs28 \b 10.3 Positionnement de la zone de signature \b0 \fs22\par
+\par
+\par \tab - definir l'emplacement de signature,\par
+\par \tab - valider et soumettre.\par
+\par
+\par \fs28 \b 10.4 Integration fournisseur de signature \b0 \fs22\par
+\par
+\par \tab - workflow de signature integre,\par
+\par \tab - suivi de statut plateforme,\par
+\par \tab - recuperation document signe.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 11. Reception \b0 \fs22\par
+\par
+\par \fs28 \b 11.1 Boite de reception \b0 \fs22\par
+\par
+\par \tab - documents recus,\par
+\par \tab - marquage "recu",\par
+\par \tab - transfert/forward selon droits.\par
+\par
+\par \fs28 \b 11.2 Sous-onglet Archives reception \b0 \fs22\par
+\par
+\par \tab - acces aux elements archivables en reception,\par
+\par \tab - comportement lie aux delais d'archivage parametres.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 12. Notifications et chat \b0 \fs22\par
+\par
+\par \fs28 \b 12.1 Notifications \b0 \fs22\par
+\par
+\par \tab - liste des notifications,\par
+\par \tab - compteur non lues,\par
+\par \tab - marquage lu/universel.\par
+\par
+\par \fs28 \b 12.2 Messagerie interne (chat) \b0 \fs22\par
+\par
+\par \tab - liste des utilisateurs joignables,\par
+\par \tab - messages en temps reel,\par
+\par \tab - etat en ligne par administration.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 13. Demandes d'actes \b0 \fs22\par
+\par
+\par \fs28 \b 13.1 Cote public \b0 \fs22\par
+\par
+\par \tab - consultation des administrations/actes disponibles,\par
+\par \tab - depot d'une demande,\par
+\par \tab - suivi par numero/token.\par
+\par
+\par \fs28 \b 13.2 Cote interne \b0 \fs22\par
+\par
+\par \tab - consultation des demandes recues,\par
+\par \tab - telechargement ZIP des pieces jointes,\par
+\par \tab - traitement administratif.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 14. Reunions \b0 \fs22\par
+\par
+\par \fs28 \b 14.1 Gestion des reunions \b0 \fs22\par
+\par
+\par \tab - creation et planification,\par
+\par \tab - consultation detail,\par
+\par \tab - edition du compte rendu.\par
+\par
+\par \fs28 \b 14.2 Presence et emargement \b0 \fs22\par
+\par
+\par \tab - emargement via QR token public,\par
+\par \tab - tableau de suivi de presence,\par
+\par \tab - correction/regularisation de pointage.\par
+\par
+\par \fs28 \b 14.3 Reporting \b0 \fs22\par
+\par
+\par \tab - vue reporting reunions,\par
+\par \tab - export CSV,\par
+\par \tab - export PDF de synthese,\par
+\par \tab - telechargement liste de presence.\par
+\par
+\par \fs28 \b 14.4 Salles de reunion \b0 \fs22\par
+\par
+\par \tab - creation/modification/suppression de salles,\par
+\par \tab - gestion du referentiel des espaces.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 15. Verification QR \b0 \fs22\par
+\par
+\par \tab - verification d'un document via QR,\par
+\par \tab - verification par numero,\par
+\par \tab - page publique de verification,\par
+\par \tab - telechargement public securise via token.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 16. Profil utilisateur \b0 \fs22\par
+\par
+\par Chaque utilisateur peut:\par
+\par
+\par \tab - modifier ses informations de profil,\par
+\par \tab - changer son avatar,\par
+\par \tab - mettre a jour son nom d'affichage,\par
+\par \tab - changer son mot de passe,\par
+\par \tab - changer sa langue.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 17. Administration (module unifie) \b0 \fs22\par
+\par
+\par Le module Administration est organise en onglets.\par
+\par
+\par \fs28 \b 17.1 Apercu \b0 \fs22\par
+\par
+\par \tab - synthese globale,\par
+\par \tab - vue de perimetre (super admin vs administration restreinte).\par
+\par
+\par \fs28 \b 17.2 Templates \b0 \fs22\par
+\par
+\par \tab - creation/edition/suppression de templates,\par
+\par \tab - detection de variables,\par
+\par \tab - enrichissement IA des variables,\par
+\par \tab - partage des templates,\par
+\par \tab - configuration zones et sauvegarde forcee,\par
+\par \tab - integration OnlyOffice pour edition en ligne.\par
+\par
+\par \fs28 \b 17.3 Emetteurs et destinataires \b0 \fs22\par
+\par
+\par \tab - gestion du referentiel des administrations,\par
+\par \tab - CRUD complet.\par
+\par
+\par \fs28 \b 17.4 Entites sous tutelle \b0 \fs22\par
+\par
+\par \tab - gestion des structures rattachees,\par
+\par \tab - lien au perimetre d'administration.\par
+\par
+\par \fs28 \b 17.5 Actes demandes \b0 \fs22\par
+\par
+\par \tab - parametrage des types d'actes disponibles pour le public.\par
+\par
+\par \fs28 \b 17.6 Types de direction et routage \b0 \fs22\par
+\par
+\par \tab - parametrage des types de direction,\par
+\par \tab - regles de routage automatique.\par
+\par
+\par \fs28 \b 17.7 OnlyOffice \b0 \fs22\par
+\par
+\par \tab - jeton/configuration d'integration,\par
+\par \tab - callbacks et edition collaborative.\par
+\par
+\par \fs28 \b 17.8 Utilisateurs \b0 \fs22\par
+\par
+\par \tab - creation/modification/suppression d'utilisateurs,\par
+\par \tab - activation/desactivation de compte,\par
+\par \tab - notification de creation de compte,\par
+\par \tab - affectation administration/sous-entite,\par
+\par \tab - activation/desactivation 2FA par utilisateur.\par
+\par
+\par \fs28 \b 17.9 Apparence (theming) \b0 \fs22\par
+\par
+\par \tab - personnalisation visuelle par administration,\par
+\par \tab - couleur menu/fond/logo/favicon.\par
+\par
+\par \fs28 \b 17.10 Notifications email et SMTP \b0 \fs22\par
+\par
+\par \tab - configuration SMTP par administration,\par
+\par \tab - test SMTP,\par
+\par \tab - gestion du canal OTP (email/WhatsApp) selon scope.\par
+\par
+\par \fs28 \b 17.11 API Signature \b0 \fs22\par
+\par
+\par \tab - configuration fournisseur de signature,\par
+\par \tab - test de connectivite,\par
+\par \tab - parametres techniques (endpoint, cle, etc.).\par
+\par
+\par \fs28 \b 17.12 Roles / Profils \b0 \fs22\par
+\par
+\par \tab - creation de profils applicatifs,\par
+\par \tab - gestion des permissions par menu et sous-fonctions,\par
+\par \tab - affectation profil-utilisateur.\par
+\par
+\par \fs28 \b 17.13 Instructions \b0 \fs22\par
+\par
+\par \tab - gestion des instructions de traitement de courrier.\par
+\par
+\par \fs28 \b 17.14 Archivage courrier \b0 \fs22\par
+\par
+\par \tab - parametrage delai d'archivage courrier et reception,\par
+\par \tab - scope global ou par administration (selon profil),\par
+\par \tab - affichage des statistiques associees.\par
+\par
+\par \fs28 \b 17.15 Antivirus \b0 \fs22\par
+\par
+\par \tab - suivi des actions de scan sur les fichiers,\par
+\par \tab - supervision des journaux de protection.\par
+\par
+\par \fs28 \b 17.16 Gestion du personnel (sous-module admin) \b0 \fs22\par
+\par
+\par Sous-onglets principaux:\par
+\par
+\par \tab - tableau de bord RH,\par
+\par \tab - employes,\par
+\par \tab - espace agent,\par
+\par \tab - conges,\par
+\par \tab - formations,\par
+\par \tab - carriere.\par
+\par
+\par Fonctions notables:\par
+\par
+\par \tab - import employes,\par
+\par \tab - generation de compte utilisateur depuis fiche agent,\par
+\par \tab - gestion des justificatifs et documents,\par
+\par \tab - gestion demandes de mutation,\par
+\par \tab - suivi formations et evaluations.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 18. Parcours utilisateur recommandes \b0 \fs22\par
+\par
+\par \fs28 \b 18.1 Traitement d'un courrier entrant \b0 \fs22\par
+\par
+\par 1. Enregistrer le courrier.\par
+\par 2. Imputer a la bonne direction/entite.\par
+\par 3. Traiter dans "En traitement".\par
+\par 4. Valider ou rejeter selon resultat.\par
+\par 5. Controler le suivi d'imputation.\par
+\par 6. Laisser basculer en archive selon regle.\par
+\par
+\par \fs28 \b 18.2 Circuit de signature \b0 \fs22\par
+\par
+\par 1. Selectionner/importer le document.\par
+\par 2. Definir le workflow de signature.\par
+\par 3. Positionner la zone de signature.\par
+\par 4. Envoyer la demande.\par
+\par 5. Suivre le statut.\par
+\par 6. Recuperer la version signee.\par
+\par
+\par \fs28 \b 18.3 Onboarding d'un nouvel utilisateur \b0 \fs22\par
+\par
+\par 1. Creer l'utilisateur dans Administration > Utilisateurs.\par
+\par 2. Assigner administration + sous-entite + profil.\par
+\par 3. Activer le compte.\par
+\par 4. Notifier l'utilisateur par email.\par
+\par 5. Activer la 2FA si politique de securite requise.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 19. Bonnes pratiques d'utilisation \b0 \fs22\par
+\par
+\par \tab - verifier la qualite des metadonnees a l'enregistrement,\par
+\par \tab - utiliser des profils et permissions strictement necessaires,\par
+\par \tab - privilegier les templates standards,\par
+\par \tab - activer la 2FA pour les comptes sensibles,\par
+\par \tab - controler regulierement les journaux antivirus et notifications,\par
+\par \tab - documenter les regles de routage et d'archivage.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 20. Checklist administrateur \b0 \fs22\par
+\par
+\par Quotidien:\par
+\par
+\par \tab - verifier erreurs SMTP/signature,\par
+\par \tab - verifier files de traitement et notifications,\par
+\par \tab - controler disponibilite services critiques.\par
+\par
+\par Hebdomadaire:\par
+\par
+\par \tab - audit comptes et droits,\par
+\par \tab - verification des regles de routage,\par
+\par \tab - verification des delais d'archivage.\par
+\par
+\par Mensuel:\par
+\par
+\par \tab - revue des profils,\par
+\par \tab - revue des parametres de securite,\par
+\par \tab - revue des templates et workflows inactifs.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 21. Limites et adaptation locale \b0 \fs22\par
+\par
+\par Ce guide couvre l'ensemble fonctionnel present dans l'application telle qu'analysee. Selon le profil, certains menus peuvent etre masques. Il est recommande de completer ce guide avec:\par
+\par
+\par \tab - des captures d'ecran de votre environnement,\par
+\par \tab - vos procedures internes (SOP),\par
+\par \tab - les regles de conformite propres a votre institution.\par
+\par
+\par \b ------------------------------------------------------------\b0\par
+\par
+\par \fs28 \b 22. Support \b0 \fs22\par
+\par
+\par En cas de blocage:\par
+\par
+\par \tab - verifier les permissions du profil,\par
+\par \tab - verifier la configuration SMTP/OTP/signature,\par
+\par \tab - verifier la connectivite des services externes,\par
+\par \tab - contacter l'administrateur fonctionnel ou technique.\par
+}

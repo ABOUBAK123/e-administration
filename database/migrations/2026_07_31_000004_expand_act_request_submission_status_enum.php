@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (!Schema::hasTable('act_request_submissions') || !Schema::hasColumn('act_request_submissions', 'status')) {
+        if (!Schema::hasTable('act_request_submissions') || !Schema::hasColumn('act_request_submissions', 'status') || !in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
             return;
         }
 
@@ -25,7 +25,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        if (!Schema::hasTable('act_request_submissions') || !Schema::hasColumn('act_request_submissions', 'status')) {
+        if (!Schema::hasTable('act_request_submissions') || !Schema::hasColumn('act_request_submissions', 'status') || !in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
             return;
         }
 

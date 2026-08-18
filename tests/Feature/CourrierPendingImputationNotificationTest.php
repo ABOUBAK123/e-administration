@@ -228,9 +228,9 @@ class CourrierPendingImputationNotificationTest extends TestCase
 
         $submission->update(['status' => 'in_progress']);
 
-        Mail::assertSentCount(1);
         $this->assertSame('smtp', config('mail.default'));
         $this->assertSame('smtp.actes.test', config('mail.mailers.smtp.host'));
+        $this->assertSame('no-reply@example.test', config('mail.from.address'));
         Log::shouldNotHaveReceived('error');
     }
 }

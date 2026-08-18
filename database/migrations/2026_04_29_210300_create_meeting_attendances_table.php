@@ -14,7 +14,7 @@ return new class extends Migration
             $table->foreign('meeting_id')->references('id')->on('meetings')->onDelete('cascade');
             $table->uuid('meeting_participant_id')->nullable()->index();
             $table->foreign('meeting_participant_id')->references('id')->on('meeting_participants')->nullOnDelete();
-            $table->string('identifier', 255)->nullable()->index();
+            $table->string('identifier', 191)->nullable()->index();
             $table->string('full_name', 255);
             $table->string('email', 255)->nullable();
             $table->string('phone', 50)->nullable();

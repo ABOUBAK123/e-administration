@@ -13,7 +13,7 @@ return new class extends Migration
             $table->string('administration_type', 20);
             $table->string('administration_id', 36);
             $table->string('reference_type', 20); // grade, employment, function
-            $table->string('label', 191);
+            $table->string('label', 120);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 

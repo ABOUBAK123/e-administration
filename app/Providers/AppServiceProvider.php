@@ -12,7 +12,7 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        Schema::defaultStringLength(191);
+        Schema::defaultStringLength(125);
 
         // Sur production derrière un reverse proxy, forcer le bon domaine et HTTPS
         // pour que route() génère les bonnes URLs dans les QR codes et les emails.

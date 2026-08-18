@@ -11,6 +11,7 @@ use App\Http\Controllers\ReceptionController;
 use App\Http\Controllers\SharedTemplateController;
 use App\Http\Controllers\ActRequestController;
 use App\Http\Controllers\PublicActRequestController;
+use App\Http\Controllers\ActTemplateController;
 use App\Http\Controllers\QrVerificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\MeetingController;
@@ -283,6 +284,17 @@ Route::middleware('auth')->group(function () {
     // Templates partagés
     Route::get('/shared-templates', [SharedTemplateController::class, 'index'])->name('shared-templates.index');
     Route::post('/shared-templates/{template}/generate', [SharedTemplateController::class, 'generate'])->name('shared-templates.generate');
+
+    // Modèles d'actes
+    Route::get('/act-templates', [ActTemplateController::class, 'index'])->name('act-templates.index');
+    Route::get('/act-templates/create', [ActTemplateController::class, 'create'])->name('act-templates.create');
+    Route::post('/act-templates', [ActTemplateController::class, 'store'])->name('act-templates.store');
+    Route::get('/act-templates/{actTemplate}', [ActTemplateController::class, 'show'])->name('act-templates.show');
+    Route::get('/act-templates/{actTemplate}/edit', [ActTemplateController::class, 'edit'])->name('act-templates.edit');
+    Route::put('/act-templates/{actTemplate}', [ActTemplateController::class, 'update'])->name('act-templates.update');
+    Route::delete('/act-templates/{actTemplate}', [ActTemplateController::class, 'destroy'])->name('act-templates.destroy');
+    Route::get('/act-templates/{actTemplate}/generate', [ActTemplateController::class, 'generateForm'])->name('act-templates.generate-form');
+    Route::post('/act-templates/{actTemplate}/generate', [ActTemplateController::class, 'generate'])->name('act-templates.generate');
 
     // Demandes d'actes
     Route::get('/act-requests', [ActRequestController::class, 'index'])->name('act-requests.index');
