@@ -32,4 +32,4 @@
         </div>
     </body>
 </html>
-<?php /**PATH C:\wamp64\www\e-administration_laravel\vendor\laravel\framework\src\Illuminate\Foundation\Exceptions/views/minimal.blade.php ENDPATH**/ ?>
+<?php /**PATH C:\wamp64\www\e-administration_laravel.worktrees\gestion-courrier-notification-email\vendor\laravel\framework\src\Illuminate\Foundation\Exceptions/views/minimal.blade.php ENDPATH**/ ?>

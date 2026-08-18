@@ -38,6 +38,8 @@ use App\Models\PersonnelEmployee;
 use App\Models\PersonnelEmployeeDocument;
 use App\Models\ClamAvScanLog;
 use App\Models\PersonnelStaffingNeed;
+use App\Models\CivilStatusRecordType;
+use App\Models\CivilStatusRecord;
 use App\Services\ClamAvScanner;
 use App\Services\NotificationService;
 use App\Services\PersonnelAnalyticsService;
@@ -664,6 +666,8 @@ class AdminController extends Controller
         $personnelMutationRequests = collect();
         $personnelRecentActivity = collect();
         $scanLogs = collect();
+        $civilStatusRecordTypes = collect();
+        $civilStatusRecordTypeTemplates = collect();
         $personnelStats = [
             'employees' => 0,
             'documents' => 0,
@@ -797,6 +801,25 @@ class AdminController extends Controller
                 $requestedActTemplatesQuery->whereRaw('1 = 0');
             }
             $requestedActTemplates = $requestedActTemplatesQuery->get();
+
+            // ── Types de dossiers État civil (paramétrage) ────────────────────
+            $civilStatusTypesQuery = CivilStatusRecordType::with('autoTemplate')->latest();
+            if ($adminScope) {
+                $civilStatusTypesQuery
+                    ->where('administration_type', $this->normalizeAdministrationType($adminScope['type'] ?? null))
+                    ->where('administration_id', $adminScope['id']);
+            }
+            $civilStatusRecordTypes = $civilStatusTypesQuery->get();
+
+            $civilStatusRecordTypeTemplatesQuery = DocumentTemplate::query()
+                ->select('id', 'name', 'administration_id')
+                ->orderBy('name');
+            if ($adminScope && $adminScope['type'] === 'emitter') {
+                $civilStatusRecordTypeTemplatesQuery->where('administration_id', $adminScope['id']);
+            } elseif ($adminScope && $adminScope['type'] === 'recipient') {
+                $civilStatusRecordTypeTemplatesQuery->whereRaw('1 = 0');
+            }
+            $civilStatusRecordTypeTemplates = $civilStatusRecordTypeTemplatesQuery->get();
 
             // ── Règles de routage ─────────────────────────────────────────────
             $routingQuery = RoutingRule::with(['template', 'recipient', 'targetUser'])->latest();
@@ -984,7 +1007,7 @@ class AdminController extends Controller
                 $trainingEnrollmentQuery = PersonnelTrainingEnrollment::with(['employee', 'training'])->latest();
                 $this->applyPersonnelScope($trainingEnrollmentQuery, $adminScope);
                 $currentUserId = (string) (auth()->id() ?? '');
-                if ($currentUserId !== '') {
+                if ($currentUserId !== '' && $trainingEnrollmentQuery->getQuery()->getConnection()->getDriverName() === 'mysql') {
                     $trainingEnrollmentQuery->orWhere(function ($query) use ($currentUserId) {
                         $query->where('status', 'pending')
                             ->whereRaw(
@@ -1028,7 +1051,7 @@ class AdminController extends Controller
                     ->latest();
                 $this->applyPersonnelScope($mutationRequestQuery, $adminScope);
                 $currentUserId = (string) (auth()->id() ?? '');
-                if ($currentUserId !== '') {
+                if ($currentUserId !== '' && $mutationRequestQuery->getQuery()->getConnection()->getDriverName() === 'mysql') {
                     $mutationRequestQuery->orWhere(function ($query) use ($currentUserId) {
                         $query->where('event_type', 'mutation_request')
                             ->where('status', 'pending')
@@ -1132,7 +1155,8 @@ class AdminController extends Controller
             'personnelLeaveTypes', 'personnelLeaveRequests', 'personnelLeaveApprovers', 'personnelJobReferences', 'leaveGlobalVisibility', 'personnelTrainings', 'personnelTrainingEnrollments',
             'personnelEmployeeSkills', 'personnelGoals', 'personnelPerformanceReviews', 'personnelCareerEvents', 'personnelMutationRequests', 'personnelRecentActivity',
             'agentSpaceCanSearchAll',
-            'scanLogs'
+            'scanLogs',
+            'civilStatusRecordTypes', 'civilStatusRecordTypeTemplates'
         ));
     }
 
@@ -5492,6 +5516,119 @@ class AdminController extends Controller
     {
         $requestedAct->delete();
         return back()->with('success', 'Acte demandé supprimé.')->withInput(['tab' => 'requested-acts']);
+    }
+
+    // ── Types de dossiers État civil (paramétrage) ─────────────────────────────
+    private function civilStatusTypeCodeExists(string $administrationType, string $administrationId, string $code, ?string $excludeId = null): bool
+    {
+        $query = CivilStatusRecordType::query()
+            ->where('administration_type', $administrationType)
+            ->where('administration_id', $administrationId)
+            ->whereRaw('UPPER(code) = ?', [strtoupper($code)]);
+
+        if ($excludeId) {
+            $query->where('id', '!=', $excludeId);
+        }
+
+        return $query->exists();
+    }
+
+    public function storeCivilStatusRecordType(Request $request)
+    {
+        $this->guardPermission('administration.civil-status-types');
+
+        $data = $request->validate([
+            'administration_type' => 'nullable|in:emitter,recipient',
+            'administration_id'   => 'nullable|string',
+            'code'                => 'required|string|max:50',
+            'name'                => 'required|string|max:191',
+            'description'         => 'nullable|string',
+            'required_documents'  => 'nullable|string',
+            'fields_schema'       => 'nullable|string',
+            'auto_template_id'    => 'nullable|string|exists:document_templates,id',
+            'is_active'           => 'nullable|boolean',
+        ]);
+
+        $adminScope = $this->resolveAdminScope();
+        if ($adminScope) {
+            $data['administration_type'] = $this->normalizeAdministrationType($adminScope['type'] ?? null);
+            $data['administration_id']   = $adminScope['id'];
+        }
+
+        if (empty($data['administration_id'])) {
+            return back()->withErrors(['administration_id' => 'Administration requise.'])->withInput();
+        }
+
+        $data['administration_type'] = $this->normalizeAdministrationType($data['administration_type'] ?? null);
+        $data['code'] = strtoupper(trim($data['code']));
+
+        if ($this->civilStatusTypeCodeExists($data['administration_type'], $data['administration_id'], $data['code'])) {
+            return back()->withErrors(['code' => 'Ce code existe déjà pour cette administration.'])->withInput();
+        }
+
+        if (!empty($data['auto_template_id'])) {
+            $templateAdminId = (string) (DocumentTemplate::query()->whereKey($data['auto_template_id'])->value('administration_id') ?? '');
+            if ($templateAdminId !== '' && $templateAdminId !== (string) $data['administration_id']) {
+                return back()->withErrors(['auto_template_id' => 'Le template sélectionné doit appartenir à la même administration.'])->withInput();
+            }
+        }
+
+        $data['required_documents'] = json_decode($data['required_documents'] ?? '[]', true) ?: [];
+        $data['fields_schema']      = $this->normalizeRequestedActFields(json_decode($data['fields_schema'] ?? '[]', true) ?: []);
+        $data['is_active']          = $request->boolean('is_active', true);
+
+        CivilStatusRecordType::create($data);
+
+        return back()->with('success', 'Type de dossier État civil créé.')->withInput(['tab' => 'civil-status-types']);
+    }
+
+    public function updateCivilStatusRecordType(Request $request, CivilStatusRecordType $civilStatusRecordType)
+    {
+        $this->guardPermission('administration.civil-status-types');
+
+        $data = $request->validate([
+            'name'               => 'required|string|max:191',
+            'code'               => 'required|string|max:50',
+            'description'        => 'nullable|string',
+            'required_documents' => 'nullable|string',
+            'fields_schema'      => 'nullable|string',
+            'auto_template_id'   => 'nullable|string|exists:document_templates,id',
+            'is_active'          => 'nullable|boolean',
+        ]);
+
+        $data['code'] = strtoupper(trim($data['code']));
+
+        if ($this->civilStatusTypeCodeExists($civilStatusRecordType->administration_type, $civilStatusRecordType->administration_id, $data['code'], $civilStatusRecordType->id)) {
+            return back()->withErrors(['code' => 'Ce code existe déjà pour cette administration.'])->withInput();
+        }
+
+        if (!empty($data['auto_template_id'])) {
+            $templateAdminId = (string) (DocumentTemplate::query()->whereKey($data['auto_template_id'])->value('administration_id') ?? '');
+            if ($templateAdminId !== '' && $templateAdminId !== (string) $civilStatusRecordType->administration_id) {
+                return back()->withErrors(['auto_template_id' => 'Le template sélectionné doit appartenir à la même administration.'])->withInput();
+            }
+        }
+
+        $data['required_documents'] = json_decode($data['required_documents'] ?? '[]', true) ?: [];
+        $data['fields_schema']      = $this->normalizeRequestedActFields(json_decode($data['fields_schema'] ?? '[]', true) ?: []);
+        $data['is_active']          = $request->boolean('is_active', true);
+
+        $civilStatusRecordType->update($data);
+
+        return back()->with('success', 'Type de dossier État civil mis à jour.')->withInput(['tab' => 'civil-status-types']);
+    }
+
+    public function destroyCivilStatusRecordType(CivilStatusRecordType $civilStatusRecordType)
+    {
+        $this->guardPermission('administration.civil-status-types');
+
+        if ($civilStatusRecordType->records()->exists()) {
+            return back()->withErrors(['code' => 'Ce type est utilisé par des dossiers existants et ne peut pas être supprimé. Désactivez-le à la place.'])->withInput(['tab' => 'civil-status-types']);
+        }
+
+        $civilStatusRecordType->delete();
+
+        return back()->with('success', 'Type de dossier État civil supprimé.')->withInput(['tab' => 'civil-status-types']);
     }
 
     // ── Profils / Rôles ───────────────────────────────────────────────────────

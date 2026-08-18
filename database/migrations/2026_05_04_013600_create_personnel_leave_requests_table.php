@@ -8,6 +8,8 @@ return new class extends Migration
 {
     public function up(): void
     {
+        Schema::dropIfExists('personnel_leave_requests');
+
         Schema::create('personnel_leave_requests', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->foreignUuid('employee_id')->constrained('personnel_employees')->cascadeOnDelete();
@@ -15,7 +17,7 @@ return new class extends Migration
             $table->foreignUuid('requested_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignUuid('approved_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->string('administration_type', 20);
-            $table->string('administration_id');
+            $table->string('administration_id', 50);
             $table->date('start_date');
             $table->date('end_date');
             $table->date('return_date')->nullable();

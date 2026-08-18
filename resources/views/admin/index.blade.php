@@ -24,6 +24,7 @@ $allTabs = [
   'recipients'         => ['fas fa-paper-plane',       'Destinataires',         '#ec4899', 'administration.recipients'],
   'sub-entities'       => ['fas fa-sitemap',           'Entités sous tutelle',  '#14b8a6', 'administration.sub-entities'],
   'requested-acts'     => ['fas fa-clipboard-list',    'Actes demandés',        '#f59e0b', 'administration.requested-acts'],
+  'civil-status-types' => ['fas fa-id-card-clip',      'Types État civil',      '#0d9488', 'administration.civil-status-types'],
     'direction-types'    => ['fas fa-tags',               'Types de direction',    '#10b981', 'administration.direction-types'],
     'routing'            => ['fas fa-route',              'Routage',               '#f97316', 'administration.routing'],
     'onlyoffice'         => ['fas fa-edit',               'OnlyOffice',            '#06b6d4', 'administration.onlyoffice'],
@@ -40,16 +41,14 @@ $allTabs = [
 $permSvcAdmin = app(\App\Services\UserPermissionsService::class);
 $permSetAdmin = $permSvcAdmin->permissionsSet(auth()->user());
 $canManageAdministration = ($permSetAdmin['isElevated'] ?? false) || ((auth()->user()->role ?? '') === 'admin');
-$tabs = array_filter($allTabs, function($v) use ($permSetAdmin) {
+$tabs = array_filter($allTabs, function($v) use ($permSvcAdmin, $permSetAdmin) {
     $perm = $v[3];
     if ($perm === null) return true;
     if ($permSetAdmin['isElevated']) return true;
-    if (isset($permSetAdmin['permissions'][$perm])) return true;
-    // Afficher l'onglet si au moins un sous-onglet est accordé (ex: personnel.dashboard → personnel)
-    foreach ($permSetAdmin['permissions'] as $k => $_) {
-        if (str_starts_with($k, $perm . '.')) return true;
-    }
-    return false;
+    // can() gère aussi bien "un parent accordé donne accès à ses enfants" (ex: profil admin
+    // avec la seule permission 'administration' voit tous ses sous-onglets) que l'inverse
+    // (ex: personnel.dashboard → affiche l'onglet parent 'personnel').
+    return $permSvcAdmin->can(auth()->user(), $perm);
 });
 
 if ($tab !== 'personnel' && !array_key_exists($tab, $tabs)) {
@@ -189,6 +188,7 @@ $_oc = [
     'recipients'         => $recipients->count(),
     'sub-entities'       => $subEntities->count(),
     'requested-acts'     => $requestedActs->count(),
+    'civil-status-types' => $civilStatusRecordTypes->count(),
     'direction-types'    => $directionTypes->count(),
     'routing'            => method_exists($routingRules, 'total') ? $routingRules->total() : $routingRules->count(),
     'users'              => method_exists($users, 'total') ? $users->total() : $users->count(),
@@ -212,6 +212,7 @@ $_oc = [
         ['instructions',       'fas fa-list-check',         'Instructions',           'Instructions de traitement des courriers.','cyan'],
         ['sub-entities',       'fas fa-sitemap',            'Entités sous tutelle',  'Structures rattachées aux administrations.','teal'],
         ['requested-acts',     'fas fa-clipboard-list',     'Actes demandés',        'Types d\'actes configurables.',            'yellow'],
+        ['civil-status-types', 'fas fa-id-card-clip',       'Types État civil',      'Naissance, mariage, décès et pièces requises.', 'teal'],
         ['onlyoffice',         'fas fa-edit',               'OnlyOffice',            'Serveur d\'édition collaborative.',        'cyan'],
         ['ai-integration',     'fas fa-robot',              'Intelligence Artificielle', 'Clé API IA (Gemini) pour les comptes rendus.', 'violet'],
         ['courrier-archiving', 'fas fa-archive',            'Archivage courrier',    'Délai d\'archivage automatique des courriers.','stone'],
@@ -8033,6 +8034,293 @@ document.addEventListener('DOMContentLoaded', function() {
     var a = document.getElementById('act-admin-select');
     if (a && a.value) actFilterDirections(a.value);
     toggleActAutoGenerateFields();
+});
+</script>
+@endpush
+
+{{-- ══════════════════════ TYPES DE DOSSIERS ÉTAT CIVIL (paramétrage) ══════════════════════ --}}
+@elseif($tab === 'civil-status-types')
+@php
+    $cstAction  = request('cst_action');
+    $selCstId   = request('selected_cst');
+    $editCst    = ($cstAction === 'edit' && $selCstId) ? $civilStatusRecordTypes->firstWhere('id', $selCstId) : null;
+@endphp
+
+<div class="grid grid-cols-1 xl:grid-cols-[1fr_1.1fr] gap-5">
+
+  {{-- Colonne gauche : Formulaire --}}
+  <section class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+    <div class="space-y-1">
+      <h2 class="text-base font-bold text-gray-800">{{ $editCst ? 'Modifier le type de dossier' : 'Nouveau type de dossier État civil' }}</h2>
+      <p class="text-xs text-gray-500">Paramétrez les types de dossiers de la base État civil (ex: Naissance, Mariage, Décès), les pièces à fournir et les champs de saisie du dossier.</p>
+    </div>
+
+    @if(session('success') && request('tab') === 'civil-status-types')
+    <div class="flex items-center gap-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl px-4 py-3 text-sm">
+      <i class="fas fa-check-circle"></i> {{ session('success') }}
+    </div>
+    @endif
+    @if($errors->any() && request('tab') === 'civil-status-types')
+    <div class="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+      <ul class="list-disc list-inside space-y-1">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
+    </div>
+    @endif
+
+    @if($editCst)
+    <form method="POST" action="{{ route('admin.civil-status-types.update', $editCst->id) }}" class="space-y-4" id="cst-form">
+      @method('PUT')
+    @else
+    <form method="POST" action="{{ route('admin.civil-status-types.store') }}" class="space-y-4" id="cst-form">
+    @endif
+      @csrf
+
+      @if(!(isset($adminScope) && $adminScope && $adminScope['type'] === 'emitter'))
+      <div>
+        <label class="block text-xs font-semibold text-gray-700 mb-1">Administration</label>
+        <select name="administration_id" required
+          class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-teal-300 focus:border-teal-400 outline-none">
+          <option value="">Sélectionner</option>
+          @foreach($emitters as $em)
+          <option value="{{ $em->id }}" {{ old('administration_id', $editCst?->administration_id) === $em->id ? 'selected' : '' }}>{{ $em->name }}</option>
+          @endforeach
+        </select>
+      </div>
+      @else
+      <input type="hidden" name="administration_id" value="{{ $adminScope['id'] }}">
+      @endif
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <input type="text" name="code" value="{{ old('code', $editCst?->code) }}"
+          placeholder="Code (ex: NAISSANCE)" required maxlength="50"
+          class="border border-gray-300 rounded-xl px-4 py-3 text-sm uppercase placeholder:text-gray-400 focus:ring-2 focus:ring-teal-300 focus:border-teal-400 outline-none">
+        <input type="text" name="name" value="{{ old('name', $editCst?->name) }}"
+          placeholder="Libellé (ex: Naissance)" required
+          class="border border-gray-300 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-teal-300 focus:border-teal-400 outline-none">
+      </div>
+
+      <textarea name="description" rows="2" placeholder="Description (optionnel)"
+        class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-teal-300 focus:border-teal-400 outline-none">{{ old('description', $editCst?->description) }}</textarea>
+
+      <div class="rounded-xl border border-teal-200 bg-teal-50/40 p-4 space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Template partagé pour la génération de l'acte (optionnel)</label>
+          <select name="auto_template_id"
+            class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-teal-300 focus:border-teal-400 outline-none">
+            <option value="">Aucun (à paramétrer plus tard)</option>
+            @foreach($civilStatusRecordTypeTemplates as $tplOption)
+            <option value="{{ $tplOption->id }}" {{ (string) old('auto_template_id', $editCst?->auto_template_id) === (string) $tplOption->id ? 'selected' : '' }}>{{ $tplOption->name }}</option>
+            @endforeach
+          </select>
+          <p class="text-[11px] text-gray-500 mt-1">Ce template sera utilisé par le workflow de génération d'acte (prochaine étape).</p>
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <label class="text-xs font-semibold text-gray-700">Pièces à fournir pour ouvrir un dossier</label>
+        <div class="flex gap-2">
+          <input type="text" id="cst-doc-input"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();cstAddDoc();}"
+            placeholder="Ex: Certificat médical, Pièce d'identité..."
+            class="flex-1 border border-gray-300 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-teal-300 focus:border-teal-400 outline-none">
+          <button type="button" onclick="cstAddDoc()"
+            class="px-4 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition">Ajouter</button>
+        </div>
+        <div id="cst-docs-tags" class="flex flex-wrap gap-2 min-h-[28px]"></div>
+        <input type="hidden" name="required_documents" id="cst-docs-json"
+          value="{{ old('required_documents', $editCst ? json_encode($editCst->required_documents ?? []) : '[]') }}">
+      </div>
+
+      <div class="space-y-2">
+        <label class="text-xs font-semibold text-gray-700">Champs de saisie du dossier</label>
+        <div class="grid grid-cols-1 md:grid-cols-[1fr_160px_auto] gap-2">
+          <input type="text" id="cst-field-label"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();cstAddField();}"
+            placeholder="Nom du champ (ex: Nom du père)"
+            class="border border-gray-300 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-teal-300 focus:border-teal-400 outline-none">
+          <select id="cst-field-type"
+            class="border border-gray-300 rounded-xl px-3 py-3 text-sm focus:ring-2 focus:ring-teal-300 focus:border-teal-400 outline-none">
+            <option value="text">Texte</option>
+            <option value="date">Date</option>
+            <option value="number">Nombre</option>
+            <option value="phone">Téléphone</option>
+            <option value="email">Email</option>
+            <option value="textarea">Texte long</option>
+            <option value="list">Liste</option>
+          </select>
+          <button type="button" onclick="cstAddField()"
+            class="px-4 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition">Ajouter</button>
+        </div>
+        <div id="cst-field-list-options" class="hidden space-y-2">
+          <label class="text-xs font-semibold text-gray-700">Éléments de la liste</label>
+          <textarea id="cst-field-options" rows="3"
+            placeholder="Saisir un élément par ligne ou séparé par des virgules"
+            class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-teal-300 focus:border-teal-400 outline-none"></textarea>
+        </div>
+        <div id="cst-fields-tags" class="flex flex-wrap gap-2 min-h-[28px]"></div>
+        <input type="hidden" name="fields_schema" id="cst-fields-json"
+          value="{{ old('fields_schema', $editCst ? json_encode($editCst->fields_schema ?? []) : '[]') }}">
+      </div>
+
+      <div class="flex items-center gap-2">
+        <input type="hidden" name="is_active" value="0">
+        <input type="checkbox" id="cst-is-active" name="is_active" value="1" {{ old('is_active', $editCst?->is_active ?? true) ? 'checked' : '' }}
+          class="h-4 w-4 rounded border-gray-300 text-teal-500 focus:ring-teal-400">
+        <label for="cst-is-active" class="text-sm text-gray-700">Type actif</label>
+      </div>
+
+      <div class="flex gap-2 pt-1">
+        <button type="submit"
+          class="flex-1 rounded-xl px-4 py-3 text-sm text-white bg-teal-600 hover:bg-teal-700 font-semibold transition">
+          <i class="fas {{ $editCst ? 'fa-save' : 'fa-plus' }} mr-1"></i>
+          {{ $editCst ? 'Enregistrer les modifications' : 'Créer le type de dossier' }}
+        </button>
+        @if($editCst)
+        <a href="{{ route('admin.index', ['tab' => 'civil-status-types']) }}"
+          class="rounded-xl px-4 py-3 text-sm font-semibold border border-gray-300 text-gray-700 hover:bg-gray-50 transition">Annuler</a>
+        @endif
+      </div>
+    </form>
+  </section>
+
+  {{-- Colonne droite : Liste des types --}}
+  <section class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3 max-h-[780px] overflow-auto">
+    <div class="flex items-center justify-between">
+      <h3 class="text-base font-semibold text-gray-800">Types de dossiers État civil</h3>
+      <span class="text-xs text-gray-400">{{ $civilStatusRecordTypes->count() }} élément{{ $civilStatusRecordTypes->count() > 1 ? 's' : '' }}</span>
+    </div>
+
+    @if($civilStatusRecordTypes->isEmpty())
+    <div class="rounded-xl border border-dashed border-gray-200 p-6 text-xs text-gray-500 text-center">
+      Aucun type de dossier paramétré pour le moment. Créez par exemple "Naissance", "Mariage" et "Décès".
+    </div>
+    @else
+    <div class="space-y-3">
+      @foreach($civilStatusRecordTypes as $cst)
+      <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-2 {{ $editCst && $editCst->id === $cst->id ? 'border-teal-400 bg-teal-50' : '' }}">
+        <div class="flex items-center justify-between">
+          <p class="text-sm font-semibold text-gray-800">{{ $cst->name }} <span class="text-xs font-mono text-gray-400">({{ $cst->code }})</span></p>
+          @if(!$cst->is_active)
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">Inactif</span>
+          @endif
+        </div>
+        @if($cst->description)
+        <p class="text-xs text-gray-600">{{ $cst->description }}</p>
+        @endif
+        @if($cst->autoTemplate)
+        <p class="text-xs text-teal-700">Template lié : {{ $cst->autoTemplate->name }}</p>
+        @endif
+        @if(!empty($cst->required_documents))
+        <div class="pt-1">
+          <p class="text-xs font-semibold text-gray-700 mb-1">Pièces à fournir :</p>
+          <ul class="list-disc pl-5 text-xs text-gray-700 space-y-0.5">
+            @foreach($cst->required_documents as $doc)<li>{{ $doc }}</li>@endforeach
+          </ul>
+        </div>
+        @endif
+        @if(!empty($cst->fields_schema))
+        <div class="pt-1">
+          <p class="text-xs font-semibold text-gray-700 mb-1">Champs du dossier :</p>
+          <ul class="list-disc pl-5 text-xs text-gray-700 space-y-0.5">
+            @foreach($cst->fields_schema as $f)<li>{{ $f['label'] ?? '' }} ({{ $f['inputType'] ?? '' }})</li>@endforeach
+          </ul>
+        </div>
+        @endif
+        <p class="text-xs text-gray-400">Créé le {{ $cst->created_at->format('d/m/Y H:i') }}</p>
+        <div class="pt-2 flex gap-2">
+          <a href="{{ route('admin.index', ['tab' => 'civil-status-types', 'cst_action' => 'edit', 'selected_cst' => $cst->id]) }}"
+            class="text-xs px-3 py-1.5 rounded-lg bg-teal-100 text-teal-800 hover:bg-teal-200 transition">
+            <i class="fas fa-pen mr-1 text-[10px]"></i> Modifier
+          </a>
+          <form method="POST" action="{{ route('admin.civil-status-types.destroy', $cst->id) }}"
+            onsubmit="return confirm('Supprimer ce type de dossier ?')">
+            @csrf @method('DELETE')
+            <button type="submit" class="text-xs px-3 py-1.5 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition">
+              <i class="fas fa-trash mr-1 text-[10px]"></i> Supprimer
+            </button>
+          </form>
+        </div>
+      </div>
+      @endforeach
+    </div>
+    @endif
+  </section>
+</div>
+
+@push('scripts')
+<script>
+var cstDocs = [], cstFields = [];
+function cstRenderDocs() {
+    var c = document.getElementById('cst-docs-tags'); c.innerHTML = '';
+    cstDocs.forEach(function(doc, i) {
+        var s = document.createElement('span');
+        s.className = 'inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs text-blue-700';
+        s.innerHTML = doc + ' <button type="button" onclick="cstRemoveDoc('+i+')" class="text-blue-600 hover:text-blue-800 font-bold">&times;</button>';
+        c.appendChild(s);
+    });
+    document.getElementById('cst-docs-json').value = JSON.stringify(cstDocs);
+}
+function cstAddDoc() {
+    var inp = document.getElementById('cst-doc-input'), val = inp.value.trim();
+    if (!val) return; cstDocs.push(val); inp.value = ''; cstRenderDocs();
+}
+function cstRemoveDoc(i) { cstDocs.splice(i,1); cstRenderDocs(); }
+
+function cstToggleFieldOptions() {
+    var select = document.getElementById('cst-field-type');
+    var wrapper = document.getElementById('cst-field-list-options');
+    var textarea = document.getElementById('cst-field-options');
+    if (!select || !wrapper || !textarea) return;
+    var isList = select.value === 'list';
+    wrapper.classList.toggle('hidden', !isList);
+    if (isList) { textarea.setAttribute('required', 'required'); } else { textarea.removeAttribute('required'); }
+}
+function cstRenderFields() {
+    var c = document.getElementById('cst-fields-tags'); c.innerHTML = '';
+    cstFields.forEach(function(f, i) {
+        var label = f.label || '';
+        var type = f.inputType || 'text';
+        var meta = '';
+        if (type === 'list' && Array.isArray(f.options) && f.options.length) {
+            meta = ' : ' + f.options.slice(0, 3).join(', ');
+            if (f.options.length > 3) meta += '...';
+        }
+        var s = document.createElement('span');
+        s.className = 'inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs text-indigo-700';
+        s.innerHTML = label+' ('+type+meta+') <button type="button" onclick="cstRemoveField('+i+')" class="text-indigo-600 hover:text-indigo-800 font-bold">&times;</button>';
+        c.appendChild(s);
+    });
+    document.getElementById('cst-fields-json').value = JSON.stringify(cstFields);
+}
+function cstAddField() {
+    var label = document.getElementById('cst-field-label').value.trim();
+    var type  = document.getElementById('cst-field-type').value;
+    if (!label) return;
+    if (type === 'list') {
+        var listInput = document.getElementById('cst-field-options');
+        var options = [];
+        if (listInput) {
+            options = listInput.value.split(/\r?\n|,/)
+                .map(function(v){ return v.trim(); })
+                .filter(function(v){ return v !== ''; });
+        }
+        if (!options.length) { alert('Saisissez au moins une valeur pour la liste.'); return; }
+        cstFields.push({label:label, inputType:type, options:options});
+        listInput.value = '';
+    } else {
+        cstFields.push({label:label, inputType:type});
+    }
+    document.getElementById('cst-field-label').value = '';
+    cstRenderFields();
+    cstToggleFieldOptions();
+}
+function cstRemoveField(i) { cstFields.splice(i,1); cstRenderFields(); }
+
+document.addEventListener('DOMContentLoaded', function() {
+    var cstTypeSelect = document.getElementById('cst-field-type');
+    if (cstTypeSelect) { cstTypeSelect.addEventListener('change', cstToggleFieldOptions); }
+    try { cstDocs   = JSON.parse(document.getElementById('cst-docs-json').value   || '[]'); } catch(e){}
+    try { cstFields = JSON.parse(document.getElementById('cst-fields-json').value || '[]'); } catch(e){}
+    cstRenderDocs(); cstRenderFields(); cstToggleFieldOptions();
 });
 </script>
 @endpush

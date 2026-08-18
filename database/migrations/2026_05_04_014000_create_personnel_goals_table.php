@@ -13,7 +13,7 @@ return new class extends Migration
             $table->foreignUuid('employee_id')->constrained('personnel_employees')->cascadeOnDelete();
             $table->foreignUuid('manager_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->string('administration_type', 20);
-            $table->string('administration_id');
+            $table->string('administration_id', 50);
             $table->string('title', 191);
             $table->text('description')->nullable();
             $table->string('goal_type', 50)->default('individual');

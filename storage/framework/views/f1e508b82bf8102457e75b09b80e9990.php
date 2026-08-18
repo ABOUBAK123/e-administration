@@ -3,19 +3,43 @@
 <?php $__env->startSection('page-subtitle', 'Documents reçus depuis d\'autres administrations'); ?>
 <?php $__env->startSection('content'); ?>
 
+<?php
+    $activeSubtab = $subtab ?? 'inbox';
+?>
+
+<div class="mb-4 flex flex-wrap gap-2 bg-white border border-gray-200 rounded-xl p-2 shadow-sm w-fit">
+    <a href="<?php echo e(route('reception.index', array_merge(request()->except(['page', 'subtab']), ['subtab' => 'inbox']))); ?>"
+        class="px-3 py-2 rounded-lg text-xs font-semibold transition <?php echo e($activeSubtab === 'inbox' ? 'bg-[#2453d6] text-white' : 'text-gray-600 hover:bg-gray-100'); ?>">
+        <i class="fas fa-inbox mr-1"></i> Réception
+    </a>
+    <a href="<?php echo e(route('reception.index', array_merge(request()->except(['page', 'subtab']), ['subtab' => 'archives']))); ?>"
+        class="px-3 py-2 rounded-lg text-xs font-semibold transition <?php echo e($activeSubtab === 'archives' ? 'bg-[#2453d6] text-white' : 'text-gray-600 hover:bg-gray-100'); ?>">
+        <i class="fas fa-archive mr-1"></i> Archives
+    </a>
+</div>
+
+<?php if($activeSubtab === 'archives'): ?>
+<div class="mb-5 p-3 bg-stone-50 border border-stone-200 rounded-xl text-xs text-stone-700">
+    <i class="fas fa-info-circle mr-1"></i>
+    Les documents reçus plus anciens que <strong><?php echo e((int)($receptionArchivalDays ?? 0) > 0 ? (int)$receptionArchivalDays . ' jour(s)' : 'la période configurée'); ?></strong>
+    apparaissent ici.
+</div>
+<?php endif; ?>
+
 
 <div class="flex items-center gap-4 mb-6">
     <form method="GET" action="<?php echo e(route('reception.index')); ?>" class="flex-1 max-w-md flex gap-2">
+        <input type="hidden" name="subtab" value="<?php echo e($activeSubtab); ?>">
         <div class="relative flex-1">
             <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
-            <input type="text" name="q" value="<?php echo e($search); ?>" placeholder="Rechercher un document reçu…"
+            <input type="text" name="q" value="<?php echo e($search); ?>" placeholder="<?php echo e($activeSubtab === 'archives' ? 'Rechercher un document archivé…' : 'Rechercher un document reçu…'); ?>"
                 class="w-full border border-gray-300 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2453d6] bg-white">
         </div>
         <button type="submit" class="px-4 py-2.5 bg-[#2453d6] text-white rounded-xl text-sm font-semibold hover:bg-[#1f47bb] transition">
             Chercher
         </button>
         <?php if($search): ?>
-            <a href="<?php echo e(route('reception.index')); ?>" class="px-4 py-2.5 border border-gray-300 text-gray-600 rounded-xl text-sm hover:bg-gray-100 transition">
+            <a href="<?php echo e(route('reception.index', ['subtab' => $activeSubtab])); ?>" class="px-4 py-2.5 border border-gray-300 text-gray-600 rounded-xl text-sm hover:bg-gray-100 transition">
                 <i class="fas fa-times"></i>
             </a>
         <?php endif; ?>
@@ -27,16 +51,21 @@
         <div class="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mb-5">
             <i class="fas fa-inbox text-4xl text-gray-300"></i>
         </div>
-        <h3 class="text-lg font-semibold text-gray-700 mb-1">Aucun document reçu</h3>
+        <h3 class="text-lg font-semibold text-gray-700 mb-1"><?php echo e($activeSubtab === 'archives' ? 'Aucun document archivé' : 'Aucun document reçu'); ?></h3>
         <p class="text-sm text-gray-400 max-w-sm">
-            Les documents partagés avec vous par d'autres administrations apparaîtront ici.
+            <?php echo e($activeSubtab === 'archives'
+                ? 'Les documents reçus archivés apparaîtront ici dès qu\'ils dépassent le délai configuré.'
+                : 'Les documents partagés avec vous par d\'autres administrations apparaîtront ici.'); ?>
+
         </p>
     </div>
 <?php else: ?>
     <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
-                <i class="fas fa-inbox text-[#2453d6]"></i> Documents reçus
+                <i class="fas <?php echo e($activeSubtab === 'archives' ? 'fa-archive' : 'fa-inbox'); ?> text-[#2453d6]"></i>
+                <?php echo e($activeSubtab === 'archives' ? 'Archives de réception' : 'Documents reçus'); ?>
+
             </h2>
             <span class="text-sm text-gray-500"><?php echo e($documents->total()); ?> document(s)</span>
         </div>
@@ -138,16 +167,17 @@
                     <td class="px-5 py-4 text-right">
                         <div class="flex items-center justify-end gap-2">
                         <?php if($doc->file_path): ?>
-                        <a href="<?php echo e(route('documents.download', $doc)); ?>"
-                            onclick="markDocReceived('<?php echo e($doc->id); ?>')"
+                        <a href="<?php echo e(route('documents.download', ['document' => $doc, 'from_reception' => 1])); ?>"
+                            <?php if($activeSubtab === 'inbox'): ?> onclick="markDocReceived('<?php echo e($doc->id); ?>')" <?php endif; ?>
                             class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-lg transition">
                             <i class="fas fa-download text-xs"></i> Télécharger
                         </a>
                         <?php endif; ?>
-                        <?php if($subEntities->isNotEmpty()): ?>
+                        <?php if($activeSubtab === 'inbox' && $subEntities->isNotEmpty()): ?>
                         <button type="button"
                             id="forward-btn-<?php echo e($doc->id); ?>"
                             onclick="openForwardModal('<?php echo e($doc->id); ?>', '<?php echo e(addslashes($doc->title)); ?>')"
+                            title="<?php echo e($isTransmis && isset($transmissionInfo[$doc->id]) ? 'Transmis à : ' . $transmissionInfo[$doc->id] : ''); ?>"
                             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition
                                 <?php echo e($isTransmis
                                     ? 'bg-green-100 hover:bg-green-200 text-green-700 border border-green-200'
@@ -178,6 +208,7 @@
 
 <?php $__env->startPush('scripts'); ?>
 
+<?php if($activeSubtab === 'inbox'): ?>
 <div id="forwardModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
     <div class="bg-white rounded-2xl shadow-xl w-full max-w-md">
         <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
@@ -323,6 +354,7 @@ document.getElementById('forwardModal').addEventListener('click', function(e) {
     if (e.target === this) closeForwardModal();
 });
 </script>
+<?php endif; ?>
 <?php $__env->stopPush(); ?>
 
-<?php echo $__env->make('layouts.app', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?><?php /**PATH C:\wamp64\www\e-administration_laravel\resources\views/reception/index.blade.php ENDPATH**/ ?>
+<?php echo $__env->make('layouts.app', array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?><?php /**PATH C:\wamp64\www\e-administration_laravel.worktrees\gestion-courrier-notification-email\resources\views/reception/index.blade.php ENDPATH**/ ?>

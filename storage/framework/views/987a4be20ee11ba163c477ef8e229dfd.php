@@ -1251,4 +1251,4 @@
 <?php endif; ?>
 </body>
 </html>
-<?php /**PATH C:\wamp64\www\e-administration_laravel\resources\views/layouts/app.blade.php ENDPATH**/ ?>
+<?php /**PATH C:\wamp64\www\e-administration_laravel.worktrees\gestion-courrier-notification-email\resources\views/layouts/app.blade.php ENDPATH**/ ?>

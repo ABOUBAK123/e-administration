@@ -438,6 +438,11 @@ Route::middleware('auth')->group(function () {
         Route::put('/requested-acts/{requestedAct}', [AdminController::class, 'updateRequestedAct'])->name('requested-acts.update');
         Route::delete('/requested-acts/{requestedAct}', [AdminController::class, 'destroyRequestedAct'])->name('requested-acts.destroy');
 
+        // Types de dossiers État civil (paramétrage)
+        Route::post('/civil-status-types',                     [AdminController::class, 'storeCivilStatusRecordType'])->name('civil-status-types.store');
+        Route::put('/civil-status-types/{civilStatusRecordType}', [AdminController::class, 'updateCivilStatusRecordType'])->name('civil-status-types.update');
+        Route::delete('/civil-status-types/{civilStatusRecordType}', [AdminController::class, 'destroyCivilStatusRecordType'])->name('civil-status-types.destroy');
+
         // Profils / Rôles
         Route::post('/profiles',            [AdminController::class, 'storeProfile'])->name('profiles.store');
         Route::post('/profiles/assign',     [AdminController::class, 'assignProfile'])->name('profiles.assign');

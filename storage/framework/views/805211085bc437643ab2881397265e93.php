@@ -58,4 +58,4 @@
     </div>
 </body>
 </html>
-<?php /**PATH C:\wamp64\www\e-administration_laravel\resources\views/layouts/auth.blade.php ENDPATH**/ ?>
+<?php /**PATH C:\wamp64\www\e-administration_laravel.worktrees\gestion-courrier-notification-email\resources\views/layouts/auth.blade.php ENDPATH**/ ?>

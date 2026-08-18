@@ -12,7 +12,7 @@ return new class extends Migration
             $table->uuid('id')->primary();
             $table->foreignUuid('employee_id')->constrained('personnel_employees')->cascadeOnDelete();
             $table->string('administration_type', 20);
-            $table->string('administration_id');
+            $table->string('administration_id', 50);
             $table->string('skill_name', 191);
             $table->string('category', 100)->nullable();
             $table->unsignedTinyInteger('current_level')->default(1);

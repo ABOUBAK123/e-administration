@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('personnel_trainings', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->string('administration_type', 20);
-            $table->string('administration_id');
+            $table->string('administration_id', 50);
             $table->string('code', 100)->nullable();
             $table->string('title', 191);
             $table->string('category', 100)->nullable();

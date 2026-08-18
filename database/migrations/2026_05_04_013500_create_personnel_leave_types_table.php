@@ -8,10 +8,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        Schema::dropIfExists('personnel_leave_types');
+
         Schema::create('personnel_leave_types', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->string('administration_type', 20);
-            $table->string('administration_id');
+            $table->string('administration_id', 50);
             $table->string('code', 100)->nullable();
             $table->string('name', 191);
             $table->text('description')->nullable();
