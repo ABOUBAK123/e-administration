@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('recipient_administrations', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->string('name', 255)->unique();
+            $table->string('name', 125)->unique();
             $table->enum('channel', ['api', 'email', 'ler', 'application']);
             $table->string('api_endpoint', 1000)->nullable();
             $table->string('email_address', 255)->nullable();

@@ -8,12 +8,14 @@ return new class extends Migration
 {
     public function up(): void
     {
+        Schema::dropIfExists('personnel_job_references');
+
         Schema::create('personnel_job_references', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->string('administration_type', 20);
             $table->string('administration_id', 36);
             $table->string('reference_type', 20); // grade, employment, function
-            $table->string('label', 191);
+            $table->string('label', 100);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 

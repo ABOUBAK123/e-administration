@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('issuing_administrations', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->string('name', 255)->unique();
+            $table->string('name', 125)->unique();
             $table->string('code', 100)->unique();
             $table->boolean('is_active')->default(true);
             $table->string('document_number_prefix', 50)->default('DOC');

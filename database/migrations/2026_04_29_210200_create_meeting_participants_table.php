@@ -14,7 +14,7 @@ return new class extends Migration
             $table->foreign('meeting_id')->references('id')->on('meetings')->onDelete('cascade');
             $table->uuid('user_id')->nullable()->index();
             $table->foreign('user_id')->references('id')->on('users')->nullOnDelete();
-            $table->string('email', 255)->nullable()->index();
+            $table->string('email', 191)->nullable()->index();
             $table->string('full_name', 255)->nullable();
             $table->enum('participant_role', ['chair', 'participant', 'guest', 'observer'])->default('participant')->index();
             $table->boolean('is_external')->default(false)->index();

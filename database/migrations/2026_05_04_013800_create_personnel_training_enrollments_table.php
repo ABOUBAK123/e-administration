@@ -14,7 +14,7 @@ return new class extends Migration
             $table->foreignUuid('training_id')->constrained('personnel_trainings')->cascadeOnDelete();
             $table->foreignUuid('assigned_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->string('administration_type', 20);
-            $table->string('administration_id');
+            $table->string('administration_id', 50);
             $table->string('status', 50)->default('planned');
             $table->date('planned_start_date')->nullable();
             $table->date('planned_end_date')->nullable();

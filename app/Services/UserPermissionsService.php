@@ -93,8 +93,13 @@ class UserPermissionsService
             'administration.user-profiles'      => 'Rôles & profils',
             'administration.antivirus'          => 'Journal Antivirus',
             'administration.ai-integration'     => 'Intelligence Artificielle (IA)',
+            'administration.civil-status-types' => 'Types de dossiers État civil',
         ]],
         'qrcode'                  => ['label' => 'Vérification QR',        'children' => []],
+        'civil-status'            => ['label' => 'Dossiers État civil',    'children' => [
+            'civil-status.view'   => 'Voir les dossiers',
+            'civil-status.manage' => 'Créer / traiter les dossiers',
+        ]],
         'personnel'               => ['label' => 'Gestion du personnel',   'children' => [
             'personnel.dashboard' => 'Tableau de bord personnel',
             'personnel.employees' => 'Employés',
@@ -107,6 +112,29 @@ class UserPermissionsService
             'personnel.career' => 'Carrière',
         ]],
     ];
+
+    /**
+     * Permissions minimales visibles pour un profil d'administration sans menu explicite.
+     */
+    private function defaultAdminMenuPermissions(): array
+    {
+        return [
+            'dashboard',
+            'courrier',
+            'documents',
+            'act-templates',
+            'templates-shared',
+            'workflows',
+            'signatures',
+            'reception',
+            'act-requests',
+            'meetings',
+            'administration',
+            'qrcode',
+            'civil-status',
+            'personnel',
+        ];
+    }
 
     /**
      * Résout les permissions d'un utilisateur Laravel.
@@ -125,15 +153,16 @@ class UserPermissionsService
             return ['isElevated' => true, 'permissions' => []];
         }
 
-        // Super-admin = rôle système admin SANS profil applicatif → accès total à tout
-        // Un admin AVEC un profil applicatif est limité aux onglets cochés dans ce profil
-        if ($user->role === 'admin' && !$user->profile_id) {
-            return ['isElevated' => true, 'permissions' => []];
+        // ADMIN: forcer le menu standard applicatif, sans dépendre d'une configuration
+        // manuelle des permissions de profil. Cela garantit que les modules métier clés
+        // restent visibles pour tous les profils admin.
+        if ($user->role === 'admin') {
+            return ['isElevated' => false, 'permissions' => $this->defaultAdminMenuPermissions()];
         }
 
-        // Profil applicatif associé (s'applique à tous les rôles système, y compris admin)
+        // Profil applicatif associé (s'applique à tous les rôles système, non admin)
         if ($profile) {
-            if ($profile && is_array($profile->permissions)) {
+            if (is_array($profile->permissions)) {
                 $perms = $profile->permissions;
                 $menuPerms = $perms['menuPermissions'] ?? [];
                 if (!empty($menuPerms)) {
