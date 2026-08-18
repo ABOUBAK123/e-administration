@@ -10779,6 +10779,11 @@ $permissionTree = [
         'documents.edit-onlyoffice'=> 'Éditer en ligne',
         'documents.delete'         => 'Supprimer',
     ]],
+    'act-templates'    => ['label' => "Modèles d'actes", 'children' => [
+        'act-templates.view'   => 'Voir les modèles',
+        'act-templates.create' => 'Créer un modèle',
+        'act-templates.edit'   => 'Modifier un modèle',
+    ]],
     'workflows'        => ['label' => 'Workflows', 'children' => [
         'workflows.view'     => 'Voir',
         'workflows.create'   => 'Créer',
@@ -10821,6 +10826,11 @@ $permissionTree = [
         'administration.user-profiles'      => 'Profils & Rôles',
         'administration.antivirus'          => 'Journal Antivirus',
         'administration.ai-integration'     => 'Intelligence Artificielle (IA)',
+        'administration.civil-status-types' => 'Types de dossiers État civil',
+    ]],
+    'civil-status'     => ['label' => 'Dossiers État civil', 'children' => [
+        'civil-status.view'   => 'Voir les dossiers',
+        'civil-status.manage' => 'Créer / traiter les dossiers',
     ]],
     'personnel'        => ['label' => 'Gestion du personnel', 'children' => [
         'personnel.dashboard'  => 'Tableau de bord',
