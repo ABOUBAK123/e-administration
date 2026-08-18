@@ -27,10 +27,7 @@ return new class extends Migration
 
             $table->unique(['administration_type', 'administration_id', 'code'], 'cs_rec_type_admin_code_uq');
             $table->index(['administration_type', 'administration_id'], 'cs_rec_type_admin_idx');
-
-            $table->foreign('auto_template_id', 'cs_rec_type_template_fk')
-                ->references('id')->on('document_templates')
-                ->nullOnDelete();
+            $table->index('auto_template_id', 'cs_rec_type_auto_template_idx');
         });
     }
 
