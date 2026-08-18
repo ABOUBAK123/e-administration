@@ -69,11 +69,6 @@ class UserPermissionsService
             'act-requests.view'    => 'Voir les demandes',
             'act-requests.process' => 'Traiter les demandes',
         ]],
-        'act-templates'           => ['label' => 'Modèles d\'actes',        'children' => [
-            'act-templates.view'    => 'Voir les modèles',
-            'act-templates.create'  => 'Créer un modèle',
-            'act-templates.edit'    => 'Modifier un modèle',
-        ]],
         'meetings'                => ['label' => 'Réunions',                'children' => [
             'meetings.view'        => 'Voir les réunions',
             'meetings.create'      => 'Créer des réunions',
@@ -127,7 +122,6 @@ class UserPermissionsService
             'dashboard',
             'courrier',
             'documents',
-            'act-templates',
             'templates-shared',
             'workflows',
             'signatures',

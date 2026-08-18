@@ -10779,11 +10779,6 @@ $permissionTree = [
         'documents.edit-onlyoffice'=> 'Éditer en ligne',
         'documents.delete'         => 'Supprimer',
     ]],
-    'act-templates'    => ['label' => "Modèles d'actes", 'children' => [
-        'act-templates.view'   => 'Voir les modèles',
-        'act-templates.create' => 'Créer un modèle',
-        'act-templates.edit'   => 'Modifier un modèle',
-    ]],
     'workflows'        => ['label' => 'Workflows', 'children' => [
         'workflows.view'     => 'Voir',
         'workflows.create'   => 'Créer',

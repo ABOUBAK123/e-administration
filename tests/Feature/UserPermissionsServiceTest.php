@@ -28,10 +28,10 @@ class UserPermissionsServiceTest extends TestCase
         $resolved = $service->resolve($user);
 
         $this->assertContains('documents', $resolved['permissions']);
-        $this->assertContains('act-templates', $resolved['permissions']);
+        $this->assertContains('civil-status', $resolved['permissions']);
         $this->assertContains('personnel', $resolved['permissions']);
         $this->assertTrue($service->can($user, 'documents'));
-        $this->assertTrue($service->can($user, 'act-templates'));
+        $this->assertTrue($service->can($user, 'civil-status'));
         $this->assertTrue($service->can($user, 'personnel'));
     }
 }
