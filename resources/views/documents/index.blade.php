@@ -471,6 +471,7 @@ const ROUTES = {
     versions:         (id) => `${_BASE}/${id}/versions`,
     status:           (id) => `${_BASE}/${id}/status`,
     convertPdf:       (id) => `${_BASE}/${id}/convert-pdf`,
+    paraphe:          (id) => `${_BASE}/${id}/paraphe`,
     createNew:        '{{ url("documents/new") }}',
     uploadAjax:       '{{ url("documents/upload-ajax") }}',
     shareLookupTracking: '{{ route("documents.share.lookupTracking") }}',
@@ -971,6 +972,7 @@ function renderTable() {
         const canManage = !!doc.is_owner;
         const canShare = !!doc.can_share;
         const canConvertPdf = canManage && !isFolder(doc) && ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp'].includes(ext(doc));
+        const canParaphe = !isFolder(doc) && ext(doc) === 'pdf';
         const canValidateActRequest = !!(doc.act_validation && doc.act_validation.can_validate);
         const labelsHtml = labels.slice(0, 3).map(c =>
             `<span class="inline-flex items-center rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-semibold">${c}</span>`
@@ -1005,6 +1007,11 @@ function renderTable() {
             </td>
             <td class="py-3 px-4">
                 <div data-row-actions="true" class="relative flex items-center justify-end gap-1">
+                    ${canParaphe ? `<button onclick="event.stopPropagation(); handleParaphe('${doc.id}')"
+                            title="Parapher (ajoute vos initiales en pied de page)"
+                            class="h-8 px-2 rounded-lg text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 flex items-center gap-1 transition text-xs">
+                        <i class="fas fa-signature text-sm"></i>
+                    </button>` : ''}
                     ${canShare ? `<button onclick="event.stopPropagation(); openShareModal('${doc.id}')"
                             title="Partager ${doc.shares_count > 0 ? '('+doc.shares_count+')' : ''}"
                             class="h-8 px-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 flex items-center gap-1 transition text-xs">
@@ -1143,6 +1150,44 @@ async function handleConvertPdf(id) {
         showToast(data.message || 'Document converti en PDF.');
     } catch (e) {
         showToast('Erreur lors de la conversion PDF.');
+    }
+}
+
+// ---- Paraphe ----
+async function handleParaphe(id) {
+    const doc = allDocs.find((d) => d.id === id);
+    if (!doc) return;
+
+    const confirmed = window.confirm(`Parapher « ${doc.title} » ? Vos initiales seront ajoutées en pied de page.`);
+    if (!confirmed) return;
+
+    try {
+        const resp = await fetch(ROUTES.paraphe(id), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF, Accept: 'application/json' },
+            body: JSON.stringify({}),
+        });
+
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            showToast(data.message || 'Paraphe impossible.');
+            return;
+        }
+
+        if (data.final_file_path) {
+            doc.final_file_path = data.final_file_path;
+        }
+        if (data.file_path) {
+            doc.file_path = data.file_path;
+        }
+        if (typeof data.file_size !== 'undefined') {
+            doc.file_size = Number(data.file_size) || doc.file_size;
+        }
+
+        renderTable();
+        showToast(data.message || 'Paraphe ajouté en pied de page.');
+    } catch (e) {
+        showToast('Erreur lors du paraphe.');
     }
 }
 

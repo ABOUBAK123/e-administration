@@ -228,6 +228,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/documents/{document}/status', [DocumentController::class, 'changeStatus'])->name('documents.status');
     Route::post('/documents/{document}/validate-act-request', [DocumentController::class, 'validateGeneratedActRequest'])->name('documents.validate-act-request');
     Route::post('/documents/{document}/convert-pdf', [DocumentController::class, 'convertToPdf'])->name('documents.convertPdf');
+    Route::post('/documents/{document}/paraphe', [DocumentController::class, 'paraphe'])->name('documents.paraphe');
 
     // Workflows
     Route::resource('workflows', WorkflowController::class);

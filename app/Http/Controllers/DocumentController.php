@@ -32,6 +32,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use App\Traits\GuardsPermissions;
 use Illuminate\Support\Str;
+use setasign\Fpdi\Tcpdf\Fpdi;
 
 class DocumentController extends Controller
 {
@@ -2139,6 +2140,144 @@ class DocumentController extends Controller
             'file_size' => $document->file_size,
             'status' => $document->status,
         ]);
+    }
+
+    /**
+     * Ajoute les initiales de l'utilisateur connecté en pied de page de chaque page d'un PDF
+     * (« parapher » rapidement un document depuis Mes Documents).
+     */
+    public function paraphe(Document $document)
+    {
+        abort_if(!$this->userCanAccessDocument($document), 403);
+
+        if (($document->description ?? '') === '[folder]') {
+            return response()->json(['ok' => false, 'message' => 'Un dossier ne peut pas être paraphé.'], 422);
+        }
+
+        $sourcePath = (string) ($document->final_file_path ?: $document->file_path ?: '');
+        $relative = ltrim(str_replace('/storage/', '', $sourcePath), '/');
+        if ($relative === '' || !Storage::disk('public')->exists($relative)) {
+            return response()->json(['ok' => false, 'message' => 'Fichier source introuvable.'], 404);
+        }
+
+        $ext = strtolower(pathinfo($relative, PATHINFO_EXTENSION));
+        if ($ext !== 'pdf') {
+            return response()->json([
+                'ok' => false,
+                'message' => "Seuls les fichiers PDF peuvent être paraphés. Convertissez d'abord le document en PDF.",
+            ], 422);
+        }
+
+        $user = Auth::user();
+        $initials = $this->resolveUserInitials($user);
+        $absPath = Storage::disk('public')->path($relative);
+
+        $priorStampCount = (int) $document->versions()
+            ->where('change_log', 'like', 'Paraphe ajouté%')
+            ->count();
+
+        try {
+            $pdfContent = $this->stampInitialsOnPdf($absPath, $initials, $priorStampCount);
+        } catch (\Throwable $e) {
+            Log::error('Document paraphe: stamping failed', [
+                'document_id' => (string) $document->id,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json(['ok' => false, 'message' => "Impossible d'ajouter le paraphe : " . $e->getMessage()], 422);
+        }
+
+        $destRelative = 'documents/' . pathinfo($relative, PATHINFO_FILENAME) . '-parafe-' . now()->format('Ymd-His') . '.pdf';
+        Storage::disk('public')->put($destRelative, $pdfContent);
+        $publicPath = '/storage/' . $destRelative;
+
+        $document->update([
+            'file_path' => $publicPath,
+            'final_file_path' => $publicPath,
+            'file_size' => strlen($pdfContent),
+        ]);
+
+        try {
+            $nextVersion = ((int) ($document->versions()->max('version') ?? 0)) + 1;
+            DocumentVersion::create([
+                'id' => Str::uuid(),
+                'document_id' => $document->id,
+                'version' => $nextVersion,
+                'file_path' => $publicPath,
+                'creator_id' => Auth::id(),
+                'change_log' => 'Paraphe ajouté par ' . ($user->name ?? $user->email ?? 'utilisateur') . ' (' . $initials . ')',
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Document paraphe: version save failed', [
+                'document_id' => (string) $document->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Vos initiales (' . $initials . ') ont été ajoutées en pied de page.',
+            'file_path' => $publicPath,
+            'final_file_path' => $publicPath,
+            'file_size' => strlen($pdfContent),
+            'initials' => $initials,
+        ]);
+    }
+
+    /**
+     * Calcule les initiales (2 à 3 lettres) à partir du nom de l'utilisateur.
+     * Repli sur les 2 premières lettres de l'email si le nom est vide.
+     */
+    private function resolveUserInitials(?User $user): string
+    {
+        $name = trim((string) ($user->name ?? ''));
+        if ($name === '') {
+            $email = trim((string) ($user->email ?? ''));
+            return $email !== '' ? strtoupper(substr($email, 0, 2)) : '??';
+        }
+
+        $words = preg_split('/\s+/', $name, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $letters = array_map(
+            static fn ($word) => mb_strtoupper(mb_substr($word, 0, 1, 'UTF-8'), 'UTF-8'),
+            $words
+        );
+
+        $initials = implode('', array_slice($letters, 0, 3));
+
+        return $initials !== '' ? $initials : '??';
+    }
+
+    /**
+     * Surimpose les initiales de l'utilisateur en bas à gauche de chaque page du PDF,
+     * sans altérer le contenu existant (utilise FPDI pour importer les pages sources).
+     * Les paraphes précédents restent visibles : chaque nouveau paraphe est empilé au-dessus.
+     */
+    private function stampInitialsOnPdf(string $absPath, string $initials, int $priorStampCount): string
+    {
+        $pdf = new Fpdi('P', 'pt');
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        $pdf->SetAutoPageBreak(false);
+        $pdf->setJPEGQuality(90);
+
+        $pageCount = $pdf->setSourceFile($absPath);
+        $stampLabel = 'Paraphe : ' . $initials . ' - ' . now()->format('d/m/Y H:i');
+        $offsetY = 8 + ($priorStampCount * 11);
+
+        for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
+            $templateId = $pdf->importPage($pageNo);
+            $size = $pdf->getTemplateSize($templateId);
+            $orientation = $size['width'] > $size['height'] ? 'L' : 'P';
+
+            $pdf->AddPage($orientation, [$size['width'], $size['height']]);
+            $pdf->useTemplate($templateId, 0, 0, $size['width'], $size['height'], true);
+
+            $pdf->SetFont('helvetica', '', 7);
+            $pdf->SetTextColor(36, 83, 214);
+            $pdf->SetXY(8, $size['height'] - $offsetY);
+            $pdf->Cell(0, 10, $stampLabel, 0, 0, 'L');
+        }
+
+        return (string) $pdf->Output('', 'S');
     }
 
     private function convertOfficeToPdf(string $absOfficePath): ?string
