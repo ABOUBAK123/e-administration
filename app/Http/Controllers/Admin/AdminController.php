@@ -3628,6 +3628,8 @@ class AdminController extends Controller
         'mail_from_address', 'mail_from_name',
         'qr_image_page', 'qr_image_x', 'qr_image_y', 'qr_image_width', 'qr_image_height',
         'signature_qr_position',
+        'stamp_initials_x', 'stamp_initials_y', 'stamp_initials_font_size',
+        'stamp_initials_color', 'stamp_initials_line_height',
         'theme_primary_color', 'theme_secondary_color', 'theme_logo',
         'courrier_archival_days',
         'reception_archival_days',
@@ -3710,6 +3712,29 @@ class AdminController extends Controller
                     ['value' => (string) $normalizedDays]
                 );
             }
+        }
+
+        // Position/apparence du paraphe (initiales en pied de page des PDF) : bornes de sécurité.
+        $stampIntBounds = [
+            'stamp_initials_x' => [0, 2000],
+            'stamp_initials_y' => [0, 2000],
+            'stamp_initials_font_size' => [5, 24],
+            'stamp_initials_line_height' => [8, 40],
+        ];
+        foreach ($stampIntBounds as $stampKey => [$min, $max]) {
+            if (!array_key_exists($stampKey, $data)) {
+                continue;
+            }
+            $raw = trim((string) $data[$stampKey]);
+            if ($raw === '' || !is_numeric($raw)) {
+                unset($data[$stampKey]);
+                continue;
+            }
+            $data[$stampKey] = (string) max($min, min($max, (int) $raw));
+        }
+        if (array_key_exists('stamp_initials_color', $data)) {
+            $rawColor = ltrim(trim((string) $data['stamp_initials_color']), '#');
+            $data['stamp_initials_color'] = preg_match('/^[0-9a-fA-F]{6}$/', $rawColor) ? strtoupper($rawColor) : '2453D6';
         }
 
         foreach ($data as $key => $value) {

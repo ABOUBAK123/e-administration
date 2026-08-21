@@ -2253,6 +2253,15 @@ class DocumentController extends Controller
      */
     private function stampInitialsOnPdf(string $absPath, string $initials, int $priorStampCount): string
     {
+        $stampX = $this->getIntAppSetting('stamp_initials_x', 8, 0, 2000);
+        $stampBaseY = $this->getIntAppSetting('stamp_initials_y', 8, 0, 2000);
+        $stampFontSize = $this->getIntAppSetting('stamp_initials_font_size', 7, 5, 24);
+        $stampLineHeight = $this->getIntAppSetting('stamp_initials_line_height', 11, 8, 40);
+
+        $stampColorHex = (string) (AppSetting::where('key', 'stamp_initials_color')->value('value') ?? '2453D6');
+        $stampColorHex = preg_match('/^[0-9a-fA-F]{6}$/', $stampColorHex) ? $stampColorHex : '2453D6';
+        [$stampR, $stampG, $stampB] = array_map('hexdec', str_split($stampColorHex, 2));
+
         $pdf = new Fpdi('P', 'pt');
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
@@ -2261,7 +2270,7 @@ class DocumentController extends Controller
 
         $pageCount = $pdf->setSourceFile($absPath);
         $stampLabel = 'Paraphe : ' . $initials . ' - ' . now()->format('d/m/Y H:i');
-        $offsetY = 8 + ($priorStampCount * 11);
+        $offsetY = $stampBaseY + ($priorStampCount * $stampLineHeight);
 
         for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
             $templateId = $pdf->importPage($pageNo);
@@ -2271,13 +2280,31 @@ class DocumentController extends Controller
             $pdf->AddPage($orientation, [$size['width'], $size['height']]);
             $pdf->useTemplate($templateId, 0, 0, $size['width'], $size['height'], true);
 
-            $pdf->SetFont('helvetica', '', 7);
-            $pdf->SetTextColor(36, 83, 214);
-            $pdf->SetXY(8, $size['height'] - $offsetY);
+            $pdf->SetFont('helvetica', '', $stampFontSize);
+            $pdf->SetTextColor($stampR, $stampG, $stampB);
+            $pdf->SetXY($stampX, $size['height'] - $offsetY);
             $pdf->Cell(0, 10, $stampLabel, 0, 0, 'L');
         }
 
         return (string) $pdf->Output('', 'S');
+    }
+
+    /**
+     * Lit un réglage numérique dans app_settings, avec valeur par défaut et bornes de sécurité.
+     */
+    private function getIntAppSetting(string $key, int $default, int $min, int $max): int
+    {
+        try {
+            $raw = AppSetting::where('key', $key)->value('value');
+            if ($raw === null || $raw === '' || !is_numeric($raw)) {
+                return $default;
+            }
+            $value = (int) $raw;
+            return ($value < $min || $value > $max) ? $default : $value;
+        } catch (\Throwable $e) {
+            Log::warning('getIntAppSetting fallback used', ['key' => $key, 'error' => $e->getMessage()]);
+            return $default;
+        }
     }
 
     private function convertOfficeToPdf(string $absOfficePath): ?string

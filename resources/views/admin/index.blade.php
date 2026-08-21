@@ -8644,6 +8644,11 @@ document.addEventListener('DOMContentLoaded', function () {
     $qrY           = $settings['qr_image_y']->value              ?? '710';
     $qrW           = $settings['qr_image_width']->value          ?? '150';
     $qrH           = $settings['qr_image_height']->value         ?? '80';
+    $stampX        = $settings['stamp_initials_x']->value          ?? '8';
+    $stampY        = $settings['stamp_initials_y']->value          ?? '8';
+    $stampFontSize = $settings['stamp_initials_font_size']->value  ?? '7';
+    $stampLineH    = $settings['stamp_initials_line_height']->value ?? '11';
+    $stampColor    = $settings['stamp_initials_color']->value      ?? '2453D6';
 @endphp
 
 <div class="max-w-2xl space-y-6">
@@ -8843,6 +8848,56 @@ document.addEventListener('DOMContentLoaded', function () {
       </div>
     </div>
 
+    {{-- Position du paraphe (initiales en pied de page) --}}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+      <div>
+        <h3 class="text-lg font-bold text-gray-900 mb-1">Position du paraphe sur les documents</h3>
+        <p class="text-sm text-gray-500">Paramètre utilisé lors du paraphe rapide d'un document PDF depuis <strong>Mes Documents</strong>. Coordonnées en points, mesurées depuis le coin bas-gauche de la page.</p>
+      </div>
+
+      <div class="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
+        <p class="text-sm font-medium text-gray-700">Position visuelle des initiales sur le document (A4)</p>
+        <p class="text-xs text-gray-400">Valeurs par défaut : X&nbsp;8, Y&nbsp;8 (depuis le bas), Taille police&nbsp;7, Espacement&nbsp;11, Couleur&nbsp;#2453D6</p>
+
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-2">
+          <div>
+            <label class="block text-[11px] text-gray-500 mb-1">X</label>
+            <input type="number" name="stamp_initials_x" value="{{ old('stamp_initials_x', $stampX) }}"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#2453d6]/30">
+          </div>
+          <div>
+            <label class="block text-[11px] text-gray-500 mb-1">Y (depuis le bas)</label>
+            <input type="number" name="stamp_initials_y" value="{{ old('stamp_initials_y', $stampY) }}"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#2453d6]/30">
+          </div>
+          <div>
+            <label class="block text-[11px] text-gray-500 mb-1">Taille police</label>
+            <input type="number" name="stamp_initials_font_size" value="{{ old('stamp_initials_font_size', $stampFontSize) }}"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#2453d6]/30">
+          </div>
+          <div>
+            <label class="block text-[11px] text-gray-500 mb-1">Espacement (empilement)</label>
+            <input type="number" name="stamp_initials_line_height" value="{{ old('stamp_initials_line_height', $stampLineH) }}"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#2453d6]/30">
+          </div>
+          <div>
+            <label class="block text-[11px] text-gray-500 mb-1">Couleur</label>
+            <input type="color" name="stamp_initials_color" value="#{{ old('stamp_initials_color', $stampColor) }}"
+              class="w-full h-[34px] border border-gray-300 rounded-lg px-1 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#2453d6]/30">
+          </div>
+        </div>
+
+        {{-- Aperçu visuel A4 --}}
+        <div class="mt-3">
+          <p class="text-[11px] text-gray-400 mb-1">Aperçu position (proportionnel A4, coin bas-gauche)</p>
+          <div class="relative bg-white border border-gray-300 rounded" style="width:120px;height:170px;overflow:hidden;">
+            <div id="stamp-preview-box" class="absolute text-[8px] font-bold" style="left:2px;bottom:2px;">AB</div>
+          </div>
+          <p class="text-[10px] text-gray-400 mt-1">A4&nbsp;: 595&times;842 pts</p>
+        </div>
+      </div>
+    </div>
+
     {{-- Bouton sauvegarder --}}
     <div class="flex items-center gap-3">
       <button type="submit"
@@ -8913,6 +8968,28 @@ function toggleOoSecret() {
     if (el) el.addEventListener('input', updateQrPreview);
   });
   updateQrPreview();
+})();
+// Aperçu paraphe dynamique
+(function() {
+  var A4w = 595, A4h = 842;
+  var previewW = 120, previewH = 170;
+  function updateStampPreview() {
+    var box = document.getElementById('stamp-preview-box');
+    if (!box) return;
+    var x = parseFloat(document.querySelector('[name=stamp_initials_x]').value) || 8;
+    var y = parseFloat(document.querySelector('[name=stamp_initials_y]').value) || 8;
+    var fontSize = parseFloat(document.querySelector('[name=stamp_initials_font_size]').value) || 7;
+    var colorEl = document.querySelector('[name=stamp_initials_color]');
+    box.style.left = ((x / A4w) * previewW) + 'px';
+    box.style.bottom = ((y / A4h) * previewH) + 'px';
+    box.style.fontSize = Math.max(6, (fontSize / A4h) * previewH) + 'px';
+    box.style.color = colorEl ? colorEl.value : '#2453d6';
+  }
+  ['stamp_initials_x','stamp_initials_y','stamp_initials_font_size','stamp_initials_color'].forEach(function(n) {
+    var el = document.querySelector('[name=' + n + ']');
+    if (el) el.addEventListener('input', updateStampPreview);
+  });
+  updateStampPreview();
 })();
 </script>
 
