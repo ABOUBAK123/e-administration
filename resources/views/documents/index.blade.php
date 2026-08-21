@@ -20,6 +20,7 @@
         'mime_type'    => $d->mime_type,
         'status'       => $d->status,
         'shares_count' => $sharesCount[$d->id] ?? 0,
+        'paraphed_by_me' => $paraphedDocumentIds->contains((string) $d->id),
         'is_courrier_depart_tagged' => str_contains(mb_strtolower(trim((string) ($d->title ?? '')) . ' ' . trim((string) ($d->description ?? '')), 'UTF-8'), 'courrier depart')
             || str_contains(mb_strtolower(trim((string) ($d->title ?? '')) . ' ' . trim((string) ($d->description ?? '')), 'UTF-8'), '[courrier_depart]'),
         'next_courrier_depart_number' => $nextCourrierDepart ?? null,
@@ -972,7 +973,7 @@ function renderTable() {
         const canManage = !!doc.is_owner;
         const canShare = !!doc.can_share;
         const canConvertPdf = canManage && !isFolder(doc) && ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp'].includes(ext(doc));
-        const canParaphe = !isFolder(doc) && ext(doc) === 'pdf';
+        const canParaphe = !isFolder(doc) && ext(doc) === 'pdf' && !doc.paraphed_by_me;
         const canValidateActRequest = !!(doc.act_validation && doc.act_validation.can_validate);
         const labelsHtml = labels.slice(0, 3).map(c =>
             `<span class="inline-flex items-center rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-semibold">${c}</span>`
@@ -1183,6 +1184,7 @@ async function handleParaphe(id) {
         if (typeof data.file_size !== 'undefined') {
             doc.file_size = Number(data.file_size) || doc.file_size;
         }
+        doc.paraphed_by_me = true;
 
         renderTable();
         showToast(data.message || 'Paraphe ajouté en pied de page.');

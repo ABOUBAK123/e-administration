@@ -265,6 +265,16 @@ class DocumentController extends Controller
             ->groupBy('document_id')
             ->pluck('cnt', 'document_id');
 
+        // Documents déjà paraphés par l'utilisateur connecté (un seul paraphe autorisé par personne)
+        $paraphedDocumentIds = DocumentVersion::query()
+            ->whereIn('document_id', $documents->pluck('id'))
+            ->where('creator_id', $userId)
+            ->where('change_log', 'like', 'Paraphe ajouté%')
+            ->pluck('document_id')
+            ->map(fn ($id) => (string) $id)
+            ->unique()
+            ->values();
+
         // Administrations destinataires actives pour le modal de partage
         $recipientAdministrations = RecipientAdministration::where('is_active', true)->get();
 
@@ -350,7 +360,8 @@ class DocumentController extends Controller
             'onlyofficeUrl',
             'documentAccessPermissions',
             'nextCourrierDepart',
-            'actValidationByDocument'
+            'actValidationByDocument',
+            'paraphedDocumentIds'
         ));
     }
 
@@ -2152,6 +2163,14 @@ class DocumentController extends Controller
 
         if (($document->description ?? '') === '[folder]') {
             return response()->json(['ok' => false, 'message' => 'Un dossier ne peut pas être paraphé.'], 422);
+        }
+
+        $alreadyParaphed = $document->versions()
+            ->where('creator_id', Auth::id())
+            ->where('change_log', 'like', 'Paraphe ajouté%')
+            ->exists();
+        if ($alreadyParaphed) {
+            return response()->json(['ok' => false, 'message' => 'Vous avez déjà paraphé ce document.'], 422);
         }
 
         $sourcePath = (string) ($document->final_file_path ?: $document->file_path ?: '');
