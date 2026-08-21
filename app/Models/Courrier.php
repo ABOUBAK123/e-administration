@@ -27,6 +27,8 @@ class Courrier extends Model
         'destinataire_administration_id',
         'source_document_id',
         'is_system_generated',
+        'nni_hash',
+        'nni_masked',
         'sub_entity_code',
         'impute_a',
         'impute_par',

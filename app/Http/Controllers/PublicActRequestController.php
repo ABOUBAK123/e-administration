@@ -15,6 +15,7 @@ use App\Models\SubEntity;
 use App\Models\User;
 use App\Services\Templates\TemplateGenerationCoreService;
 use App\Services\ClamAvScanner;
+use App\Services\NniService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -539,7 +540,9 @@ class PublicActRequestController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'metadata']);
 
-        return view('public-act-requests.create', compact('administration', 'requestedAct', 'directions', 'recipients'));
+        $nniExample = trim((string) (AppSetting::where('key', 'nni_display_example')->value('value') ?? ''));
+
+        return view('public-act-requests.create', compact('administration', 'requestedAct', 'directions', 'recipients', 'nniExample'));
     }
 
     public function store(Request $request, string $administration_id, string $requested_act_id)
@@ -557,6 +560,7 @@ class PublicActRequestController extends Controller
             'applicant_full_name'        => 'required|string|max:255',
             'applicant_email'            => 'required|email|max:255',
             'applicant_phone'            => 'nullable|string|max:50',
+            'nni'                        => 'required|string|max:40',
             'recipient_administration_id'=> 'nullable|exists:recipient_administrations,id',
             'motif'                      => 'nullable|string|max:2000',
             'note'                       => 'nullable|string|max:2000',
@@ -570,6 +574,13 @@ class PublicActRequestController extends Controller
             'attachments_files.*.max' => 'Chaque fichier ne doit pas depasser 50 Mo.',
             'attachments_files.*.file' => 'Le fichier joint est invalide.',
         ]);
+
+        $nniProcessed = NniService::process($request->input('nni'));
+        if (!$nniProcessed) {
+            return back()
+                ->withErrors(['nni' => "Le NNI saisi n'est pas au format attendu."])
+                ->withInput();
+        }
 
         $extraPayload = [];
         $requestedFields = is_array($requestedAct->applicant_fields) ? $requestedAct->applicant_fields : [];
@@ -683,6 +694,8 @@ class PublicActRequestController extends Controller
             'applicant_full_name'         => (string) $request->input('applicant_full_name'),
             'applicant_email'             => (string) $request->input('applicant_email', ''),
             'applicant_phone'             => (string) $request->input('applicant_phone', ''),
+            'nni_hash'                    => $nniProcessed['hash'],
+            'nni_masked'                  => $nniProcessed['masked'],
             'applicant_payload'           => array_merge($extraPayload, [
                 '_note' => trim((string) $request->input('note', '')),
             ]),

@@ -84,6 +84,7 @@ class UserPermissionsService
             'administration.requested-acts'     => 'Actes demandés',
             'administration.routing'            => 'Règles de routage',
             'administration.onlyoffice'         => 'Serveur OnlyOffice',
+            'administration.nni'                => 'Identification (NNI)',
             'administration.users'              => 'Gestion des utilisateurs',
             'administration.theming'            => 'Apparence',
             'administration.email-notifications'=> 'Notifications e-mail',

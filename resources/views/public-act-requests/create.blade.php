@@ -150,6 +150,16 @@
                                placeholder="Votre téléphone"
                                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
                     </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">NNI (Numéro National d'Identification) *</label>
+                        <input type="text" name="nni" value="{{ old('nni') }}" required
+                               placeholder="{{ $nniExample !== '' ? $nniExample : 'Votre NNI' }}"
+                               class="w-full border {{ $errors->has('nni') ? 'border-red-400' : 'border-gray-300' }} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+                        @error('nni')
+                            <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                        @enderror
+                        <p class="text-[11px] text-gray-400 mt-1">Utilisé uniquement pour identifier automatiquement vos demandes ; il n'est jamais affiché en clair.</p>
+                    </div>
                 </div>
 
                 @php

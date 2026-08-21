@@ -39,6 +39,8 @@ class ActRequestSubmission extends Model
         'applicant_full_name',
         'applicant_email',
         'applicant_phone',
+        'nni_hash',
+        'nni_masked',
         'applicant_payload',
         'attachments',
         'auto_generated_document_id',

@@ -28,6 +28,7 @@ $allTabs = [
     'direction-types'    => ['fas fa-tags',               'Types de direction',    '#10b981', 'administration.direction-types'],
     'routing'            => ['fas fa-route',              'Routage',               '#f97316', 'administration.routing'],
     'onlyoffice'         => ['fas fa-edit',               'OnlyOffice',            '#06b6d4', 'administration.onlyoffice'],
+    'nni'                => ['fas fa-fingerprint',        'Identification (NNI)',  '#0891b2', 'administration.nni'],
     'ai-integration'     => ['fas fa-robot',              'Intelligence Artificielle', '#7c3aed', 'administration.ai-integration'],
     'users'              => ['fas fa-users',              'Utilisateurs',          '#3b82f6', 'administration.users'],
     'theming'            => ['fas fa-paint-brush',        'Apparence',             '#a855f7', 'administration.theming'],
@@ -214,6 +215,7 @@ $_oc = [
         ['requested-acts',     'fas fa-clipboard-list',     'Actes demandés',        'Types d\'actes configurables.',            'yellow'],
         ['civil-status-types', 'fas fa-id-card-clip',       'Types État civil',      'Naissance, mariage, décès et pièces requises.', 'teal'],
         ['onlyoffice',         'fas fa-edit',               'OnlyOffice',            'Serveur d\'édition collaborative.',        'cyan'],
+        ['nni',                'fas fa-fingerprint',        'Identification (NNI)', 'Format et masquage du NNI demandeur.',     'cyan'],
         ['ai-integration',     'fas fa-robot',              'Intelligence Artificielle', 'Clé API IA (Gemini) pour les comptes rendus.', 'violet'],
         ['courrier-archiving', 'fas fa-archive',            'Archivage courrier',    'Délai d\'archivage automatique des courriers.','stone'],
     ] as [$t, $icon, $title, $desc, $color])
@@ -8992,6 +8994,70 @@ function toggleOoSecret() {
   updateStampPreview();
 })();
 </script>
+
+{{-- ══════════════════════ IDENTIFICATION (NNI) ══════════════════════ --}}
+@elseif($tab === 'nni')
+@php
+    $nniRegex   = $settings['nni_validation_regex']->value   ?? '^[0-9]{10,15}$';
+    $nniExample = $settings['nni_display_example']->value    ?? 'Ex : 1234567890123';
+    $nniMaskLen = $settings['nni_mask_visible_chars']->value ?? '4';
+@endphp
+
+<div class="max-w-3xl space-y-6">
+  <div>
+    <h2 class="text-xl font-bold text-gray-900">Identification (NNI)</h2>
+    <p class="text-sm text-gray-500 mt-1">Le NNI est saisi obligatoirement par chaque demandeur et sert de clé unique pour classer automatiquement ses documents. Il n'est jamais affiché en clair aux agents : seule une version masquée est visible, la valeur complète n'est jamais stockée.</p>
+  </div>
+
+  <form method="POST" action="{{ route('admin.settings.save') }}" class="space-y-6">
+    @csrf @method('PUT')
+    <input type="hidden" name="tab" value="nni">
+
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+      <div>
+        <h3 class="text-lg font-bold text-gray-900 mb-1">Format attendu du NNI</h3>
+        <p class="text-sm text-gray-500">Expression régulière appliquée à la valeur normalisée (majuscules, chiffres/lettres uniquement, espaces et tirets supprimés). Par défaut : format ivoirien standard.</p>
+      </div>
+
+      <div>
+        <label class="block text-[11px] text-gray-500 mb-1">Motif de validation (regex)</label>
+        <input type="text" name="nni_validation_regex" value="{{ old('nni_validation_regex', $nniRegex) }}"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#2453d6]/30"
+          placeholder="^[0-9]{10,15}$">
+        <p class="text-[11px] text-gray-400 mt-1">Sans délimiteurs (ils sont ajoutés automatiquement). Un motif invalide est ignoré à l'enregistrement et le précédent motif reste actif.</p>
+      </div>
+
+      <div>
+        <label class="block text-[11px] text-gray-500 mb-1">Exemple affiché au demandeur</label>
+        <input type="text" name="nni_display_example" value="{{ old('nni_display_example', $nniExample) }}"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#2453d6]/30"
+          placeholder="Ex : 1234567890123">
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+      <div>
+        <h3 class="text-lg font-bold text-gray-900 mb-1">Masquage à l'affichage</h3>
+        <p class="text-sm text-gray-500">Le NNI n'est jamais montré en clair. Seuls les derniers caractères restent visibles pour permettre une vérification visuelle rapide, le reste est masqué.</p>
+      </div>
+
+      <div>
+        <label class="block text-[11px] text-gray-500 mb-1">Nombre de caractères visibles (fin du NNI)</label>
+        <input type="number" min="0" max="12" name="nni_mask_visible_chars" value="{{ old('nni_mask_visible_chars', $nniMaskLen) }}"
+          class="w-32 border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#2453d6]/30">
+        <p class="text-[11px] text-gray-400 mt-1">Aperçu : <span class="font-mono text-gray-600">••••••••{{ str_repeat('1', (int) $nniMaskLen) }}</span></p>
+      </div>
+    </div>
+
+    {{-- Bouton sauvegarder --}}
+    <div class="flex items-center gap-3">
+      <button type="submit"
+        class="px-6 py-2.5 bg-[#2453d6] hover:bg-[#1f47bb] text-white text-sm font-semibold rounded-lg transition flex items-center gap-2">
+        <i class="fas fa-save"></i> Enregistrer
+      </button>
+    </div>
+  </form>
+</div>
 
 {{-- ══════════════════════ INTELLIGENCE ARTIFICIELLE (IA) ══════════════════════ --}}
 @elseif($tab === 'ai-integration')

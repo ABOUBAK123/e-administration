@@ -12,7 +12,7 @@ class DocumentShare extends Model
     protected $fillable = [
         'document_id', 'shared_by', 'mode', 'recipient_name', 'recipient_email',
         'recipient_administration_id', 'applicant_full_name', 'applicant_matricule',
-        'applicant_email', 'applicant_phone', 'applicant_rib', 'tracking_number', 'permission', 'has_delay', 'delay_value', 'delay_unit',
+        'applicant_email', 'applicant_phone', 'applicant_rib', 'nni_hash', 'nni_masked', 'tracking_number', 'permission', 'has_delay', 'delay_value', 'delay_unit',
         'expires_at', 'reception_status',
     ];
 

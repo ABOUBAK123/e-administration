@@ -164,6 +164,32 @@ class ReceptionController extends Controller
             return view('reception.index', compact('documents', 'search', 'subtab', 'receptionArchivalDays'));
         }
 
+        // Classement automatique : nombre de documents reçus liés au même demandeur (identifié par NNI),
+        // et filtrage optionnel sur un demandeur précis (?nni=<hash>) avant la pagination.
+        $nniGroupCounts = collect();
+        $nniFilter = strtoupper(trim((string) $request->get('nni', '')));
+        if ($sharedDocIds->isNotEmpty() && Schema::hasColumn('document_shares', 'nni_hash')) {
+            try {
+                $nniGroupCounts = DocumentShare::query()
+                    ->whereIn('document_id', $sharedDocIds)
+                    ->whereNotNull('nni_hash')
+                    ->selectRaw('nni_hash, count(distinct document_id) as cnt')
+                    ->groupBy('nni_hash')
+                    ->pluck('cnt', 'nni_hash');
+
+                if ($nniFilter !== '') {
+                    $filteredDocIds = DocumentShare::query()
+                        ->whereIn('document_id', $sharedDocIds)
+                        ->where('nni_hash', $nniFilter)
+                        ->pluck('document_id')
+                        ->unique();
+                    $sharedDocIds = $sharedDocIds->intersect($filteredDocIds)->values();
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Reception: cannot compute NNI groups', ['message' => $e->getMessage()]);
+            }
+        }
+
         $query = Document::with(['owner', 'issuingAdministration'])
             ->whereIn('id', $sharedDocIds);
 
@@ -185,7 +211,7 @@ class ReceptionController extends Controller
                     ->whereIn('document_id', $sharedDocIds)
                     ->whereNotNull('applicant_full_name')
                     ->orderByDesc('created_at')
-                    ->get(['document_id', 'applicant_full_name', 'applicant_phone', 'applicant_email', 'applicant_rib', 'tracking_number'])
+                    ->get(['document_id', 'applicant_full_name', 'applicant_phone', 'applicant_email', 'applicant_rib', 'tracking_number', 'nni_hash', 'nni_masked'])
                     ->keyBy('document_id');
             } catch (\Throwable $e) {
                 Log::warning('Reception: cannot load applicant info', ['message' => $e->getMessage()]);
@@ -287,7 +313,9 @@ class ReceptionController extends Controller
             'receptionStatuses',
             'transmissionInfo',
             'subtab',
-            'receptionArchivalDays'
+            'receptionArchivalDays',
+            'nniGroupCounts',
+            'nniFilter'
         ));
     }
 
@@ -420,12 +448,14 @@ class ReceptionController extends Controller
             return response()->json(['ok' => false, 'message' => 'Aucun utilisateur actif trouvé pour cette entité sous tutelle.'], 422);
         }
 
-        $sourceTrackingNumber = strtoupper(trim((string) (DocumentShare::query()
+        $sourceShare = DocumentShare::query()
             ->where('document_id', $document->id)
             ->where('recipient_administration_id', $recipientAdminId)
             ->whereNotNull('tracking_number')
             ->latest()
-            ->value('tracking_number') ?? '')));
+            ->first(['tracking_number', 'nni_hash', 'nni_masked']);
+
+        $sourceTrackingNumber = strtoupper(trim((string) ($sourceShare->tracking_number ?? '')));
 
         $created = 0;
         foreach ($targetUsers as $targetUser) {
@@ -445,6 +475,8 @@ class ReceptionController extends Controller
                     'recipient_email' => $targetUser->email,
                     'recipient_administration_id' => $recipientAdminId,
                     'tracking_number' => $sourceTrackingNumber !== '' ? $sourceTrackingNumber : null,
+                    'nni_hash' => $sourceShare->nni_hash ?? null,
+                    'nni_masked' => $sourceShare->nni_masked ?? null,
                 ]);
 
                 Notification::create([

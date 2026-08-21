@@ -27,6 +27,16 @@
 </div>
 @endif
 
+@if(!empty($nniFilter))
+<div class="mb-5 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center justify-between gap-3">
+    <span><i class="fas fa-layer-group mr-1"></i> Affichage filtré : documents liés au même demandeur (identifié par NNI).</span>
+    <a href="{{ route('reception.index', array_filter(['subtab' => $activeSubtab, 'q' => $search])) }}"
+       class="px-2 py-1 rounded-lg bg-white border border-amber-300 text-amber-700 font-semibold hover:bg-amber-100 transition">
+        <i class="fas fa-times mr-1"></i> Retirer le filtre
+    </a>
+</div>
+@endif
+
 {{-- Barre de recherche --}}
 <div class="flex items-center gap-4 mb-6">
     <form method="GET" action="{{ route('reception.index') }}" class="flex-1 max-w-md flex gap-2">
@@ -108,6 +118,16 @@
                             @endif
                             @if($shareInfo->tracking_number)
                                 <div class="text-xs text-indigo-500 font-mono">{{ $shareInfo->tracking_number }}</div>
+                            @endif
+                            @if($shareInfo->nni_masked)
+                                <div class="text-[11px] text-gray-400 font-mono mt-0.5">NNI&nbsp;: {{ $shareInfo->nni_masked }}</div>
+                                @php $nniCount = $nniGroupCounts[$shareInfo->nni_hash] ?? 1; @endphp
+                                @if($nniCount > 1)
+                                    <a href="{{ route('reception.index', array_filter(['subtab' => $subtab, 'nni' => $shareInfo->nni_hash])) }}"
+                                       class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-semibold hover:bg-amber-100 transition">
+                                        <i class="fas fa-layer-group text-[9px]"></i> {{ $nniCount }} documents de ce demandeur
+                                    </a>
+                                @endif
                             @endif
                         @else
                             <span class="text-gray-400">—</span>

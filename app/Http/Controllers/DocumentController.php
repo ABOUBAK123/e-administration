@@ -1055,6 +1055,15 @@ class DocumentController extends Controller
             $expiresAt = now()->add($delayUnit, $delayValue);
         }
 
+        $shareTrackingNumber = strtoupper(trim((string) $request->input('trackingNumber', '')));
+        $nniFromSubmission = $shareTrackingNumber !== ''
+            ? ActRequestSubmission::query()
+                ->whereRaw('UPPER(tracking_number) = ?', [$shareTrackingNumber])
+                ->whereNotNull('nni_hash')
+                ->latest('created_at')
+                ->first(['nni_hash', 'nni_masked'])
+            : null;
+
         $basePayload = [
             'document_id'                  => $document->id,
             'shared_by'                    => Auth::id(),
@@ -1071,7 +1080,9 @@ class DocumentController extends Controller
             'applicant_email'              => $request->input('applicantEmail'),
             'applicant_phone'              => $request->input('applicantPhone'),
             'applicant_rib'               => $request->input('applicantRib') ? strtoupper(trim((string) $request->input('applicantRib'))) : null,
-            'tracking_number'              => strtoupper(trim((string) $request->input('trackingNumber', ''))),
+            'nni_hash'                      => $nniFromSubmission?->nni_hash,
+            'nni_masked'                    => $nniFromSubmission?->nni_masked,
+            'tracking_number'              => $shareTrackingNumber,
         ];
 
         $createdShares = collect();

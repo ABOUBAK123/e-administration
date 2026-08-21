@@ -3630,6 +3630,7 @@ class AdminController extends Controller
         'signature_qr_position',
         'stamp_initials_x', 'stamp_initials_y', 'stamp_initials_font_size',
         'stamp_initials_color', 'stamp_initials_line_height',
+        'nni_validation_regex', 'nni_display_example', 'nni_mask_visible_chars',
         'theme_primary_color', 'theme_secondary_color', 'theme_logo',
         'courrier_archival_days',
         'reception_archival_days',
@@ -3735,6 +3736,19 @@ class AdminController extends Controller
         if (array_key_exists('stamp_initials_color', $data)) {
             $rawColor = ltrim(trim((string) $data['stamp_initials_color']), '#');
             $data['stamp_initials_color'] = preg_match('/^[0-9a-fA-F]{6}$/', $rawColor) ? strtoupper($rawColor) : '2453D6';
+        }
+
+        // Format/masquage du NNI : le motif doit être un regex PHP valide, sinon on l'ignore.
+        if (array_key_exists('nni_validation_regex', $data)) {
+            $rawPattern = trim((string) $data['nni_validation_regex']);
+            $candidate = str_starts_with($rawPattern, '/') ? $rawPattern : '/' . $rawPattern . '/';
+            if ($rawPattern === '' || @preg_match($candidate, '') === false) {
+                unset($data['nni_validation_regex']);
+            }
+        }
+        if (array_key_exists('nni_mask_visible_chars', $data)) {
+            $raw = trim((string) $data['nni_mask_visible_chars']);
+            $data['nni_mask_visible_chars'] = (!is_numeric($raw)) ? '4' : (string) max(0, min(12, (int) $raw));
         }
 
         foreach ($data as $key => $value) {
