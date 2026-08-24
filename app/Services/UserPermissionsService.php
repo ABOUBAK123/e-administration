@@ -153,29 +153,22 @@ class UserPermissionsService
             return ['isElevated' => true, 'permissions' => []];
         }
 
-        // ADMIN: forcer le menu standard applicatif, sans dépendre d'une configuration
-        // manuelle des permissions de profil. Cela garantit que les modules métier clés
-        // restent visibles pour tous les profils admin.
-        if ($user->role === 'admin') {
-            return ['isElevated' => false, 'permissions' => $this->defaultAdminMenuPermissions()];
+        // Profil applicatif associé avec des permissions de menu explicitement cochées :
+        // priorité absolue, y compris pour les comptes ayant le rôle système "admin".
+        // Un profil comme "ADMIN ADMINISTRATION" doit rester restreint à ce qui est
+        // réellement coché dans ses menuPermissions, pas recevoir le menu complet.
+        if ($profile && is_array($profile->permissions)) {
+            $menuPerms = $profile->permissions['menuPermissions'] ?? [];
+            if (!empty($menuPerms)) {
+                return ['isElevated' => false, 'permissions' => $menuPerms];
+            }
         }
 
-        // Profil applicatif associé (s'applique à tous les rôles système, non admin)
-        if ($profile) {
-            if (is_array($profile->permissions)) {
-                $perms = $profile->permissions;
-                $menuPerms = $perms['menuPermissions'] ?? [];
-                if (!empty($menuPerms)) {
-                    return ['isElevated' => false, 'permissions' => $menuPerms];
-                }
-            }
-
-            // Certains profils admin existent mais ne portent aucune permission de menu.
-            // Dans ce cas, on leur donne un accès de base aux blocs principaux pour garder
-            // le menu cohérent avec les modules réellement présents dans l'application.
-            if ($user->role === 'admin' || $this->isSuperAdminProfile($profile)) {
-                return ['isElevated' => false, 'permissions' => $this->defaultAdminMenuPermissions()];
-            }
+        // ADMIN sans profil, ou profil existant mais sans permissions de menu configurées :
+        // menu standard applicatif par défaut, pour garder le menu cohérent avec les
+        // modules réellement présents dans l'application.
+        if ($user->role === 'admin') {
+            return ['isElevated' => false, 'permissions' => $this->defaultAdminMenuPermissions()];
         }
 
         // Fallback minimal pour les comptes non admin qui n'ont pas de profil configuré.
@@ -196,10 +189,22 @@ class UserPermissionsService
             return true;
         }
 
-        // Un parent accordé donne accès à ses enfants (ex: "courrier" => "courrier.liste").
+        // Un parent accordé donne accès à ses enfants (ex: "courrier" => "courrier.liste"),
+        // mais seulement si AUCUN enfant de ce parent n'est explicitement listé : dès qu'au
+        // moins un enfant est coché individuellement (ex: profil "ADMIN ADMINISTRATION" avec
+        // "administration" + seulement 9 des 19 "administration.*"), la sélection des
+        // enfants devient exclusive et fait autorité — le parent ne doit plus donner un
+        // accès implicite aux enfants non cochés.
         if (str_contains($key, '.')) {
             $parent = explode('.', $key, 2)[0];
-            if (in_array($parent, $perms, true)) {
+            $hasExplicitSiblingChild = false;
+            foreach ($perms as $p) {
+                if ($p !== $parent && str_starts_with($p, $parent . '.')) {
+                    $hasExplicitSiblingChild = true;
+                    break;
+                }
+            }
+            if (!$hasExplicitSiblingChild && in_array($parent, $perms, true)) {
                 return true;
             }
         }
