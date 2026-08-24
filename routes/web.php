@@ -344,42 +344,53 @@ Route::middleware('auth')->group(function () {
         Route::post('/signature-provider', [AdminController::class, 'saveSignatureProvider'])->name('signature-provider.save');
         Route::post('/signature-provider/test', [AdminController::class, 'testSignatureConnection'])->name('signature-provider.test');
         Route::post('/onlyoffice-token', [AdminController::class, 'onlyofficeToken'])->name('onlyoffice.token');
-        Route::post('/personnel/employees', [AdminController::class, 'storePersonnelEmployee'])->name('personnel.employees.store');
-        Route::get('/personnel/employees/template', [AdminController::class, 'downloadPersonnelEmployeesTemplate'])->name('personnel.employees.template');
-        Route::post('/personnel/employees/import', [AdminController::class, 'importPersonnelEmployees'])->name('personnel.employees.import');
-        Route::put('/personnel/employees/{employee}', [AdminController::class, 'updatePersonnelEmployee'])->name('personnel.employees.update');
-        Route::post('/personnel/employees/{employee}/virtual-card/transmit', [AdminController::class, 'transmitVirtualCardForSignature'])->name('personnel.employees.virtual-card.transmit');
-        Route::post('/personnel/employees/{employee}/create-user', [AdminController::class, 'createUserFromPersonnelEmployee'])->name('personnel.employees.create-user');
-        Route::post('/personnel/employees/{employee}/documents', [AdminController::class, 'uploadPersonnelEmployeeDocument'])->name('personnel.employees.documents.store');
-        Route::post('/personnel/employee-skills', [AdminController::class, 'storePersonnelEmployeeSkill'])->name('personnel.employees.skills.store');
-        Route::get('/personnel/documents/{document}/download', [AdminController::class, 'downloadPersonnelEmployeeDocument'])->name('personnel.documents.download');
-        Route::post('/personnel/leave-types', [AdminController::class, 'storePersonnelLeaveType'])->name('personnel.leave-types.store');
-        Route::put('/personnel/leave-types/{leaveType}', [AdminController::class, 'updatePersonnelLeaveType'])->name('personnel.leave-types.update');
-        Route::delete('/personnel/leave-types/{leaveType}', [AdminController::class, 'destroyPersonnelLeaveType'])->name('personnel.leave-types.destroy');
-        Route::get('/personnel/leave-types/{leaveType}/justification-zip', [AdminController::class, 'downloadPersonnelLeaveTypeJustificationZip'])->name('personnel.leave-types.justification-zip.download');
-        Route::post('/personnel/leave-requests', [AdminController::class, 'storePersonnelLeaveRequest'])->name('personnel.leave-requests.store');
-        Route::get('/personnel/leave-requests/{leaveRequest}/attachment', [AdminController::class, 'downloadPersonnelLeaveRequestAttachment'])->name('personnel.leave-requests.attachment.download');
-        Route::patch('/personnel/leave-requests/{leaveRequest}/status', [AdminController::class, 'updatePersonnelLeaveRequestStatus'])->name('personnel.leave-requests.status');
-        Route::post('/personnel/job-references', [AdminController::class, 'storePersonnelJobReference'])->name('personnel.job-references.store');
-        Route::post('/personnel/trainings', [AdminController::class, 'storePersonnelTraining'])->name('personnel.trainings.store');
-        Route::post('/personnel/staffing-needs', [AdminController::class, 'storePersonnelStaffingNeed'])->name('personnel.staffing-needs.store');
-        Route::put('/personnel/staffing-needs/{staffingNeed}', [AdminController::class, 'updatePersonnelStaffingNeed'])->name('personnel.staffing-needs.update');
-        Route::delete('/personnel/staffing-needs/{staffingNeed}', [AdminController::class, 'destroyPersonnelStaffingNeed'])->name('personnel.staffing-needs.destroy');
-        Route::post('/personnel/training-enrollments', [AdminController::class, 'storePersonnelTrainingEnrollment'])->name('personnel.training-enrollments.store');
-        Route::patch('/personnel/training-enrollments/{enrollment}/status', [AdminController::class, 'updatePersonnelTrainingEnrollmentStatus'])->name('personnel.training-enrollments.update-status');
-        Route::post('/personnel/goals', [AdminController::class, 'storePersonnelGoal'])->name('personnel.goals.store');
-        Route::post('/personnel/performance-reviews', [AdminController::class, 'storePersonnelPerformanceReview'])->name('personnel.performance-reviews.store');
-        Route::post('/personnel/career-events', [AdminController::class, 'storePersonnelCareerEvent'])->name('personnel.career-events.store');
-        Route::get('/personnel/mutation-requests', function () {
-            return redirect()->route('admin.index', [
-                'tab' => 'personnel',
-                'personnel_tab' => 'agent-space',
-                'agent_space_tab' => 'mutation',
-            ]);
-        })->name('personnel.mutation-requests.index');
-        Route::post('/personnel/mutation-requests', [AdminController::class, 'storePersonnelMutationRequest'])->name('personnel.mutation-requests.store');
-        Route::get('/personnel/mutation-requests/{event}/attachment/{attachmentIndex}', [AdminController::class, 'downloadPersonnelMutationRequestAttachment'])->name('personnel.mutation-requests.attachment.download');
-        Route::patch('/personnel/mutation-requests/{event}/status', [AdminController::class, 'updatePersonnelMutationRequestStatus'])->name('personnel.mutation-requests.status');
+        Route::middleware('admin:personnel.employees')->group(function () {
+            Route::post('/personnel/employees', [AdminController::class, 'storePersonnelEmployee'])->name('personnel.employees.store');
+            Route::get('/personnel/employees/template', [AdminController::class, 'downloadPersonnelEmployeesTemplate'])->name('personnel.employees.template');
+            Route::post('/personnel/employees/import', [AdminController::class, 'importPersonnelEmployees'])->name('personnel.employees.import');
+            Route::put('/personnel/employees/{employee}', [AdminController::class, 'updatePersonnelEmployee'])->name('personnel.employees.update');
+            Route::post('/personnel/employees/{employee}/virtual-card/transmit', [AdminController::class, 'transmitVirtualCardForSignature'])->name('personnel.employees.virtual-card.transmit');
+            Route::post('/personnel/employees/{employee}/create-user', [AdminController::class, 'createUserFromPersonnelEmployee'])->name('personnel.employees.create-user');
+            Route::post('/personnel/employees/{employee}/documents', [AdminController::class, 'uploadPersonnelEmployeeDocument'])->name('personnel.employees.documents.store');
+            Route::post('/personnel/employee-skills', [AdminController::class, 'storePersonnelEmployeeSkill'])->name('personnel.employees.skills.store');
+            Route::get('/personnel/documents/{document}/download', [AdminController::class, 'downloadPersonnelEmployeeDocument'])->name('personnel.documents.download');
+            Route::post('/personnel/job-references', [AdminController::class, 'storePersonnelJobReference'])->name('personnel.job-references.store');
+            Route::post('/personnel/staffing-needs', [AdminController::class, 'storePersonnelStaffingNeed'])->name('personnel.staffing-needs.store');
+            Route::put('/personnel/staffing-needs/{staffingNeed}', [AdminController::class, 'updatePersonnelStaffingNeed'])->name('personnel.staffing-needs.update');
+            Route::delete('/personnel/staffing-needs/{staffingNeed}', [AdminController::class, 'destroyPersonnelStaffingNeed'])->name('personnel.staffing-needs.destroy');
+        });
+
+        Route::middleware('admin:personnel.leave')->group(function () {
+            Route::post('/personnel/leave-types', [AdminController::class, 'storePersonnelLeaveType'])->name('personnel.leave-types.store');
+            Route::put('/personnel/leave-types/{leaveType}', [AdminController::class, 'updatePersonnelLeaveType'])->name('personnel.leave-types.update');
+            Route::delete('/personnel/leave-types/{leaveType}', [AdminController::class, 'destroyPersonnelLeaveType'])->name('personnel.leave-types.destroy');
+            Route::get('/personnel/leave-types/{leaveType}/justification-zip', [AdminController::class, 'downloadPersonnelLeaveTypeJustificationZip'])->name('personnel.leave-types.justification-zip.download');
+            Route::post('/personnel/leave-requests', [AdminController::class, 'storePersonnelLeaveRequest'])->name('personnel.leave-requests.store');
+            Route::get('/personnel/leave-requests/{leaveRequest}/attachment', [AdminController::class, 'downloadPersonnelLeaveRequestAttachment'])->name('personnel.leave-requests.attachment.download');
+            Route::patch('/personnel/leave-requests/{leaveRequest}/status', [AdminController::class, 'updatePersonnelLeaveRequestStatus'])->name('personnel.leave-requests.status');
+        });
+
+        Route::middleware('admin:personnel.training')->group(function () {
+            Route::post('/personnel/trainings', [AdminController::class, 'storePersonnelTraining'])->name('personnel.trainings.store');
+            Route::post('/personnel/training-enrollments', [AdminController::class, 'storePersonnelTrainingEnrollment'])->name('personnel.training-enrollments.store');
+            Route::patch('/personnel/training-enrollments/{enrollment}/status', [AdminController::class, 'updatePersonnelTrainingEnrollmentStatus'])->name('personnel.training-enrollments.update-status');
+        });
+
+        Route::middleware('admin:personnel.career')->group(function () {
+            Route::post('/personnel/goals', [AdminController::class, 'storePersonnelGoal'])->name('personnel.goals.store');
+            Route::post('/personnel/performance-reviews', [AdminController::class, 'storePersonnelPerformanceReview'])->name('personnel.performance-reviews.store');
+            Route::post('/personnel/career-events', [AdminController::class, 'storePersonnelCareerEvent'])->name('personnel.career-events.store');
+            Route::get('/personnel/mutation-requests', function () {
+                return redirect()->route('admin.index', [
+                    'tab' => 'personnel',
+                    'personnel_tab' => 'agent-space',
+                    'agent_space_tab' => 'mutation',
+                ]);
+            })->name('personnel.mutation-requests.index');
+            Route::post('/personnel/mutation-requests', [AdminController::class, 'storePersonnelMutationRequest'])->name('personnel.mutation-requests.store');
+            Route::get('/personnel/mutation-requests/{event}/attachment/{attachmentIndex}', [AdminController::class, 'downloadPersonnelMutationRequestAttachment'])->name('personnel.mutation-requests.attachment.download');
+            Route::patch('/personnel/mutation-requests/{event}/status', [AdminController::class, 'updatePersonnelMutationRequestStatus'])->name('personnel.mutation-requests.status');
+        });
         Route::post('/templates/upload-file', [AdminController::class, 'uploadTemplateFile'])->name('admin.templates.uploadFile');
         Route::post('/templates/{template}/detect-vars', [AdminController::class, 'detectTemplateVars'])->name('admin.templates.detectVars');
             Route::post('/templates/{template}/ai-enrich',   [AdminController::class, 'aiEnrichTemplateVars'])->name('admin.templates.aiEnrich');
@@ -393,14 +404,18 @@ Route::middleware('auth')->group(function () {
         Route::delete('/emitters/{emitter}',     [AdminController::class, 'destroyEmitter'])->name('emitters.destroy');
 
         // Destinataires
-        Route::post('/recipients',               [AdminController::class, 'storeRecipient'])->name('recipients.store');
-        Route::put('/recipients/{recipient}',    [AdminController::class, 'updateRecipient'])->name('recipients.update');
-        Route::delete('/recipients/{recipient}', [AdminController::class, 'destroyRecipient'])->name('recipients.destroy');
+        Route::middleware('admin:administration.recipients')->group(function () {
+            Route::post('/recipients',               [AdminController::class, 'storeRecipient'])->name('recipients.store');
+            Route::put('/recipients/{recipient}',    [AdminController::class, 'updateRecipient'])->name('recipients.update');
+            Route::delete('/recipients/{recipient}', [AdminController::class, 'destroyRecipient'])->name('recipients.destroy');
+        });
 
         // Types de direction
-        Route::post('/direction-types',                    [AdminController::class, 'storeDirectionType'])->name('direction-types.store');
-        Route::put('/direction-types/{directionType}',     [AdminController::class, 'updateDirectionType'])->name('direction-types.update');
-        Route::delete('/direction-types/{directionType}',  [AdminController::class, 'destroyDirectionType'])->name('direction-types.destroy');
+        Route::middleware('admin:administration.direction-types')->group(function () {
+            Route::post('/direction-types',                    [AdminController::class, 'storeDirectionType'])->name('direction-types.store');
+            Route::put('/direction-types/{directionType}',     [AdminController::class, 'updateDirectionType'])->name('direction-types.update');
+            Route::delete('/direction-types/{directionType}',  [AdminController::class, 'destroyDirectionType'])->name('direction-types.destroy');
+        });
 
         // Templates
         Route::post('/templates',                                        [AdminController::class, 'storeTemplate'])->name('templates.store');
@@ -414,18 +429,24 @@ Route::middleware('auth')->group(function () {
         Route::post('/templates/{template}/force-save',                  [AdminController::class, 'forceSaveTemplate'])->name('templates.forceSave');
 
         // Règles de routage
-        Route::post('/routing-rules',               [AdminController::class, 'storeRoutingRule'])->name('routing-rules.store');
-        Route::delete('/routing-rules/{routingRule}',[AdminController::class, 'destroyRoutingRule'])->name('routing-rules.destroy');
+        Route::middleware('admin:administration.routing')->group(function () {
+            Route::post('/routing-rules',               [AdminController::class, 'storeRoutingRule'])->name('routing-rules.store');
+            Route::delete('/routing-rules/{routingRule}',[AdminController::class, 'destroyRoutingRule'])->name('routing-rules.destroy');
+        });
 
         // Entités sous tutelle
-        Route::post('/sub-entities',                [AdminController::class, 'storeSubEntity'])->name('sub-entities.store');
-        Route::put('/sub-entities/{subEntity}',     [AdminController::class, 'updateSubEntity'])->name('sub-entities.update');
-        Route::delete('/sub-entities/{subEntity}',  [AdminController::class, 'destroySubEntity'])->name('sub-entities.destroy');
+        Route::middleware('admin:administration.sub-entities')->group(function () {
+            Route::post('/sub-entities',                [AdminController::class, 'storeSubEntity'])->name('sub-entities.store');
+            Route::put('/sub-entities/{subEntity}',     [AdminController::class, 'updateSubEntity'])->name('sub-entities.update');
+            Route::delete('/sub-entities/{subEntity}',  [AdminController::class, 'destroySubEntity'])->name('sub-entities.destroy');
+        });
 
         // Actes demandés
-        Route::post('/requested-acts',               [AdminController::class, 'storeRequestedAct'])->name('requested-acts.store');
-        Route::put('/requested-acts/{requestedAct}', [AdminController::class, 'updateRequestedAct'])->name('requested-acts.update');
-        Route::delete('/requested-acts/{requestedAct}', [AdminController::class, 'destroyRequestedAct'])->name('requested-acts.destroy');
+        Route::middleware('admin:administration.requested-acts')->group(function () {
+            Route::post('/requested-acts',               [AdminController::class, 'storeRequestedAct'])->name('requested-acts.store');
+            Route::put('/requested-acts/{requestedAct}', [AdminController::class, 'updateRequestedAct'])->name('requested-acts.update');
+            Route::delete('/requested-acts/{requestedAct}', [AdminController::class, 'destroyRequestedAct'])->name('requested-acts.destroy');
+        });
 
         // Types de dossiers État civil (paramétrage)
         Route::post('/civil-status-types',                     [AdminController::class, 'storeCivilStatusRecordType'])->name('civil-status-types.store');
@@ -441,9 +462,11 @@ Route::middleware('auth')->group(function () {
         Route::delete('/profiles/{profile}',[AdminController::class, 'destroyProfile'])->name('profiles.destroy');
 
         // Instructions de traitement courrier
-        Route::post('/instructions',                    [AdminController::class, 'storeInstruction'])->name('instructions.store');
-        Route::put('/instructions/{instruction}',       [AdminController::class, 'updateInstruction'])->name('instructions.update');
-        Route::delete('/instructions/{instruction}',    [AdminController::class, 'destroyInstruction'])->name('instructions.destroy');
+        Route::middleware('admin:administration.instructions')->group(function () {
+            Route::post('/instructions',                    [AdminController::class, 'storeInstruction'])->name('instructions.store');
+            Route::put('/instructions/{instruction}',       [AdminController::class, 'updateInstruction'])->name('instructions.update');
+            Route::delete('/instructions/{instruction}',    [AdminController::class, 'destroyInstruction'])->name('instructions.destroy');
+        });
 
         // Utilisateurs (onglet admin intégré)
         Route::post('/users-tab',                          [AdminController::class, 'storeUserTab'])->name('users-tab.store');
@@ -455,6 +478,6 @@ Route::middleware('auth')->group(function () {
         Route::post('/users-tab/{user}/notify-account',    [AdminController::class, 'notifyUserAccount'])->name('users-tab.notify-account');
 
         Route::resource('administrations', IssuingAdministrationController::class);
-        Route::resource('users', UserController::class);
+        Route::resource('users', UserController::class)->middleware('admin:administration.users');
     });
 });
