@@ -17,6 +17,8 @@ import { AppSetting } from './entities/app-setting.entity';
 import { RequestedAct } from './entities/requested-act.entity';
 import { User } from '../users/user.entity';
 import { UserDirectionAssignment } from '../users/user-direction-assignment.entity';
+import { UsersModule } from '../users/users.module';
+import { MenuPermissionGuard } from '../../common/guards/menu-permission.guard';
 
 @Module({
   imports: [
@@ -36,9 +38,10 @@ import { UserDirectionAssignment } from '../users/user-direction-assignment.enti
       User,
       UserDirectionAssignment,
     ]),
+    UsersModule,
   ],
   controllers: [AdministrationController, AdministrationPublicController],
-  providers: [AdministrationService],
+  providers: [AdministrationService, MenuPermissionGuard],
   exports: [AdministrationService],
 })
 export class AdministrationModule {}
