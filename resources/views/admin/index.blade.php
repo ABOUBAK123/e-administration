@@ -11065,8 +11065,77 @@ function sigToggleApiKey() {
                     </div>
                     <div>
                         <label class="block text-xs text-gray-500 mb-1">Devise</label>
-                        <input type="text" name="currency" id="mm_currency" value="XOF" maxlength="10"
+                        @php
+                            $mmCurrencyGroups = [
+                                "Afrique de l'Ouest" => [
+                                    'XOF' => 'XOF — Franc CFA (UEMOA)',
+                                    'NGN' => 'NGN — Naira (Nigeria)',
+                                    'GHS' => 'GHS — Cedi (Ghana)',
+                                    'GNF' => 'GNF — Franc guinéen',
+                                    'SLE' => 'SLE — Leone (Sierra Leone)',
+                                    'LRD' => 'LRD — Dollar libérien',
+                                    'GMD' => 'GMD — Dalasi (Gambie)',
+                                    'CVE' => 'CVE — Escudo (Cap-Vert)',
+                                    'MRU' => 'MRU — Ouguiya (Mauritanie)',
+                                ],
+                                'Afrique Centrale' => [
+                                    'XAF' => 'XAF — Franc CFA (CEMAC)',
+                                    'CDF' => 'CDF — Franc congolais (RDC)',
+                                    'AOA' => 'AOA — Kwanza (Angola)',
+                                    'STN' => 'STN — Dobra (Sao Tomé-et-Principe)',
+                                ],
+                                'Afrique du Nord' => [
+                                    'MAD' => 'MAD — Dirham (Maroc)',
+                                    'DZD' => 'DZD — Dinar (Algérie)',
+                                    'TND' => 'TND — Dinar (Tunisie)',
+                                    'EGP' => 'EGP — Livre (Égypte)',
+                                    'LYD' => 'LYD — Dinar (Libye)',
+                                    'SDG' => 'SDG — Livre (Soudan)',
+                                ],
+                                "Afrique de l'Est" => [
+                                    'KES' => 'KES — Shilling (Kenya)',
+                                    'UGX' => 'UGX — Shilling (Ouganda)',
+                                    'TZS' => 'TZS — Shilling (Tanzanie)',
+                                    'RWF' => 'RWF — Franc (Rwanda)',
+                                    'BIF' => 'BIF — Franc (Burundi)',
+                                    'ETB' => 'ETB — Birr (Éthiopie)',
+                                    'SSP' => 'SSP — Livre (Soudan du Sud)',
+                                    'SOS' => 'SOS — Shilling (Somalie)',
+                                    'DJF' => 'DJF — Franc (Djibouti)',
+                                    'ERN' => 'ERN — Nakfa (Érythrée)',
+                                ],
+                                'Afrique Australe' => [
+                                    'ZAR' => 'ZAR — Rand (Afrique du Sud)',
+                                    'ZMW' => 'ZMW — Kwacha (Zambie)',
+                                    'MWK' => 'MWK — Kwacha (Malawi)',
+                                    'MZN' => 'MZN — Metical (Mozambique)',
+                                    'BWP' => 'BWP — Pula (Botswana)',
+                                    'NAD' => 'NAD — Dollar (Namibie)',
+                                    'SZL' => 'SZL — Lilangeni (Eswatini)',
+                                    'LSL' => 'LSL — Loti (Lesotho)',
+                                ],
+                                'Océan Indien' => [
+                                    'MGA' => 'MGA — Ariary (Madagascar)',
+                                    'MUR' => 'MUR — Roupie (Maurice)',
+                                    'SCR' => 'SCR — Roupie (Seychelles)',
+                                    'KMF' => 'KMF — Franc (Comores)',
+                                ],
+                                'Autres' => [
+                                    'EUR' => 'EUR — Euro (imposé par le sandbox MTN)',
+                                    'USD' => 'USD — Dollar américain',
+                                ],
+                            ];
+                        @endphp
+                        <select name="currency" id="mm_currency"
                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
+                            @foreach($mmCurrencyGroups as $groupLabel => $currencies)
+                            <optgroup label="{{ $groupLabel }}">
+                                @foreach($currencies as $code => $label)
+                                <option value="{{ $code }}" {{ $code === 'XOF' ? 'selected' : '' }}>{{ $label }}</option>
+                                @endforeach
+                            </optgroup>
+                            @endforeach
+                        </select>
                     </div>
                 </div>
 
