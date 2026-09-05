@@ -23,6 +23,7 @@ use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\IssuingAdministrationController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\CourrierController;
+use App\Http\Controllers\MobileMoneyController;
 
 // Auth
 Route::middleware('guest')->group(function () {
@@ -105,6 +106,25 @@ Route::post('/public/api/signature/platform-webhook', [SignatureController::clas
     ->middleware('verify.webhook')
     ->name('signature.platform-webhook.public');
 
+// Webhook Mobile Money (sans session, sans CSRF, appelé par le fournisseur externe)
+// Le middleware verify.mm.webhook valide le token secret embarqué dans l'URL.
+Route::post('/api/mobile-money/{provider}/callback', [MobileMoneyController::class, 'callback'])
+    ->middleware('verify.mm.webhook')
+    ->name('mobile-money.callback');
+Route::post('/e-administration_laravel/api/mobile-money/{provider}/callback', [MobileMoneyController::class, 'callback'])
+    ->middleware('verify.mm.webhook')
+    ->name('mobile-money.callback.subdir');
+Route::post('/e-administration_laravel/public/api/mobile-money/{provider}/callback', [MobileMoneyController::class, 'callback'])
+    ->middleware('verify.mm.webhook')
+    ->name('mobile-money.callback.subdir.public');
+Route::post('/public/api/mobile-money/{provider}/callback', [MobileMoneyController::class, 'callback'])
+    ->middleware('verify.mm.webhook')
+    ->name('mobile-money.callback.public');
+
+// Statut d'une transaction mobile money (JSON, public, interrogé par le formulaire de paiement)
+Route::get('/api/mobile-money/status/{transaction}', [MobileMoneyController::class, 'status'])
+    ->name('mobile-money.status');
+
 // Diagnostic endpoints (sans auth, accès public pour support technique)
 Route::get('/api/signature/diag/{executionId}', [SignatureController::class, 'diagExecution'])
     ->name('signature.diag');
@@ -160,6 +180,11 @@ Route::get('/public/api/oo-file/template/{templateId}', [AdminController::class,
 Route::get('/demande-acte', [PublicActRequestController::class, 'index'])->name('public.act-requests.index');
 Route::post('/demande-acte/rechercher', [PublicActRequestController::class, 'searchByTrackingNumber'])->name('public.act-requests.search');
 Route::get('/demande-acte/suivi/{tracking_token}', [PublicActRequestController::class, 'track'])->name('public.act-requests.track');
+// Routes de paiement à préfixe littéral "paiement/" — doivent être déclarées AVANT les
+// routes génériques {administration_id}/{requested_act_id} ci-dessous, sans quoi Laravel
+// matcherait "paiement" comme administration_id (routage par ordre de déclaration).
+Route::get('/demande-acte/paiement/{tracking_token}', [PublicActRequestController::class, 'payment'])->name('public.act-requests.payment');
+Route::post('/demande-acte/paiement/{tracking_token}/initier', [PublicActRequestController::class, 'initiatePayment'])->name('public.act-requests.payment.initiate');
 Route::get('/demande-acte/{administration_id}', [PublicActRequestController::class, 'showActsByAdministration'])->name('public.act-requests.by-admin');
 Route::get('/demande-acte/{administration_id}/{requested_act_id}', [PublicActRequestController::class, 'create'])->name('public.act-requests.create');
 Route::post('/demande-acte/{administration_id}/{requested_act_id}', [PublicActRequestController::class, 'store'])->name('public.act-requests.store');
@@ -472,6 +497,7 @@ Route::middleware('auth')->group(function () {
         Route::middleware('admin:administration.mobile-money')->group(function () {
             Route::post('/mobile-money',                    [AdminController::class, 'storeMobileMoneyConfig'])->name('mobile-money.store');
             Route::delete('/mobile-money/{mobileMoneyConfig}', [AdminController::class, 'destroyMobileMoneyConfig'])->name('mobile-money.destroy');
+            Route::post('/mobile-money/mtn/provision-sandbox', [AdminController::class, 'provisionMtnMomoSandbox'])->name('mobile-money.mtn.provision-sandbox');
         });
 
         // Utilisateurs (onglet admin intégré)

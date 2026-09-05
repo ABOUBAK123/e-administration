@@ -11005,6 +11005,8 @@ function sigToggleApiKey() {
                     data-provider="{{ $cfg->provider }}"
                     data-label="{{ $cfg->label }}"
                     data-endpoint="{{ $cfg->endpoint }}"
+                    data-environment="{{ $cfg->environment }}"
+                    data-currency="{{ $cfg->currency }}"
                     data-merchant-id="{{ $cfg->merchant_id }}"
                     data-callback-url="{{ $cfg->callback_url }}"
                     data-is-active="{{ $cfg->is_active ? '1' : '0' }}"
@@ -11054,16 +11056,43 @@ function sigToggleApiKey() {
                     </div>
                 </div>
 
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div class="md:col-span-2">
+                        <label class="block text-xs text-gray-500 mb-1">Endpoint (URL de base de l'API)</label>
+                        <input type="text" name="endpoint" id="mm_endpoint"
+                            placeholder="https://sandbox.momodeveloper.mtn.com"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Devise</label>
+                        <input type="text" name="currency" id="mm_currency" value="XOF" maxlength="10"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
+                    </div>
+                </div>
+
                 <div>
-                    <label class="block text-xs text-gray-500 mb-1">Endpoint (URL de base de l'API)</label>
-                    <input type="text" name="endpoint" id="mm_endpoint"
-                        placeholder="https://api.fournisseur.ci"
+                    <label class="block text-xs text-gray-500 mb-1">Environnement</label>
+                    <select name="environment" id="mm_environment" onchange="mmEnvironmentChange()"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
+                        <option value="sandbox">Sandbox (test)</option>
+                        <option value="production">Production</option>
+                    </select>
+                </div>
+
+                {{-- Aide sandbox MTN MoMo : génère un API User + API Key de test à partir de la Subscription Key --}}
+                <div id="mm_mtn_sandbox_helper" class="hidden rounded-lg border border-green-200 bg-green-50/60 p-3 space-y-2">
+                    <p class="text-xs font-semibold text-green-800">Générer des identifiants sandbox MTN MoMo</p>
+                    <p class="text-[11px] text-green-700">Renseignez l'Endpoint ci-dessus et votre Subscription Key (Clé API), puis cliquez pour générer automatiquement un API User + API Key de test.</p>
+                    <button type="button" onclick="mmProvisionMtnSandbox()"
+                        class="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold transition flex items-center gap-1.5 w-fit">
+                        <i class="fas fa-magic"></i> Générer API User + API Key sandbox
+                    </button>
+                    <div id="mm_mtn_sandbox_result" class="hidden text-[11px]"></div>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
-                        <label class="block text-xs text-gray-500 mb-1">Cl&eacute; API</label>
+                        <label class="block text-xs text-gray-500 mb-1" id="mm_api_key_label">Cl&eacute; API</label>
                         <div class="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-green-300">
                             <input type="password" name="api_key" id="mm_api_key"
                                 class="flex-1 px-3 py-2 text-sm outline-none">
@@ -11072,7 +11101,7 @@ function sigToggleApiKey() {
                         </div>
                     </div>
                     <div>
-                        <label class="block text-xs text-gray-500 mb-1">Secret API</label>
+                        <label class="block text-xs text-gray-500 mb-1" id="mm_api_secret_label">Secret API</label>
                         <div class="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-green-300">
                             <input type="password" name="api_secret" id="mm_api_secret"
                                 class="flex-1 px-3 py-2 text-sm outline-none">
@@ -11084,14 +11113,14 @@ function sigToggleApiKey() {
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
-                        <label class="block text-xs text-gray-500 mb-1">Merchant ID</label>
+                        <label class="block text-xs text-gray-500 mb-1" id="mm_merchant_id_label">Merchant ID</label>
                         <input type="text" name="merchant_id" id="mm_merchant_id"
                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
                     </div>
                     <div>
                         <label class="block text-xs text-gray-500 mb-1">URL de callback</label>
                         <input type="text" name="callback_url" id="mm_callback_url"
-                            placeholder="https://.../api/mobile-money/callback"
+                            placeholder="https://.../api/mobile-money/mtn/callback"
                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
                     </div>
                 </div>
@@ -11162,9 +11191,77 @@ function mmScopeIdChange(id) {
     }
 }
 
+const __mmApiKeyLabels = {
+    mtn_money: 'Subscription Key (Ocp-Apim-Subscription-Key)',
+    default: 'Clé API',
+};
+const __mmApiSecretLabels = {
+    mtn_money: 'API Key (secret, Basic Auth)',
+    default: 'Secret API',
+};
+const __mmMerchantIdLabels = {
+    mtn_money: 'API User (UUID)',
+    default: 'Merchant ID',
+};
+
 function mmProviderChange() {
     const val = document.getElementById('mm_provider').value;
     document.getElementById('mm_label_wrapper').classList.toggle('hidden', val !== 'autre');
+
+    document.getElementById('mm_api_key_label').textContent = __mmApiKeyLabels[val] || __mmApiKeyLabels.default;
+    document.getElementById('mm_api_secret_label').textContent = __mmApiSecretLabels[val] || __mmApiSecretLabels.default;
+    document.getElementById('mm_merchant_id_label').textContent = __mmMerchantIdLabels[val] || __mmMerchantIdLabels.default;
+
+    mmSandboxHelperVisibility();
+}
+
+function mmEnvironmentChange() {
+    mmSandboxHelperVisibility();
+}
+
+function mmSandboxHelperVisibility() {
+    const provider = document.getElementById('mm_provider').value;
+    const env = document.getElementById('mm_environment').value;
+    document.getElementById('mm_mtn_sandbox_helper').classList.toggle('hidden', !(provider === 'mtn_money' && env === 'sandbox'));
+}
+
+async function mmProvisionMtnSandbox() {
+    const endpoint = document.getElementById('mm_endpoint').value.trim();
+    const subscriptionKey = document.getElementById('mm_api_key').value.trim();
+    const resultEl = document.getElementById('mm_mtn_sandbox_result');
+
+    if (!endpoint || !subscriptionKey) {
+        resultEl.className = 'text-[11px] text-red-700';
+        resultEl.textContent = 'Renseignez d\'abord l\'Endpoint et la Subscription Key (champ "Clé API").';
+        resultEl.classList.remove('hidden');
+        return;
+    }
+
+    resultEl.className = 'text-[11px] text-green-700';
+    resultEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Génération en cours...';
+    resultEl.classList.remove('hidden');
+
+    try {
+        const resp = await fetch('{{ route('admin.mobile-money.mtn.provision-sandbox') }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+            body: JSON.stringify({ endpoint, subscription_key: subscriptionKey }),
+        });
+        const data = await resp.json();
+
+        if (data.ok) {
+            document.getElementById('mm_merchant_id').value = data.api_user;
+            document.getElementById('mm_api_secret').value = data.api_key;
+            resultEl.className = 'text-[11px] text-green-700';
+            resultEl.innerHTML = '<i class="fas fa-check-circle mr-1"></i> API User et API Key générés et pré-remplis. Vérifiez puis cliquez sur "Ajouter le fournisseur" pour enregistrer.';
+        } else {
+            resultEl.className = 'text-[11px] text-red-700';
+            resultEl.textContent = data.message || 'Échec de la génération.';
+        }
+    } catch (e) {
+        resultEl.className = 'text-[11px] text-red-700';
+        resultEl.textContent = 'Erreur réseau : ' + e.message;
+    }
 }
 
 function mmToggleSecret(inputId, btn) {
@@ -11193,10 +11290,13 @@ function mmEditConfig(row) {
     mmProviderChange();
     document.getElementById('mm_label').value = row.dataset.label || '';
     document.getElementById('mm_endpoint').value = row.dataset.endpoint || '';
+    document.getElementById('mm_environment').value = row.dataset.environment || 'sandbox';
+    document.getElementById('mm_currency').value = row.dataset.currency || 'XOF';
     document.getElementById('mm_merchant_id').value = row.dataset.merchantId || '';
     document.getElementById('mm_callback_url').value = row.dataset.callbackUrl || '';
     mmSetToggle('mm_is_active', 'mm_active_toggle', 'mm_active_knob', row.dataset.isActive === '1');
     mmSetToggle('mm_verify_ssl', 'mm_ssl_toggle', 'mm_ssl_knob', row.dataset.verifySsl === '1');
+    mmSandboxHelperVisibility();
     document.getElementById('mm-submit-label').textContent = 'Mettre à jour le fournisseur';
     document.getElementById('mm-cancel-edit').classList.remove('hidden');
     document.getElementById('mm-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -11205,10 +11305,12 @@ function mmEditConfig(row) {
 function mmResetForm() {
     document.getElementById('mm-form').reset();
     document.getElementById('mm_label_wrapper').classList.add('hidden');
+    document.getElementById('mm_currency').value = 'XOF';
     mmSetToggle('mm_is_active', 'mm_active_toggle', 'mm_active_knob', false);
     mmSetToggle('mm_verify_ssl', 'mm_ssl_toggle', 'mm_ssl_knob', true);
     document.getElementById('mm-submit-label').textContent = 'Ajouter le fournisseur';
     document.getElementById('mm-cancel-edit').classList.add('hidden');
+    mmSandboxHelperVisibility();
 }
 </script>
 @elseif($tab === 'user-profiles')

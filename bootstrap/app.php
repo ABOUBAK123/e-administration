@@ -27,10 +27,15 @@ return Application::configure(basePath: dirname(__DIR__))
             'e-administration_laravel/api/signature/platform-webhook',
             'e-administration_laravel/public/api/signature/platform-webhook',
             'public/api/signature/platform-webhook',
+            'api/mobile-money/*/callback',
+            'e-administration_laravel/api/mobile-money/*/callback',
+            'e-administration_laravel/public/api/mobile-money/*/callback',
+            'public/api/mobile-money/*/callback',
         ]);
         $middleware->alias([
-            'admin'          => \App\Http\Middleware\EnsureAdmin::class,
-            'verify.webhook' => \App\Http\Middleware\VerifySignaturePlatformWebhook::class,
+            'admin'                => \App\Http\Middleware\EnsureAdmin::class,
+            'verify.webhook'       => \App\Http\Middleware\VerifySignaturePlatformWebhook::class,
+            'verify.mm.webhook'    => \App\Http\Middleware\VerifyMobileMoneyWebhook::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

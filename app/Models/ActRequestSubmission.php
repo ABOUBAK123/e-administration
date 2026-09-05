@@ -48,6 +48,8 @@ class ActRequestSubmission extends Model
         'validated_by_user_id',
         'validated_at',
         'status',
+        'mobile_money_transaction_id',
+        'paid_at',
     ];
 
     protected $casts = [
@@ -55,6 +57,7 @@ class ActRequestSubmission extends Model
         'attachments' => 'array',
         'auto_generated_at' => 'datetime',
         'validated_at' => 'datetime',
+        'paid_at' => 'datetime',
     ];
 
     public function requestedAct()
@@ -80,6 +83,11 @@ class ActRequestSubmission extends Model
     public function validatedBy()
     {
         return $this->belongsTo(User::class, 'validated_by_user_id');
+    }
+
+    public function mobileMoneyTransaction()
+    {
+        return $this->belongsTo(MobileMoneyTransaction::class, 'mobile_money_transaction_id');
     }
 
     private function resolveAdministrationSmtpSetting(): ?AdministrationSmtpSetting
@@ -148,6 +156,8 @@ class ActRequestSubmission extends Model
             'recu' => 'Recu',
             'treated' => 'Terminee',
             'rejected' => 'Refusee',
+            'awaiting_payment' => 'En attente de paiement',
+            'payment_failed' => 'Paiement echoue',
         ];
 
         $oldLabel = $labels[$oldStatus] ?? ucfirst(str_replace('_', ' ', $oldStatus));

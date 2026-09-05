@@ -9,14 +9,18 @@ use App\Models\DocumentShare;
 use App\Models\DocumentTemplate;
 use App\Models\DocumentVersion;
 use App\Models\IssuingAdministration;
+use App\Models\MobileMoneyProviderConfig;
+use App\Models\MobileMoneyTransaction;
 use App\Models\RecipientAdministration;
 use App\Models\RequestedAct;
 use App\Models\SubEntity;
 use App\Models\User;
+use App\Services\Payments\MobileMoneyGatewayFactory;
 use App\Services\Templates\TemplateGenerationCoreService;
 use App\Services\ClamAvScanner;
 use App\Services\NniService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -545,6 +549,28 @@ class PublicActRequestController extends Controller
         return view('public-act-requests.create', compact('administration', 'requestedAct', 'directions', 'recipients', 'nniExample'));
     }
 
+    /**
+     * Fournisseurs mobile money actifs applicables à cette administration : d'abord la
+     * config propre à l'administration émettrice, sinon la config globale (administration_id NULL).
+     */
+    private function activeMobileMoneyConfigsFor(IssuingAdministration $administration)
+    {
+        $scoped = MobileMoneyProviderConfig::query()
+            ->where('administration_id', $administration->id)
+            ->where('administration_type', 'emitter')
+            ->where('is_active', true)
+            ->get();
+
+        if ($scoped->isNotEmpty()) {
+            return $scoped;
+        }
+
+        return MobileMoneyProviderConfig::query()
+            ->whereNull('administration_id')
+            ->where('is_active', true)
+            ->get();
+    }
+
     public function store(Request $request, string $administration_id, string $requested_act_id)
     {
         $administration = IssuingAdministration::query()
@@ -700,8 +726,13 @@ class PublicActRequestController extends Controller
                 '_note' => trim((string) $request->input('note', '')),
             ]),
             'attachments'                 => $attachments,
-            'status'                      => 'pending',
+            'status'                      => $requestedAct->is_paid ? 'awaiting_payment' : 'pending',
         ]);
+
+        if ($requestedAct->is_paid) {
+            return redirect()
+                ->route('public.act-requests.payment', $submission->tracking_token);
+        }
 
         $isAutoGenerationEnabled = (bool) ($requestedAct->auto_generate_enabled ?? false);
         if ($isAutoGenerationEnabled && $uniqueKeyValue) {
@@ -729,6 +760,96 @@ class PublicActRequestController extends Controller
             ->with('success', 'Votre demande a ete enregistree avec succes.')
             ->with('tracking_number', $submission->tracking_number)
             ->with('tracking_url', route('public.act-requests.track', $submission->tracking_token));
+    }
+
+    public function payment(string $tracking_token)
+    {
+        $submission = ActRequestSubmission::query()
+            ->with('requestedAct.administration')
+            ->where('tracking_token', $tracking_token)
+            ->firstOrFail();
+
+        $requestedAct = $submission->requestedAct;
+        abort_unless($requestedAct && $requestedAct->is_paid, 404);
+
+        if (!in_array($submission->status, ['awaiting_payment', 'payment_failed'], true)) {
+            // Déjà payée (ou en traitement) : rien à faire ici, direction le suivi.
+            return redirect()->route('public.act-requests.track', $tracking_token);
+        }
+
+        $configs = $this->activeMobileMoneyConfigsFor($requestedAct->administration);
+        $pendingTransaction = MobileMoneyTransaction::where('act_request_submission_id', $submission->id)
+            ->where('status', 'pending')
+            ->latest()
+            ->first();
+
+        return view('public-act-requests.payment', compact('submission', 'requestedAct', 'configs', 'pendingTransaction'));
+    }
+
+    public function initiatePayment(Request $request, string $tracking_token)
+    {
+        $submission = ActRequestSubmission::query()
+            ->with('requestedAct')
+            ->where('tracking_token', $tracking_token)
+            ->firstOrFail();
+
+        $requestedAct = $submission->requestedAct;
+        abort_unless($requestedAct && $requestedAct->is_paid, 404);
+
+        if (!in_array($submission->status, ['awaiting_payment', 'payment_failed'], true)) {
+            return response()->json(['ok' => false, 'message' => 'Cette demande n\'est plus en attente de paiement.'], 409);
+        }
+
+        $data = $request->validate([
+            'provider_config_id' => 'required|uuid|exists:mobile_money_provider_configs,id',
+            'phone' => 'required|string|max:30',
+        ]);
+
+        $config = MobileMoneyProviderConfig::where('id', $data['provider_config_id'])
+            ->where('is_active', true)
+            ->first();
+
+        if (!$config) {
+            return response()->json(['ok' => false, 'message' => 'Fournisseur de paiement invalide ou inactif.'], 422);
+        }
+
+        $externalId = (string) Str::uuid();
+
+        $transaction = MobileMoneyTransaction::create([
+            'act_request_submission_id' => $submission->id,
+            'mobile_money_provider_config_id' => $config->id,
+            'provider' => $config->provider,
+            'external_id' => $externalId,
+            'phone_number' => $data['phone'],
+            'amount' => $requestedAct->amount,
+            'currency' => $config->currency ?: 'XOF',
+            'status' => 'pending',
+        ]);
+
+        try {
+            $gateway = MobileMoneyGatewayFactory::make($config->provider);
+            $gateway->initiate(
+                $config,
+                $externalId,
+                $data['phone'],
+                (float) $requestedAct->amount,
+                'Paiement ' . $requestedAct->document_name . ' - ' . $submission->tracking_number
+            );
+        } catch (\Throwable $e) {
+            Log::error('PublicActRequestController::initiatePayment - échec du déclenchement', [
+                'transaction_id' => (string) $transaction->id,
+                'provider' => $config->provider,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'ok' => false,
+                'message' => "Impossible de contacter le fournisseur de paiement pour l'instant. Veuillez réessayer dans un instant.",
+                'transaction_id' => $transaction->id,
+            ], 502);
+        }
+
+        return response()->json(['ok' => true, 'transaction_id' => $transaction->id]);
     }
 
     public function track(string $tracking_token)

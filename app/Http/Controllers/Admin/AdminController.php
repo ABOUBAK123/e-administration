@@ -5598,6 +5598,8 @@ class AdminController extends Controller
             'provider'      => 'required|string|in:' . implode(',', array_keys(MobileMoneyProviderConfig::PROVIDERS)),
             'label'         => 'nullable|string|max:255',
             'endpoint'      => 'nullable|string|max:255',
+            'environment'   => 'nullable|string|in:sandbox,production',
+            'currency'      => 'nullable|string|max:10',
             'api_key'       => 'nullable|string',
             'api_secret'    => 'nullable|string',
             'merchant_id'   => 'nullable|string|max:255',
@@ -5618,6 +5620,8 @@ class AdminController extends Controller
                 'label'        => trim((string) ($data['label'] ?? '')),
                 'is_active'    => $request->boolean('is_active'),
                 'endpoint'     => rtrim(trim((string) ($data['endpoint'] ?? '')), '/'),
+                'environment'  => $data['environment'] ?? 'sandbox',
+                'currency'     => trim((string) ($data['currency'] ?? '')) ?: 'XOF',
                 'api_key'      => $data['api_key'] ?? null,
                 'api_secret'   => $data['api_secret'] ?? null,
                 'merchant_id'  => trim((string) ($data['merchant_id'] ?? '')),
@@ -5648,6 +5652,33 @@ class AdminController extends Controller
                 'mm_admin_id'   => $adminId,
             ])
             ->with('mm_success', 'Configuration API Mobile Money supprimée.');
+    }
+
+    /**
+     * Provisionne un API User + API Key MTN MoMo de test (sandbox) à partir de la
+     * seule Subscription Key. Ne persiste rien : renvoie les identifiants générés
+     * pour que l'admin les vérifie avant de les enregistrer via le formulaire.
+     */
+    public function provisionMtnMomoSandbox(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $this->guardPermission('administration.mobile-money');
+
+        $data = $request->validate([
+            'endpoint' => 'required|string|max:255',
+            'subscription_key' => 'required|string',
+        ]);
+
+        try {
+            $result = app(\App\Services\Payments\MtnMomoGateway::class)->provisionSandboxUser(
+                $data['endpoint'],
+                $data['subscription_key'],
+                (string) (parse_url(config('app.url'), PHP_URL_HOST) ?: 'localhost')
+            );
+
+            return response()->json(['ok' => true] + $result);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+        }
     }
 
     // ── Types de dossiers État civil (paramétrage) ─────────────────────────────

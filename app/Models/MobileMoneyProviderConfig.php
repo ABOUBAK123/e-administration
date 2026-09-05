@@ -19,6 +19,8 @@ class MobileMoneyProviderConfig extends Model
         'label',
         'is_active',
         'endpoint',
+        'environment',
+        'currency',
         'api_key',
         'api_secret',
         'merchant_id',

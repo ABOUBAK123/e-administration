@@ -33,6 +33,13 @@
                 </h2>
             </div>
 
+            @if($requestedAct->is_paid)
+                <div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    Cet acte est payant : <strong>{{ number_format((float) $requestedAct->amount, 0, ',', ' ') }} FCFA</strong>.
+                    Le paiement (mobile money) vous sera demandé à l'étape suivante, après validation de ce formulaire.
+                </div>
+            @endif
+
             @if(session('success'))
                 <div class="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                     {{ session('success') }}
