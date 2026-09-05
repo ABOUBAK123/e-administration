@@ -33,6 +33,7 @@ use App\Models\RequestedAct;
 use App\Models\Instruction;
 use App\Models\UserDirectionAssignment;
 use App\Models\SignatureProviderConfig;
+use App\Models\MobileMoneyProviderConfig;
 use App\Models\AdministrationSmtpSetting;
 use App\Models\PersonnelEmployee;
 use App\Models\PersonnelEmployeeDocument;
@@ -884,6 +885,15 @@ class AdminController extends Controller
             }
             $sigProviders = $sigQuery->get()->keyBy('administration_id');
 
+            // ── Fournisseurs Mobile Money ──────────────────────────────────────
+            $mobileMoneyQuery = MobileMoneyProviderConfig::query();
+            if ($adminScope && $adminScope['type'] === 'emitter') {
+                $mobileMoneyQuery->where('administration_id', $adminScope['id']);
+            } elseif ($adminScope && $adminScope['type'] === 'recipient') {
+                $mobileMoneyQuery->whereNull('id');
+            }
+            $mobileMoneyConfigs = $mobileMoneyQuery->get()->groupBy('administration_id');
+
             $courrierArchivalDays = (int) AppSetting::where('key', 'courrier_archival_days')->value('value');
             $receptionArchivalDays = (int) AppSetting::where('key', 'reception_archival_days')->value('value');
 
@@ -1150,7 +1160,7 @@ class AdminController extends Controller
             'instructions',
             'allUsers', 'shareMap', 'onlyofficeUrl', 'onlyofficeJwt', 'appPublicUrl', 'dirAssignments',
             'sameAdminRoutingUsers',
-            'sigProviders', 'courrierArchivalDays', 'receptionArchivalDays', 'adminScope',
+            'sigProviders', 'mobileMoneyConfigs', 'courrierArchivalDays', 'receptionArchivalDays', 'adminScope',
             'personnelEmployees', 'personnelEmployeeDirectory', 'selectedPersonnelEmployee', 'personnelStats', 'personnelDashboard',
             'personnelLeaveTypes', 'personnelLeaveRequests', 'personnelLeaveApprovers', 'personnelJobReferences', 'leaveGlobalVisibility', 'personnelTrainings', 'personnelTrainingEnrollments',
             'personnelEmployeeSkills', 'personnelGoals', 'personnelPerformanceReviews', 'personnelCareerEvents', 'personnelMutationRequests', 'personnelRecentActivity',
@@ -5479,6 +5489,8 @@ class AdminController extends Controller
             'auto_generate_enabled' => 'nullable|boolean',
             'auto_template_id' => 'nullable|string|exists:document_templates,id',
             'unique_key_field' => 'nullable|string|max:120',
+            'is_paid'          => 'nullable|boolean',
+            'amount'           => 'nullable|numeric|min:0|required_if:is_paid,1',
         ]);
         // Forcer l'administration si l'utilisateur est scoped
         $adminScope = $this->resolveAdminScope();
@@ -5491,12 +5503,20 @@ class AdminController extends Controller
         $data['auto_template_id'] = $autoGenerateEnabled ? ($data['auto_template_id'] ?? null) : null;
         $data['unique_key_field'] = $autoGenerateEnabled ? trim((string) ($data['unique_key_field'] ?? '')) : null;
 
+        $isPaid = $request->boolean('is_paid');
+        $data['is_paid'] = $isPaid;
+        $data['amount']  = $isPaid ? $data['amount'] : null;
+
         if ($autoGenerateEnabled && empty($data['auto_template_id'])) {
             return back()->withErrors(['auto_template_id' => 'Veuillez sélectionner un template pour l\'auto-génération.'])->withInput();
         }
 
         if ($autoGenerateEnabled && $data['unique_key_field'] === '') {
             return back()->withErrors(['unique_key_field' => 'Veuillez saisir le champ clé unique.'])->withInput();
+        }
+
+        if ($isPaid && empty($data['amount'])) {
+            return back()->withErrors(['amount' => 'Veuillez indiquer le montant pour un acte payant.'])->withInput();
         }
 
         if ($autoGenerateEnabled && !empty($data['administration_id'])) {
@@ -5523,6 +5543,8 @@ class AdminController extends Controller
             'auto_generate_enabled' => 'nullable|boolean',
             'auto_template_id' => 'nullable|string|exists:document_templates,id',
             'unique_key_field' => 'nullable|string|max:120',
+            'is_paid'          => 'nullable|boolean',
+            'amount'           => 'nullable|numeric|min:0|required_if:is_paid,1',
         ]);
 
         $autoGenerateEnabled = $request->boolean('auto_generate_enabled');
@@ -5530,12 +5552,20 @@ class AdminController extends Controller
         $data['auto_template_id'] = $autoGenerateEnabled ? ($data['auto_template_id'] ?? null) : null;
         $data['unique_key_field'] = $autoGenerateEnabled ? trim((string) ($data['unique_key_field'] ?? '')) : null;
 
+        $isPaid = $request->boolean('is_paid');
+        $data['is_paid'] = $isPaid;
+        $data['amount']  = $isPaid ? $data['amount'] : null;
+
         if ($autoGenerateEnabled && empty($data['auto_template_id'])) {
             return back()->withErrors(['auto_template_id' => 'Veuillez sélectionner un template pour l\'auto-génération.'])->withInput();
         }
 
         if ($autoGenerateEnabled && $data['unique_key_field'] === '') {
             return back()->withErrors(['unique_key_field' => 'Veuillez saisir le champ clé unique.'])->withInput();
+        }
+
+        if ($isPaid && empty($data['amount'])) {
+            return back()->withErrors(['amount' => 'Veuillez indiquer le montant pour un acte payant.'])->withInput();
         }
 
         if ($autoGenerateEnabled) {
@@ -5555,6 +5585,69 @@ class AdminController extends Controller
     {
         $requestedAct->delete();
         return back()->with('success', 'Acte demandé supprimé.')->withInput(['tab' => 'requested-acts']);
+    }
+
+    // ── API Mobile Money ────────────────────────────────────────────────────
+    public function storeMobileMoneyConfig(Request $request)
+    {
+        $this->guardPermission('administration.mobile-money');
+
+        $data = $request->validate([
+            'mm_admin_id'   => 'required|string',
+            'mm_admin_type' => 'nullable|string|in:emitter,recipient',
+            'provider'      => 'required|string|in:' . implode(',', array_keys(MobileMoneyProviderConfig::PROVIDERS)),
+            'label'         => 'nullable|string|max:255',
+            'endpoint'      => 'nullable|string|max:255',
+            'api_key'       => 'nullable|string',
+            'api_secret'    => 'nullable|string',
+            'merchant_id'   => 'nullable|string|max:255',
+            'callback_url'  => 'nullable|string|max:255',
+            'is_active'     => 'nullable|boolean',
+            'verify_ssl'    => 'nullable|boolean',
+        ]);
+
+        $adminType = $data['mm_admin_type'] ?? 'emitter';
+
+        MobileMoneyProviderConfig::updateOrCreate(
+            [
+                'administration_id'   => $data['mm_admin_id'],
+                'administration_type' => $adminType,
+                'provider'            => $data['provider'],
+            ],
+            [
+                'label'        => trim((string) ($data['label'] ?? '')),
+                'is_active'    => $request->boolean('is_active'),
+                'endpoint'     => rtrim(trim((string) ($data['endpoint'] ?? '')), '/'),
+                'api_key'      => $data['api_key'] ?? null,
+                'api_secret'   => $data['api_secret'] ?? null,
+                'merchant_id'  => trim((string) ($data['merchant_id'] ?? '')),
+                'callback_url' => trim((string) ($data['callback_url'] ?? '')),
+                'verify_ssl'   => $request->boolean('verify_ssl', true),
+            ]
+        );
+
+        return redirect()->route('admin.index', [
+                'tab'           => 'mobile-money',
+                'mm_admin_type' => $adminType,
+                'mm_admin_id'   => $data['mm_admin_id'],
+            ])
+            ->with('mm_success', 'Configuration API Mobile Money enregistrée avec succès.');
+    }
+
+    public function destroyMobileMoneyConfig(MobileMoneyProviderConfig $mobileMoneyConfig)
+    {
+        $this->guardPermission('administration.mobile-money');
+
+        $adminId   = $mobileMoneyConfig->administration_id;
+        $adminType = $mobileMoneyConfig->administration_type;
+        $mobileMoneyConfig->delete();
+
+        return redirect()->route('admin.index', [
+                'tab'           => 'mobile-money',
+                'mm_admin_type' => $adminType,
+                'mm_admin_id'   => $adminId,
+            ])
+            ->with('mm_success', 'Configuration API Mobile Money supprimée.');
     }
 
     // ── Types de dossiers État civil (paramétrage) ─────────────────────────────

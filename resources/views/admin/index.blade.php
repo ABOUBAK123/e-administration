@@ -34,6 +34,7 @@ $allTabs = [
     'theming'            => ['fas fa-paint-brush',        'Apparence',             '#a855f7', 'administration.theming'],
     'email-notifications'=> ['fas fa-envelope-open-text', 'Notifications E-mail',  '#ef4444', 'administration.email-notifications'],
     'signature-provider' => ['fas fa-key',                'API Signature',         '#f59e0b', 'administration.signature-provider'],
+    'mobile-money'       => ['fas fa-mobile-screen-button','API Mobile Money',     '#22c55e', 'administration.mobile-money'],
     'user-profiles'      => ['fas fa-user-shield',       'Rôles',                 '#64748b', 'administration.user-profiles'],
     'instructions'       => ['fas fa-list-check',        'Instructions',          '#0891b2', 'administration.instructions'],
     'courrier-archiving' => ['fas fa-archive',           'Archivage courrier',    '#78716c', 'administration.courrier-archiving'],
@@ -196,6 +197,7 @@ $_oc = [
     'user-profiles'      => method_exists($profiles, 'total') ? $profiles->total() : $profiles->count(),
     'instructions'       => $instructions->count(),
     'signature-provider' => $sigProviders->count(),
+    'mobile-money'       => $mobileMoneyConfigs->flatten()->count(),
 ];
 @endphp
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -209,6 +211,7 @@ $_oc = [
         ['theming',            'fas fa-paint-brush',        'Apparence',             'Couleurs et logo de l\'application.',      'purple'],
         ['email-notifications','fas fa-envelope-open-text', 'Notifications E-mail',  'Configuration SMTP et e-mails.',          'red'],
         ['signature-provider', 'fas fa-key',                'API Signature',         'Fournisseur de signature électronique.',   'amber'],
+        ['mobile-money',       'fas fa-mobile-screen-button','API Mobile Money',     'Fournisseurs de paiement mobile money.',   'green'],
         ['user-profiles',      'fas fa-user-shield',        'Rôles',                 'Profils et permissions utilisateurs.',     'slate'],
         ['instructions',       'fas fa-list-check',         'Instructions',           'Instructions de traitement des courriers.','cyan'],
         ['sub-entities',       'fas fa-sitemap',            'Entités sous tutelle',  'Structures rattachées aux administrations.','teal'],
@@ -7697,6 +7700,8 @@ document.addEventListener('DOMContentLoaded', function() {
     $actAutoEnabled = old('auto_generate_enabled', $editAct?->auto_generate_enabled ? '1' : '0') === '1';
     $actAutoTemplateId = old('auto_template_id', $editAct?->auto_template_id ?? '');
     $actUniqueKeyField = old('unique_key_field', $editAct?->unique_key_field ?? '');
+    $actIsPaid = old('is_paid', $editAct?->is_paid ? '1' : '0') === '1';
+    $actAmount = old('amount', $editAct?->amount ?? '');
 @endphp
 
 <div class="grid grid-cols-1 xl:grid-cols-[1fr_1.1fr] gap-5">
@@ -7794,6 +7799,29 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
       </div>
 
+      <div class="rounded-xl border border-green-200 bg-green-50/40 p-4 space-y-3">
+        <div class="flex items-start gap-3">
+          <input type="hidden" name="is_paid" value="0">
+          <input type="checkbox" id="act-is-paid" name="is_paid" value="1" {{ $actIsPaid ? 'checked' : '' }}
+            onchange="toggleActPaidFields()"
+            class="mt-0.5 h-4 w-4 rounded border-gray-300 text-green-500 focus:ring-green-400">
+          <div>
+            <label for="act-is-paid" class="text-sm font-semibold text-gray-800">Acte payant</label>
+            <p class="text-xs text-gray-600 mt-0.5">Si coché, le montant sera affiché au demandeur et un moyen de paiement mobile money configuré sera requis.</p>
+          </div>
+        </div>
+
+        <div id="act-paid-fields" class="grid grid-cols-1 md:grid-cols-2 gap-3 {{ $actIsPaid ? '' : 'hidden' }}">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Montant (FCFA)</label>
+            <input type="number" name="amount" id="act-amount" min="0" step="1"
+              value="{{ $actAmount }}"
+              placeholder="Ex: 2000"
+              class="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-green-300 focus:border-green-400 outline-none">
+          </div>
+        </div>
+      </div>
+
       <div class="space-y-2">
         <label class="text-xs font-semibold text-gray-700">Liste des documents a fournir</label>
         <div class="flex gap-2">
@@ -7882,6 +7910,9 @@ document.addEventListener('DOMContentLoaded', function() {
         <p class="text-xs text-gray-600">Direction : {{ $act->direction_code ?? '&mdash;' }}</p>
         @if($act->auto_generate_enabled)
         <p class="text-xs text-amber-700">Auto-génération active · Template: {{ $act->autoTemplate?->name ?? '—' }} · Clé: {{ $act->unique_key_field ?? '—' }}</p>
+        @endif
+        @if($act->is_paid)
+        <p class="text-xs text-green-700"><i class="fas fa-mobile-screen-button mr-1"></i>Payant · {{ number_format((float) $act->amount, 0, ',', ' ') }} FCFA</p>
         @endif
         <p class="text-xs text-gray-400">Cree le {{ $act->created_at->format('d/m/Y H:i') }}</p>
         @if(!empty($act->required_documents))
@@ -8016,6 +8047,13 @@ function toggleActAutoGenerateFields() {
   wrapper.classList.toggle('hidden', !checkbox.checked);
 }
 
+function toggleActPaidFields() {
+  var checkbox = document.getElementById('act-is-paid');
+  var wrapper = document.getElementById('act-paid-fields');
+  if (!checkbox || !wrapper) return;
+  wrapper.classList.toggle('hidden', !checkbox.checked);
+}
+
 function actSearch(q) {
     q = q.toLowerCase().trim();
     var vis = 0, tot = 0;
@@ -8036,6 +8074,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var a = document.getElementById('act-admin-select');
     if (a && a.value) actFilterDirections(a.value);
     toggleActAutoGenerateFields();
+    toggleActPaidFields();
 });
 </script>
 @endpush
@@ -10895,7 +10934,284 @@ function sigToggleApiKey() {
     if (inp.type === 'password') { inp.type = 'text'; btn.textContent = 'Masquer'; }
     else { inp.type = 'password'; btn.textContent = 'Afficher'; }
 }
-</script>@elseif($tab === 'user-profiles')
+</script>
+
+{{-- ══════════════════════ API MOBILE MONEY ══════════════════════ --}}
+@elseif($tab === 'mobile-money')
+@php
+    $mmAdminType = request('mm_admin_type', 'emitter');
+    $mmAdminId   = request('mm_admin_id', '');
+    $mmConfigs   = $mmAdminId ? ($mobileMoneyConfigs[$mmAdminId] ?? collect()) : collect();
+@endphp
+
+<div class="max-w-3xl mx-auto space-y-5">
+    @if(session('mm_success'))
+        <div class="bg-green-50 border border-green-100 text-green-700 rounded-xl p-3 text-xs">
+            {{ session('mm_success') }}
+        </div>
+    @endif
+    @if($errors->any() && request('tab') === 'mobile-money')
+    <div class="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+      <ul class="list-disc list-inside space-y-1">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
+    </div>
+    @endif
+
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        {{-- En-tete --}}
+        <div class="flex items-center gap-3 mb-5">
+            <div class="w-9 h-9 rounded-xl bg-green-50 flex items-center justify-center">
+                <i class="fas fa-mobile-screen-button text-green-600 text-base"></i>
+            </div>
+            <div>
+                <h2 class="text-base font-bold text-gray-800">Configuration API Mobile Money</h2>
+                <p class="text-xs text-gray-500">
+                    Identifiants des fournisseurs de paiement mobile money utilis&eacute;s pour les demandes d'actes payantes.
+                    Chaque administration &eacute;mettrice peut configurer plusieurs fournisseurs (Orange Money, MTN, Moov, Wave...).
+                </p>
+            </div>
+        </div>
+
+        {{-- Selecteur administration --}}
+        <div class="mb-6 p-4 rounded-xl border border-green-100 bg-green-50/40 space-y-3">
+            <p class="text-xs font-semibold text-gray-700">Administration concern&eacute;e</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <select id="mm_type_sel" onchange="mmScopeTypeChange(this.value)"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
+                    <option value="emitter" {{ $mmAdminType === 'emitter' ? 'selected' : '' }}>Administration &eacute;mettrice</option>
+                    <option value="recipient" {{ $mmAdminType === 'recipient' ? 'selected' : '' }}>Administration destinataire</option>
+                </select>
+                <select id="mm_id_sel" onchange="mmScopeIdChange(this.value)"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
+                    <option value="">S&eacute;lectionner une administration</option>
+                    @if($mmAdminType === 'emitter')
+                        @foreach($emitters as $em)
+                            <option value="{{ $em->id }}" {{ $mmAdminId === $em->id ? 'selected' : '' }}>{{ $em->name }} ({{ $em->code }})</option>
+                        @endforeach
+                    @else
+                        @foreach($recipients as $re)
+                            <option value="{{ $re->id }}" {{ $mmAdminId === $re->id ? 'selected' : '' }}>{{ $re->name }}</option>
+                        @endforeach
+                    @endif
+                </select>
+            </div>
+        </div>
+
+        @if($mmAdminId)
+            @if($mmConfigs->isNotEmpty())
+            <div class="mb-6 space-y-2">
+                <p class="text-xs font-semibold text-gray-700">Fournisseurs configur&eacute;s</p>
+                @foreach($mmConfigs as $cfg)
+                <div class="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 bg-gray-50"
+                    data-provider="{{ $cfg->provider }}"
+                    data-label="{{ $cfg->label }}"
+                    data-endpoint="{{ $cfg->endpoint }}"
+                    data-merchant-id="{{ $cfg->merchant_id }}"
+                    data-callback-url="{{ $cfg->callback_url }}"
+                    data-is-active="{{ $cfg->is_active ? '1' : '0' }}"
+                    data-verify-ssl="{{ $cfg->verify_ssl ? '1' : '0' }}">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {{ $cfg->is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500' }}">
+                            {{ $cfg->is_active ? 'Actif' : 'Inactif' }}
+                        </span>
+                        <span class="text-sm font-medium text-gray-800 shrink-0">{{ $cfg->provider_label }}</span>
+                        <span class="text-xs text-gray-400 truncate">{{ $cfg->endpoint }}</span>
+                    </div>
+                    <div class="flex items-center gap-3 shrink-0">
+                        <button type="button" onclick="mmEditConfig(this.closest('[data-provider]'))"
+                            class="text-xs text-blue-600 hover:text-blue-800 font-semibold">Modifier</button>
+                        <form method="POST" action="{{ route('admin.mobile-money.destroy', $cfg->id) }}"
+                            onsubmit="return confirm('Supprimer cette configuration ?');">
+                            @csrf @method('DELETE')
+                            <button type="submit" class="text-xs text-red-600 hover:text-red-800 font-semibold">Supprimer</button>
+                        </form>
+                    </div>
+                </div>
+                @endforeach
+            </div>
+            @endif
+
+            <form method="POST" action="{{ route('admin.mobile-money.store') }}" id="mm-form" class="space-y-4">
+                @csrf
+                <input type="hidden" name="mm_admin_type" id="f_mm_type" value="{{ $mmAdminType }}">
+                <input type="hidden" name="mm_admin_id"   id="f_mm_id"   value="{{ $mmAdminId }}">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Fournisseur</label>
+                        <select name="provider" id="mm_provider" required onchange="mmProviderChange()"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
+                            <option value="">S&eacute;lectionner un fournisseur</option>
+                            @foreach(\App\Models\MobileMoneyProviderConfig::PROVIDERS as $key => $label)
+                            <option value="{{ $key }}">{{ $label }}</option>
+                            @endforeach
+                        </select>
+                        <p class="text-xs text-gray-400 mt-0.5">Choisir un fournisseur d&eacute;j&agrave; configur&eacute; ci-dessus pr&eacute;-remplit le formulaire pour le modifier.</p>
+                    </div>
+                    <div id="mm_label_wrapper" class="hidden">
+                        <label class="block text-xs text-gray-500 mb-1">Nom affich&eacute;</label>
+                        <input type="text" name="label" id="mm_label" placeholder="Ex: Paiement guichet partenaire"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Endpoint (URL de base de l'API)</label>
+                    <input type="text" name="endpoint" id="mm_endpoint"
+                        placeholder="https://api.fournisseur.ci"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Cl&eacute; API</label>
+                        <div class="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-green-300">
+                            <input type="password" name="api_key" id="mm_api_key"
+                                class="flex-1 px-3 py-2 text-sm outline-none">
+                            <button type="button" onclick="mmToggleSecret('mm_api_key', this)"
+                                class="px-3 text-gray-400 hover:text-gray-600 transition text-xs whitespace-nowrap">Afficher</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Secret API</label>
+                        <div class="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-green-300">
+                            <input type="password" name="api_secret" id="mm_api_secret"
+                                class="flex-1 px-3 py-2 text-sm outline-none">
+                            <button type="button" onclick="mmToggleSecret('mm_api_secret', this)"
+                                class="px-3 text-gray-400 hover:text-gray-600 transition text-xs whitespace-nowrap">Afficher</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Merchant ID</label>
+                        <input type="text" name="merchant_id" id="mm_merchant_id"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">URL de callback</label>
+                        <input type="text" name="callback_url" id="mm_callback_url"
+                            placeholder="https://.../api/mobile-money/callback"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-300">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div>
+                        <p class="text-sm font-medium text-gray-700">Activer ce fournisseur</p>
+                    </div>
+                    <div id="mm_active_toggle" onclick="mmToggleBool('mm_is_active','mm_active_toggle','mm_active_knob')"
+                        class="relative w-11 h-6 rounded-full cursor-pointer transition-colors bg-gray-300">
+                        <span id="mm_active_knob" class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"></span>
+                    </div>
+                    <input type="hidden" name="is_active" id="mm_is_active" value="0">
+                </div>
+
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div>
+                        <p class="text-sm font-medium text-gray-700">V&eacute;rification SSL</p>
+                        <p class="text-xs text-gray-400 mt-0.5">Conservez activ&eacute; en production.</p>
+                    </div>
+                    <div id="mm_ssl_toggle" onclick="mmToggleBool('mm_verify_ssl','mm_ssl_toggle','mm_ssl_knob')"
+                        class="relative w-11 h-6 rounded-full cursor-pointer transition-colors bg-green-600">
+                        <span id="mm_ssl_knob" class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform translate-x-5"></span>
+                    </div>
+                    <input type="hidden" name="verify_ssl" id="mm_verify_ssl" value="1">
+                </div>
+
+                <div class="pt-2 flex gap-2">
+                    <button type="submit"
+                        class="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold py-2.5 rounded-lg transition">
+                        <i class="fas fa-save mr-1"></i> <span id="mm-submit-label">Ajouter le fournisseur</span>
+                    </button>
+                    <button type="button" id="mm-cancel-edit" onclick="mmResetForm()" class="hidden px-4 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50">Annuler</button>
+                </div>
+            </form>
+        @else
+        <p class="text-sm text-gray-500">S&eacute;lectionnez une administration ci-dessus pour configurer ses fournisseurs mobile money.</p>
+        @endif
+    </div>
+</div>
+
+<script>
+const __mmEmitters   = @json($emitters->map(fn($e)=>['id'=>$e->id,'name'=>$e->name,'code'=>$e->code])->values());
+const __mmRecipients = @json($recipients->map(fn($r)=>['id'=>$r->id,'name'=>$r->name])->values());
+
+function mmScopeTypeChange(type) {
+    document.getElementById('f_mm_type').value = type;
+    const sel = document.getElementById('mm_id_sel');
+    sel.innerHTML = '<option value="">S&eacute;lectionner une administration</option>';
+    const list = type === 'emitter' ? __mmEmitters : __mmRecipients;
+    list.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.id;
+        opt.textContent = item.name + (item.code ? ' (' + item.code + ')' : '');
+        sel.appendChild(opt);
+    });
+    document.getElementById('f_mm_id').value = '';
+}
+
+function mmScopeIdChange(id) {
+    document.getElementById('f_mm_id').value = id;
+    if (id) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', 'mobile-money');
+        url.searchParams.set('mm_admin_type', document.getElementById('f_mm_type').value);
+        url.searchParams.set('mm_admin_id', id);
+        window.location.href = url.toString();
+    }
+}
+
+function mmProviderChange() {
+    const val = document.getElementById('mm_provider').value;
+    document.getElementById('mm_label_wrapper').classList.toggle('hidden', val !== 'autre');
+}
+
+function mmToggleSecret(inputId, btn) {
+    const inp = document.getElementById(inputId);
+    if (inp.type === 'password') { inp.type = 'text'; btn.textContent = 'Masquer'; }
+    else { inp.type = 'password'; btn.textContent = 'Afficher'; }
+}
+
+function mmToggleBool(hiddenId, toggleId, knobId) {
+    const h = document.getElementById(hiddenId);
+    const on = h.value === '1';
+    mmSetToggle(hiddenId, toggleId, knobId, !on);
+}
+
+function mmSetToggle(hiddenId, toggleId, knobId, on) {
+    document.getElementById(hiddenId).value = on ? '1' : '0';
+    const t = document.getElementById(toggleId), k = document.getElementById(knobId);
+    t.classList.toggle('bg-green-600', on);
+    t.classList.toggle('bg-gray-300', !on);
+    k.classList.toggle('translate-x-5', on);
+    k.classList.toggle('translate-x-0', !on);
+}
+
+function mmEditConfig(row) {
+    document.getElementById('mm_provider').value = row.dataset.provider;
+    mmProviderChange();
+    document.getElementById('mm_label').value = row.dataset.label || '';
+    document.getElementById('mm_endpoint').value = row.dataset.endpoint || '';
+    document.getElementById('mm_merchant_id').value = row.dataset.merchantId || '';
+    document.getElementById('mm_callback_url').value = row.dataset.callbackUrl || '';
+    mmSetToggle('mm_is_active', 'mm_active_toggle', 'mm_active_knob', row.dataset.isActive === '1');
+    mmSetToggle('mm_verify_ssl', 'mm_ssl_toggle', 'mm_ssl_knob', row.dataset.verifySsl === '1');
+    document.getElementById('mm-submit-label').textContent = 'Mettre à jour le fournisseur';
+    document.getElementById('mm-cancel-edit').classList.remove('hidden');
+    document.getElementById('mm-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function mmResetForm() {
+    document.getElementById('mm-form').reset();
+    document.getElementById('mm_label_wrapper').classList.add('hidden');
+    mmSetToggle('mm_is_active', 'mm_active_toggle', 'mm_active_knob', false);
+    mmSetToggle('mm_verify_ssl', 'mm_ssl_toggle', 'mm_ssl_knob', true);
+    document.getElementById('mm-submit-label').textContent = 'Ajouter le fournisseur';
+    document.getElementById('mm-cancel-edit').classList.add('hidden');
+}
+</script>
+@elseif($tab === 'user-profiles')
 @php
 $permissionTree = [
     'dashboard'        => ['label' => 'Tableau de bord', 'children' => []],
@@ -10959,6 +11275,7 @@ $permissionTree = [
         'administration.theming'            => 'Thème & Apparence',
         'administration.email-notifications'=> 'Notifications email',
         'administration.signature-provider' => 'API Signature',
+        'administration.mobile-money'       => 'API Mobile Money',
       'administration.courrier-archiving' => 'Archivage courrier',
       'administration.instructions'        => 'Instructions',
         'administration.user-profiles'      => 'Profils & Rôles',

@@ -468,6 +468,12 @@ Route::middleware('auth')->group(function () {
             Route::delete('/instructions/{instruction}',    [AdminController::class, 'destroyInstruction'])->name('instructions.destroy');
         });
 
+        // API Mobile Money
+        Route::middleware('admin:administration.mobile-money')->group(function () {
+            Route::post('/mobile-money',                    [AdminController::class, 'storeMobileMoneyConfig'])->name('mobile-money.store');
+            Route::delete('/mobile-money/{mobileMoneyConfig}', [AdminController::class, 'destroyMobileMoneyConfig'])->name('mobile-money.destroy');
+        });
+
         // Utilisateurs (onglet admin intégré)
         Route::post('/users-tab',                          [AdminController::class, 'storeUserTab'])->name('users-tab.store');
         Route::get('/users-tab/{user}',                    fn($user) => redirect()->route('admin.index', ['tab' => 'users', 'u_edit' => $user]))->name('users-tab.show');
