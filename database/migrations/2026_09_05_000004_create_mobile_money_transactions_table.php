@@ -9,6 +9,14 @@ return new class extends Migration
 {
     public function up(): void
     {
+        $this->ensureInnoDb('act_request_submissions');
+
+        // Repli défensif : si une exécution précédente a créé la table sans pouvoir
+        // ajouter ses clés étrangères (table référencée non-InnoDB), on repart propre.
+        if (Schema::hasTable('mobile_money_transactions')) {
+            Schema::dropIfExists('mobile_money_transactions');
+        }
+
         Schema::create('mobile_money_transactions', function (Blueprint $table) {
             $table->uuid('id')->primary()->default(DB::raw('(UUID())'));
             $table->uuid('act_request_submission_id')->index();
@@ -34,5 +42,26 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('mobile_money_transactions');
+    }
+
+    /**
+     * Les clés étrangères MySQL exigent InnoDB des deux côtés. Certaines tables plus
+     * anciennes de cette base sont restées en MyISAM (config serveur historique) ;
+     * on les convertit à la demande, uniquement quand une FK doit s'y appuyer.
+     */
+    private function ensureInnoDb(string $table): void
+    {
+        if (!in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true) || !Schema::hasTable($table)) {
+            return;
+        }
+
+        $engine = DB::selectOne(
+            'SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?',
+            [DB::getDatabaseName(), $table]
+        )->ENGINE ?? null;
+
+        if ($engine !== null && strtoupper($engine) !== 'INNODB') {
+            DB::statement("ALTER TABLE `{$table}` ENGINE=InnoDB");
+        }
     }
 };
