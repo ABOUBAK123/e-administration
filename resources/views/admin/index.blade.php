@@ -11167,7 +11167,9 @@ const __mmEmitters   = @json($emitters->map(fn($e)=>['id'=>$e->id,'name'=>$e->na
 const __mmRecipients = @json($recipients->map(fn($r)=>['id'=>$r->id,'name'=>$r->name])->values());
 
 function mmScopeTypeChange(type) {
-    document.getElementById('f_mm_type').value = type;
+    // Les champs cachés f_mm_type/f_mm_id n'existent que dans le formulaire, lequel n'est
+    // rendu qu'une fois une administration déjà sélectionnée : on ne s'appuie donc jamais
+    // sur eux ici, seulement sur les <select> (toujours présents) pour piloter la navigation.
     const sel = document.getElementById('mm_id_sel');
     sel.innerHTML = '<option value="">S&eacute;lectionner une administration</option>';
     const list = type === 'emitter' ? __mmEmitters : __mmRecipients;
@@ -11177,15 +11179,21 @@ function mmScopeTypeChange(type) {
         opt.textContent = item.name + (item.code ? ' (' + item.code + ')' : '');
         sel.appendChild(opt);
     });
-    document.getElementById('f_mm_id').value = '';
+    const hiddenType = document.getElementById('f_mm_type');
+    if (hiddenType) hiddenType.value = type;
+    const hiddenId = document.getElementById('f_mm_id');
+    if (hiddenId) hiddenId.value = '';
 }
 
 function mmScopeIdChange(id) {
-    document.getElementById('f_mm_id').value = id;
+    const hiddenId = document.getElementById('f_mm_id');
+    if (hiddenId) hiddenId.value = id;
+
     if (id) {
+        const type = document.getElementById('mm_type_sel').value;
         const url = new URL(window.location.href);
         url.searchParams.set('tab', 'mobile-money');
-        url.searchParams.set('mm_admin_type', document.getElementById('f_mm_type').value);
+        url.searchParams.set('mm_admin_type', type);
         url.searchParams.set('mm_admin_id', id);
         window.location.href = url.toString();
     }
