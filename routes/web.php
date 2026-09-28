@@ -31,6 +31,8 @@ Route::middleware('guest')->group(function () {
     Route::post('/login',   [AuthController::class, 'login']);
     Route::get('/mot-de-passe-oublie',  [AuthController::class, 'showForgotPassword'])->name('password.request');
     Route::post('/mot-de-passe-oublie', [AuthController::class, 'sendResetLink'])->name('password.email');
+    Route::get('/reinitialiser-mot-de-passe/{token}', [AuthController::class, 'showResetPassword'])->name('password.reset');
+    Route::post('/reinitialiser-mot-de-passe', [AuthController::class, 'resetPassword'])->name('password.update');
 
     // Double authentification (OTP par email)
     Route::get('/verification-otp',  [AuthController::class, 'showTwoFactorForm'])->name('2fa.show');
