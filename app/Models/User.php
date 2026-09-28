@@ -31,6 +31,61 @@ class User extends Authenticatable
     }
 
     /**
+     * Résout l'administration (type + id) à laquelle cet utilisateur appartient,
+     * avec la même priorité que AdminController::resolveAdminScope() : d'abord son
+     * UserDirectionAssignment, puis à défaut l'administration de son profil applicatif.
+     * Retourne null pour un super-admin / utilisateur sans rattachement (pas de scope).
+     *
+     * @return array{type: string, id: string}|null
+     */
+    private function resolveAdministrationScope(): ?array
+    {
+        $assignment = UserDirectionAssignment::where('user_id', $this->id)->first();
+        if ($assignment && $assignment->direction_scope_id) {
+            return [
+                'type' => $assignment->direction_scope_type,
+                'id' => $assignment->direction_scope_id,
+            ];
+        }
+
+        $profile = $this->profile_id ? AdministrationProfile::find($this->profile_id) : null;
+        if ($profile && $profile->administration_id) {
+            return [
+                'type' => $profile->effective_administration_type ?? 'emitter',
+                'id' => $profile->administration_id,
+            ];
+        }
+
+        return null;
+    }
+
+    /** Configure le mailer par défaut sur la config SMTP de l'administration de cet utilisateur, si elle existe. */
+    private function applyAdministrationSmtpConfiguration(): void
+    {
+        $scope = $this->resolveAdministrationScope();
+        if (!$scope) {
+            return;
+        }
+
+        $smtp = AdministrationSmtpSetting::forAdministration($scope['id'], $scope['type']);
+        if (!$smtp || !$smtp->mail_host || !$smtp->mail_from_address) {
+            return;
+        }
+
+        config([
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.host' => $smtp->mail_host,
+            'mail.mailers.smtp.port' => $smtp->mail_port ?? 587,
+            'mail.mailers.smtp.username' => $smtp->mail_username,
+            'mail.mailers.smtp.password' => $smtp->mail_password,
+            'mail.mailers.smtp.encryption' => $smtp->mail_encryption ?: null,
+            'mail.mailers.smtp.timeout' => 10,
+            'mail.from.address' => $smtp->mail_from_address,
+            'mail.from.name' => $smtp->mail_from_name ?? config('app.name'),
+        ]);
+    }
+
+    /**
      * L'app n'utilise pas de route "password.reset" au sens Laravel par défaut
      * (formulaire/gestion custom dans AuthController) — on envoie donc l'email
      * nous-mêmes plutôt que de laisser la notification par défaut construire son
@@ -44,6 +99,10 @@ class User extends Authenticatable
         ]);
 
         try {
+            // Utilise la config SMTP de l'administration de l'utilisateur quand elle
+            // existe ; sinon conserve le mailer global par défaut (.env) sans y toucher.
+            $this->applyAdministrationSmtpConfiguration();
+
             \Illuminate\Support\Facades\Mail::to($this->email)->send(
                 new \App\Mail\ResetPasswordMail($resetUrl, $this->name ?? $this->email)
             );
