@@ -3798,10 +3798,24 @@ class AdminController extends Controller
 
     // ── SMTP par administration ────────────────────────────────────────────────
 
+    /**
+     * Un admin scopé sur une administration (émettrice ou destinataire) ne peut lire/
+     * modifier/tester QUE la configuration SMTP de sa propre administration. Un super
+     * admin (resolveAdminScope() === null) n'est pas restreint.
+     */
+    private function assertAdminSmtpScopeAllowed(string $id, string $type): void
+    {
+        $scope = $this->resolveAdminScope();
+        if ($scope !== null && ($scope['type'] !== $type || $scope['id'] !== $id)) {
+            abort(403, "Vous ne pouvez gérer que la configuration SMTP de votre propre administration.");
+        }
+    }
+
     /** GET /admin/smtp-settings/{type}/{id} — charge les réglages SMTP d'une administration. */
     public function getAdminSmtp(string $type, string $id)
     {
         abort_if(!auth()->check() || auth()->user()->role !== 'admin', 403);
+        $this->assertAdminSmtpScopeAllowed($id, $type);
 
         $smtp = AdministrationSmtpSetting::forAdministration($id, $type);
 
@@ -3841,13 +3855,15 @@ class AdminController extends Controller
             return response()->json(['success' => false, 'message' => 'Administration non sélectionnée.'], 422);
         }
 
+        $this->assertAdminSmtpScopeAllowed($adminId, $adminType);
+
         $data = $request->only([
             'mail_host', 'mail_port', 'mail_username',
             'mail_encryption', 'mail_from_address', 'mail_from_name',
         ]);
 
         // Normalize empty values and guarantee a numeric SMTP port.
-        $data['mail_port'] = (int) ($data['mail_port'] ?: 587);
+        $data['mail_port'] = (int) ($request->input('mail_port') ?: 587);
         foreach (['mail_host', 'mail_username', 'mail_encryption', 'mail_from_address', 'mail_from_name'] as $k) {
             if (array_key_exists($k, $data) && is_string($data[$k])) {
                 $data[$k] = trim($data[$k]);
@@ -3884,12 +3900,14 @@ class AdminController extends Controller
     {
         abort_if(!auth()->check() || auth()->user()->role !== 'admin', 403);
 
-        $adminId   = $request->input('administration_id');
-        $adminType = $request->input('administration_type', 'emitter');
+        $adminId   = (string) $request->input('administration_id');
+        $adminType = (string) $request->input('administration_type', 'emitter');
 
         if (!$adminId) {
             return response()->json(['success' => false, 'message' => 'Administration non sélectionnée.'], 422);
         }
+
+        $this->assertAdminSmtpScopeAllowed($adminId, $adminType);
 
         $smtp = AdministrationSmtpSetting::forAdministration($adminId, $adminType);
 

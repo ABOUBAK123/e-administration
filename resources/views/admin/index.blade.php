@@ -10334,9 +10334,15 @@ function themingToggleDisable() {
                 @foreach($emitters as $e)
                 <option value="{{ $e->id }}" data-type="emitter">{{ $e->name }}{{ $e->code ? ' ('.$e->code.')' : '' }}</option>
                 @endforeach
+                {{-- Un admin scopé sur une administration émettrice ne doit voir que la sienne :
+                     on n'affiche la liste des destinataires que pour le super admin (adminScope
+                     null) ou un admin déjà scopé sur un destinataire (auquel cas $recipients
+                     n'en contient déjà qu'un seul, le sien). --}}
+                @if(!isset($adminScope) || !$adminScope || $adminScope['type'] !== 'emitter')
                 @foreach($recipients as $r)
                 <option value="{{ $r->id }}" data-type="recipient">{{ $r->name }}{{ $r->code ? ' ('.$r->code.')' : '' }} [dest.]</option>
                 @endforeach
+                @endif
             </select>
         </div>
 
