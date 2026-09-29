@@ -1258,6 +1258,40 @@ async function confirmMove() {
     showToast(dest ? `Déplacé vers « ${dest} »` : 'Déplacé à la racine');
 }
 
+// ---- Renommer (modal) ----
+function handleRename(id) {
+    toggleActions(id);
+    _renameDocId = id;
+    const doc = allDocs.find(d => d.id === id);
+    const input = document.getElementById('renameInput');
+    input.value = doc ? doc.title : '';
+    document.getElementById('renameError').classList.add('hidden');
+    document.getElementById('renameModal').classList.remove('hidden');
+    input.focus();
+    input.select();
+}
+async function confirmRename() {
+    const input = document.getElementById('renameInput');
+    const errorEl = document.getElementById('renameError');
+    const newTitle = input.value.trim();
+    if (!newTitle) {
+        errorEl.textContent = 'Le nom ne peut pas être vide.';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+    const data = await post(ROUTES.rename(_renameDocId), { title: newTitle });
+    if (!data || !data.title) {
+        errorEl.textContent = (data && data.message) || 'Impossible de renommer ce document.';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+    const doc = allDocs.find(d => d.id === _renameDocId);
+    if (doc) doc.title = data.title;
+    document.getElementById('renameModal').classList.add('hidden');
+    renderTable();
+    showToast('Renommé avec succès');
+}
+
 // ---- Étiquettes (modal) ----
 function handleLabels(id) {
     toggleActions(id);
