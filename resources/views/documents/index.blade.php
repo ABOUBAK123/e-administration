@@ -1588,11 +1588,7 @@ document.getElementById('folderInput').addEventListener('change', async (e) => {
         const top = rel.split('/')[0] || null;
         try {
             const data = await uploadFile(file, top);
-            if (data.id) allDocs.unshift({ id: data.id, title: data.title,
-                description: top ? `Dossier: ${top}` : null,
-                mime_type: data.mime_type, file_path: data.file_path,
-                file_size: data.file_size || 0, shares_count: 0,
-                status: 'draft', created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+            if (data.id) allDocs.unshift(data);
         } catch(err) { showToast(`${file.name} : ${err.message}`); }
         done++;
         progressBar.style.width = `${Math.round(done / total * 100)}%`;
@@ -1619,17 +1615,7 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
     for (const file of files) {
         try {
             const data = await uploadFile(file);
-            if (data.id) {
-                allDocs.unshift({
-                    id: data.id, title: data.title,
-                    description: activeFolderTab ? `Dossier: ${activeFolderTab}` : null,
-                    mime_type: data.mime_type, file_path: data.file_path,
-                    file_size: data.file_size || 0, shares_count: 0,
-                    status: 'draft',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                });
-            }
+            if (data.id) allDocs.unshift(data);
         } catch(err) { showToast(`${file.name} : ${err.message}`); }
         done++;
         progressBar.style.width = `${Math.round(done / total * 100)}%`;
