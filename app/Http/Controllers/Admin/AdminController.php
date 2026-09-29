@@ -6693,25 +6693,10 @@ class AdminController extends Controller
 
         $this->applyScopedSmtpConfiguration($smtp);
 
-        $appName = config('app.name', 'E-Parapheur');
         $appUrl  = rtrim(config('app.url', url('/')), '/');
         $displayName = trim((string) ($user->full_name ?? $user->name ?? '')) ?: $user->email;
 
-        $body = "Bonjour {$displayName},\n\n"
-            . "Votre compte utilisateur sur la plateforme {$appName} a été créé avec succès.\n\n"
-            . "═══════════════════════════════\n"
-            . "INFORMATIONS DE CONNEXION\n"
-            . "═══════════════════════════════\n"
-            . "  • Identifiant (email) : {$user->email}\n"
-            . "  • Lien d'accès        : {$appUrl}\n"
-            . "═══════════════════════════════\n\n"
-            . "Pour obtenir votre mot de passe, veuillez contacter l'administrateur de la plateforme.\n\n"
-            . "Cordialement,\n"
-            . "L'équipe {$appName}";
-
-        \Illuminate\Support\Facades\Mail::raw($body, function ($message) use ($user, $appName) {
-            $message->to($user->email, $user->full_name ?: $user->name)
-                ->subject("Création de votre compte — {$appName}");
-        });
+        \Illuminate\Support\Facades\Mail::to($user->email, $user->full_name ?: $user->name)
+            ->send(new \App\Mail\AccountCreatedMail($displayName, $user->email, $appUrl));
     }
 }
