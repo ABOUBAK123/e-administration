@@ -2281,6 +2281,32 @@ class DocumentController extends Controller
      * sans altérer le contenu existant (utilise FPDI pour importer les pages sources).
      * Les paraphes précédents restent visibles : chaque nouveau paraphe est empilé au-dessus.
      */
+    /**
+     * Réécrit le PDF via Ghostscript en PDF 1.4 compatible avec le parseur gratuit de FPDI
+     * (certains PDF utilisent une compression PDF 1.5+/xref-streams non supportée par FPDI).
+     */
+    private function normalizePdfForFpdi(string $absPath): string
+    {
+        $tmpPath = tempnam(sys_get_temp_dir(), 'gs_pdf_') . '.pdf';
+
+        $cmd = sprintf(
+            'gs -q -dNOPAUSE -dBATCH -dSAFER -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -sOutputFile=%s %s 2>&1',
+            escapeshellarg($tmpPath),
+            escapeshellarg($absPath)
+        );
+        exec($cmd, $output, $exitCode);
+
+        if ($exitCode !== 0 || !is_file($tmpPath) || filesize($tmpPath) === 0) {
+            @unlink($tmpPath);
+            Log::warning('Ghostscript PDF normalization failed, falling back to original file', [
+                'output' => implode("\n", $output),
+            ]);
+            return $absPath;
+        }
+
+        return $tmpPath;
+    }
+
     private function stampInitialsOnPdf(string $absPath, string $initials, int $priorStampCount): string
     {
         $stampX = $this->getIntAppSetting('stamp_initials_x', 8, 0, 2000);
@@ -2292,13 +2318,16 @@ class DocumentController extends Controller
         $stampColorHex = preg_match('/^[0-9a-fA-F]{6}$/', $stampColorHex) ? $stampColorHex : '2453D6';
         [$stampR, $stampG, $stampB] = array_map('hexdec', str_split($stampColorHex, 2));
 
+        $sourcePath = $this->normalizePdfForFpdi($absPath);
+        $isTempSource = $sourcePath !== $absPath;
+
         $pdf = new Fpdi('P', 'pt');
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
         $pdf->SetAutoPageBreak(false);
         $pdf->setJPEGQuality(90);
 
-        $pageCount = $pdf->setSourceFile($absPath);
+        $pageCount = $pdf->setSourceFile($sourcePath);
         $stampLabel = 'Paraphe : ' . $initials . ' - ' . now()->format('d/m/Y H:i');
         $offsetY = $stampBaseY + ($priorStampCount * $stampLineHeight);
 
@@ -2316,7 +2345,13 @@ class DocumentController extends Controller
             $pdf->Cell(0, 10, $stampLabel, 0, 0, 'L');
         }
 
-        return (string) $pdf->Output('', 'S');
+        $result = (string) $pdf->Output('', 'S');
+
+        if ($isTempSource) {
+            @unlink($sourcePath);
+        }
+
+        return $result;
     }
 
     /**
@@ -2594,6 +2629,17 @@ class DocumentController extends Controller
         // Ajouter un <w:sectPr> minimal si absent (requis pour la référence footer)
         if (strpos($docXml, '<w:sectPr') === false) {
             $docXml = str_replace('</w:body>', '<w:sectPr/></w:body>', $docXml);
+        }
+
+        // S'assurer que le namespace "r" (relationships) est déclaré sur l'élément racine
+        // (requis pour r:id sur <w:footerReference>, absent des DOCX simples sans liens/images).
+        if (strpos($docXml, 'xmlns:r=') === false) {
+            $docXml = preg_replace(
+                '/<w:document\b/',
+                '<w:document xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"',
+                $docXml,
+                1
+            );
         }
 
         $qrPngBytes  = file_get_contents($qrPngPath);
