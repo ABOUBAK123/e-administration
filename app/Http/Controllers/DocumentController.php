@@ -434,10 +434,26 @@ class DocumentController extends Controller
         ]);
 
         return response()->json([
-            'id'        => $document->id,
-            'title'     => $document->title,
-            'file_path' => $document->file_path,
-            'mime_type' => $document->mime_type,
+            'id'               => $document->id,
+            'owner_id'         => $document->owner_id,
+            'is_owner'         => true,
+            'can_share'        => true,
+            'share_permission' => 'modification',
+            'can_edit_content' => true,
+            'title'            => $document->title,
+            'description'      => $document->description,
+            'file_path'        => $document->file_path,
+            'final_file_path'  => $document->final_file_path,
+            'file_size'        => $document->file_size,
+            'mime_type'        => $document->mime_type,
+            'status'           => $document->status,
+            'shares_count'     => 0,
+            'paraphed_by_me'   => false,
+            'is_courrier_depart_tagged' => false,
+            'next_courrier_depart_number' => null,
+            'act_validation'   => null,
+            'created_at'       => $document->created_at->toISOString(),
+            'updated_at'       => $document->updated_at->toISOString(),
         ], 201);
     }
 

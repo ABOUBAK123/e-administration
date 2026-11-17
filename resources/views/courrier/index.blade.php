@@ -36,15 +36,37 @@
 <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
     <h2 class="text-2xl font-bold text-gray-900">Tableau de bord — Gestion Courrier</h2>
 
-    {{-- Filtre période --}}
-    <form method="GET" action="{{ route('courrier.tableau-de-bord') }}" class="flex gap-2">
-        @foreach(['7'=>'7 jours','30'=>'30 jours','90'=>'90 jours','tous'=>'Tout'] as $val=>$label)
-        <button type="submit" name="periode" value="{{ $val }}"
-            class="{{ ($periode??'30')===$val ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50' }} px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition">
-            {{ $label }}
-        </button>
-        @endforeach
-    </form>
+    <div class="flex flex-wrap items-center gap-2">
+        {{-- Filtre période (ignoré si un intervalle de dates est renseigné ci-contre) --}}
+        <form method="GET" action="{{ route('courrier.tableau-de-bord') }}" class="flex gap-2">
+            @foreach(['7'=>'7 jours','30'=>'30 jours','90'=>'90 jours','tous'=>'Tout'] as $val=>$label)
+            <button type="submit" name="periode" value="{{ $val }}"
+                class="{{ empty($dateDebut) && empty($dateFin) && ($periode??'30')===$val ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50' }} px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition">
+                {{ $label }}
+            </button>
+            @endforeach
+        </form>
+
+        {{-- Filtre intervalle de dates --}}
+        <form method="GET" action="{{ route('courrier.tableau-de-bord') }}"
+            class="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-2 py-1.5">
+            <input type="date" name="date_debut" value="{{ $dateDebut ?? '' }}"
+                class="border-0 text-xs sm:text-sm text-gray-700 focus:outline-none focus:ring-0 px-1">
+            <span class="text-gray-300 text-xs">→</span>
+            <input type="date" name="date_fin" value="{{ $dateFin ?? '' }}"
+                class="border-0 text-xs sm:text-sm text-gray-700 focus:outline-none focus:ring-0 px-1">
+            <button type="submit"
+                class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition">
+                Filtrer
+            </button>
+            @if(!empty($dateDebut) || !empty($dateFin))
+            <a href="{{ route('courrier.tableau-de-bord') }}" title="Réinitialiser l'intervalle de dates"
+                class="px-2 py-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 text-xs">
+                <i class="fas fa-times"></i>
+            </a>
+            @endif
+        </form>
+    </div>
 </div>
 
 {{-- KPI Cards --}}

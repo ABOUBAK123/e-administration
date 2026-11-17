@@ -13,7 +13,7 @@ class RequestedAct extends Model
         'administration_id', 'direction_code', 'recipient_administration_id',
         'motif', 'document_name', 'required_documents', 'applicant_fields',
         'auto_generate_enabled', 'auto_template_id', 'unique_key_field',
-        'is_active',
+        'is_active', 'is_paid', 'amount',
     ];
 
     protected $casts = [
@@ -21,6 +21,8 @@ class RequestedAct extends Model
         'required_documents' => 'array',
         'applicant_fields'   => 'array',
         'auto_generate_enabled' => 'boolean',
+        'is_paid'            => 'boolean',
+        'amount'             => 'decimal:2',
     ];
 
     public function administration()

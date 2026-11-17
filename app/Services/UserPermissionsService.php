@@ -89,6 +89,7 @@ class UserPermissionsService
             'administration.theming'            => 'Apparence',
             'administration.email-notifications'=> 'Notifications e-mail',
             'administration.signature-provider' => 'API Signature',
+            'administration.mobile-money'       => 'API Mobile Money',
             'administration.courrier-archiving' => 'Archivage courrier',
             'administration.instructions'        => 'Instructions',
             'administration.user-profiles'      => 'Rôles & profils',

@@ -47,6 +47,12 @@ return [
         'webhook_secret' => env('SIGNATURE_WEBHOOK_SECRET'),
     ],
 
+    'mobile_money' => [
+        // Secret partagé pour authentifier les webhooks entrants des fournisseurs mobile money.
+        // Générer avec : php artisan tinker --execute="echo bin2hex(random_bytes(32));"
+        'webhook_secret' => env('MOBILE_MONEY_WEBHOOK_SECRET'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

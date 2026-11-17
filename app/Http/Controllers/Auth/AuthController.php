@@ -303,6 +303,34 @@ class AuthController extends Controller
             : back()->withErrors(['email' => 'Aucun compte trouvé avec cette adresse email.']);
     }
 
+    public function showResetPassword(Request $request, string $token)
+    {
+        return view('auth.reset-password', [
+            'token' => $token,
+            'email' => $request->query('email', ''),
+        ]);
+    }
+
+    public function resetPassword(Request $request)
+    {
+        $data = $request->validate([
+            'token' => 'required|string',
+            'email' => 'required|email',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        $status = Password::reset(
+            $data,
+            function (User $user, string $password) {
+                $user->forceFill(['password' => Hash::make($password)])->save();
+            }
+        );
+
+        return $status === Password::PASSWORD_RESET
+            ? redirect()->route('login')->with('success', 'Votre mot de passe a été réinitialisé avec succès. Vous pouvez vous connecter.')
+            : back()->withErrors(['email' => [__($status)]])->withInput($request->only('email'));
+    }
+
     public function showRegister()
     {
         return view('auth.register');

@@ -580,6 +580,21 @@ class CourrierController extends Controller
         return now()->subDays($days);
     }
 
+    /** Parse une date "Y-m-d" venant d'un input date du filtre tableau de bord ; ignore les valeurs invalides. */
+    private function parseDashboardDate(?string $value): ?\Carbon\Carbon
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return null;
+        }
+
+        try {
+            return \Carbon\Carbon::createFromFormat('Y-m-d', $value)->startOfDay();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
     /**
      * Retourne la config du lecteur (viewer) depuis AppSetting.
      * ['viewer' => 'onlyoffice'|'native', 'oo_url' => '...', 'oo_secret' => '...']
@@ -680,13 +695,22 @@ class CourrierController extends Controller
         $adminId = $this->administrationId();
         $periode = $request->get('periode', '30'); // jours, 'tous' = sans limite
 
+        // Filtre par intervalle de dates (prioritaire sur "periode" quand renseigné).
+        $dateDebut = $this->parseDashboardDate($request->get('date_debut'));
+        $dateFin   = $this->parseDashboardDate($request->get('date_fin'));
+        $useDateRange = $dateDebut !== null || $dateFin !== null;
+
         $archivalThreshold = $this->archivalThreshold();
 
         $baseQuery = fn () => Courrier::query()
             ->where('sub_entity_code', $code)
             ->when($adminId, fn ($q) => $q->where('administration_id', $adminId))
             ->when($archivalThreshold !== null, fn ($q) => $q->where('created_at', '>=', $archivalThreshold))
-            ->when($periode !== 'tous' && ctype_digit((string) $periode),
+            ->when($useDateRange, function ($q) use ($dateDebut, $dateFin) {
+                if ($dateDebut) $q->where('created_at', '>=', $dateDebut->copy()->startOfDay());
+                if ($dateFin)   $q->where('created_at', '<=', $dateFin->copy()->endOfDay());
+            })
+            ->when(!$useDateRange && $periode !== 'tous' && ctype_digit((string) $periode),
                 fn ($q) => $q->where('created_at', '>=', now()->subDays((int) $periode)));
 
         $total         = (clone $baseQuery())->count();
@@ -721,6 +745,8 @@ class CourrierController extends Controller
             'subtab'    => 'tableau-de-bord',
             'subtabs'   => $this->visibleSubtabs(),
             'periode'   => $periode,
+            'dateDebut' => $dateDebut?->format('Y-m-d'),
+            'dateFin'   => $dateFin?->format('Y-m-d'),
             'stats'     => [
                 'total'         => $total,
                 'en_attente'    => $enAttente,
