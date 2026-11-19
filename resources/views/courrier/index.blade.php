@@ -280,7 +280,7 @@
 
             <div>
                 <label class="block text-xs font-semibold text-gray-700 mb-1">Objet <span class="text-red-500">*</span></label>
-                <input type="text" name="objet" required placeholder=""
+                <input type="text" name="objet" required placeholder="" value="{{ $prefill['objet'] ?? '' }}"
                     class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50">
             </div>
 
@@ -290,11 +290,11 @@
                         {{ $typeForm === 'arrive' ? 'Expéditeur' : 'Destinataire' }} <span class="text-red-500">*</span>
                     </label>
                     <textarea name="{{ $typeForm === 'arrive' ? 'expediteur' : 'destinataire' }}" rows="3" required
-                        class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50 resize-none"></textarea>
+                        class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50 resize-none">{{ $typeForm === 'arrive' ? ($prefill['expediteur'] ?? '') : '' }}</textarea>
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-gray-700 mb-1">Numéro d'émission</label>
-                    <input type="text" name="numero_emission" placeholder=""
+                    <input type="text" name="numero_emission" placeholder="" value="{{ $prefill['numero_emission'] ?? '' }}"
                         class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50">
                 </div>
             </div>
@@ -325,6 +325,15 @@
                            onchange="updateFileList(this)">
                 </div>
                 <div id="file-list" class="mt-2 space-y-1"></div>
+
+                @if(!empty($prefill))
+                <input type="hidden" name="courrier_source_id" value="{{ $prefill['id'] }}">
+                @foreach($prefill['fichiers'] as $nomFichier)
+                <div class="mt-2 flex items-center gap-2 text-xs text-gray-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-1.5">
+                    <i class="fas fa-envelope-open-text text-blue-400"></i><span class="truncate">Courrier reçu : {{ $nomFichier }}</span>
+                </div>
+                @endforeach
+                @endif
 
                 @if($typeForm === 'depart')
                 <button type="button" onclick="openDocPicker()"
@@ -722,9 +731,17 @@ function updateAccuseLabel(input) {
                 <td class="px-6 py-4 text-gray-700">{{ $c['emetteur_admin'] ?? '—' }}</td>
                 <td class="px-6 py-4"><span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">{{ $c['statut'] }}</span></td>
                 <td class="px-6 py-4 text-right">
-                    <button onclick="openPdfModal('{{ $c['fichier'] ?? '' }}', '{{ addslashes($c['num']) }}')" class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 transition" title="Voir" style="color:#3b82f6;">
-                        <i class="fa-solid fa-eye text-sm"></i>
-                    </button>
+                    <div class="inline-flex items-center gap-2">
+                        @if(auth()->user() && app(\App\Services\UserPermissionsService::class)->can(auth()->user(), 'courrier.enregistrement'))
+                        <a href="{{ route('courrier.enregistrement', ['type_courrier' => 'arrive', 'source_courrier' => $c['id']]) }}"
+                           class="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold transition" title="Enregistrer comme courrier arrivé">
+                            <i class="fas fa-save"></i> Enregistrer
+                        </a>
+                        @endif
+                        <button onclick="openPdfModal('{{ $c['fichier'] ?? '' }}', '{{ addslashes($c['num']) }}')" class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 transition" title="Voir" style="color:#3b82f6;">
+                            <i class="fa-solid fa-eye text-sm"></i>
+                        </button>
+                    </div>
                 </td>
             </tr>
             @empty

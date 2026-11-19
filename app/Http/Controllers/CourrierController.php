@@ -775,6 +775,21 @@ class CourrierController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'code']);
 
+        // Pré-remplissage depuis un courrier reçu (bouton "Enregistrer" de l'onglet Réception)
+        $prefill = null;
+        if ($typeForm === 'arrive' && $request->filled('source_courrier')) {
+            $source = $this->receivedCourrierForCurrentUser((string) $request->get('source_courrier'));
+            abort_if(!$source, 404);
+            $prefill = [
+                'id'              => (string) $source->id,
+                'objet'           => (string) $source->objet,
+                'expediteur'      => (string) ($source->emetteurAdministration?->name ?? ''),
+                'numero_emission' => (string) $source->numero,
+                'fichiers'        => collect($source->pieces_jointes ?: [])
+                    ->map(fn ($p) => basename((string) $p))->values()->all(),
+            ];
+        }
+
         $mesDocuments = collect();
         if ($typeForm === 'depart') {
             $mesDocuments = Document::query()
@@ -805,6 +820,7 @@ class CourrierController extends Controller
             'prochainNumero' => $this->prochainNumero($typeForm, $scopeCode),
             'recipientAdministrations' => $recipientAdministrations,
             'mesDocuments'   => $mesDocuments,
+            'prefill'        => $prefill,
         ]);
     }
 
@@ -1640,6 +1656,7 @@ class CourrierController extends Controller
             'pieces_jointes.*'=> 'nullable|file|max:10240',
             'documents_ids'  => 'nullable|array',
             'documents_ids.*'=> 'uuid',
+            'courrier_source_id' => 'nullable|uuid',
             'accuse_reception'=> 'nullable|file|max:10240',
         ]);
 
@@ -1668,6 +1685,22 @@ class CourrierController extends Controller
 
             foreach ($docs as $doc) {
                 $relative = preg_replace('#^/?storage/#', '', ltrim((string) ($doc->final_file_path ?: $doc->file_path), '/'));
+                if (!$relative || !Storage::disk('public')->exists($relative)) {
+                    continue;
+                }
+                $ext = pathinfo($relative, PATHINFO_EXTENSION);
+                $target = 'courriers/pieces_jointes/' . Str::uuid() . ($ext ? '.' . $ext : '');
+                Storage::disk('public')->copy($relative, $target);
+                $pjPaths[] = $target;
+            }
+        }
+
+        // Courrier reçu (onglet Réception) enregistré comme courrier arrivé : on reprend son fichier
+        if ($type === 'arrive' && !empty($validated['courrier_source_id'])) {
+            $source = $this->receivedCourrierForCurrentUser($validated['courrier_source_id']);
+            abort_if(!$source, 403, 'Courrier source introuvable ou non destiné à votre administration.');
+            foreach ($source->pieces_jointes ?: [] as $path) {
+                $relative = ltrim((string) $path, '/');
                 if (!$relative || !Storage::disk('public')->exists($relative)) {
                     continue;
                 }
@@ -1709,8 +1742,101 @@ class CourrierController extends Controller
 
         $this->notifyResponsibleForPendingImputation($courrier);
 
+        if ($type === 'depart') {
+            $this->deliverToRecipientDocuments($courrier);
+        }
+
         return redirect()->route('courrier.enregistrement', ['type_courrier' => $type])
             ->with('success', 'Courrier n° ' . $numero . ' enregistré avec succès.');
+    }
+
+    /**
+     * Courrier départ adressé à l'administration de l'utilisateur connecté (ou null).
+     */
+    private function receivedCourrierForCurrentUser(string $courrierId): ?Courrier
+    {
+        $adminId = $this->administrationId();
+        if (!$adminId) {
+            return null;
+        }
+
+        return Courrier::query()
+            ->with('emetteurAdministration')
+            ->whereKey($courrierId)
+            ->where('type', 'depart')
+            ->where('destinataire_administration_id', $adminId)
+            ->first();
+    }
+
+    /**
+     * Dépose le courrier départ dans "Mes documents" des utilisateurs de l'administration
+     * destinataire qui ont accès à l'onglet Réception.
+     */
+    private function deliverToRecipientDocuments(Courrier $courrier): void
+    {
+        try {
+            $destAdminId = $courrier->destinataire_administration_id;
+            $files = array_values(array_filter((array) $courrier->pieces_jointes));
+            if (!$destAdminId || !$files) {
+                return;
+            }
+
+            $profileIds = AdministrationProfile::query()
+                ->where('administration_id', $destAdminId)
+                ->where(fn ($q) => $q->whereNull('administration_type')->orWhere('administration_type', '!=', 'recipient'))
+                ->pluck('id');
+            if ($profileIds->isEmpty()) {
+                return;
+            }
+
+            $permissions = app(\App\Services\UserPermissionsService::class);
+            $users = User::query()
+                ->whereIn('profile_id', $profileIds)
+                ->get()
+                ->filter(fn (User $u) => $permissions->can($u, self::SUBTAB_PERMISSION['reception']));
+
+            $baseTitle = 'Courrier reçu ' . $courrier->numero . ' - ' . $courrier->objet;
+
+            foreach ($users as $user) {
+                foreach ($files as $i => $path) {
+                    $relative = ltrim((string) $path, '/');
+                    if (!$relative || !Storage::disk('public')->exists($relative)) {
+                        continue;
+                    }
+
+                    $ext = pathinfo($relative, PATHINFO_EXTENSION);
+                    $target = 'documents/' . Str::uuid() . ($ext ? '.' . $ext : '');
+                    Storage::disk('public')->copy($relative, $target);
+
+                    $document = Document::create([
+                        'id'          => (string) Str::uuid(),
+                        'title'       => Str::limit($baseTitle . (count($files) > 1 ? ' (' . ($i + 1) . ')' : ''), 250, ''),
+                        'description' => null,
+                        'file_path'   => '/storage/' . $target,
+                        'final_file_path' => '/storage/' . $target,
+                        'file_size'   => Storage::disk('public')->size($target),
+                        'mime_type'   => Storage::disk('public')->mimeType($target),
+                        'status'      => 'draft',
+                        'owner_id'    => $user->id,
+                        'created_by'  => $user->id,
+                    ]);
+
+                    \App\Models\DocumentVersion::create([
+                        'id'          => (string) Str::uuid(),
+                        'document_id' => $document->id,
+                        'version'     => 1,
+                        'file_path'   => $document->file_path,
+                        'creator_id'  => $user->id,
+                        'change_log'  => 'Courrier reçu',
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Dépôt du courrier reçu dans Mes documents impossible', [
+                'courrier_id' => $courrier->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function update(Request $request, Courrier $courrier)
