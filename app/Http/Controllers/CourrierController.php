@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AdministrationProfile;
 use App\Models\AdministrationSmtpSetting;
 use App\Models\Courrier;
+use App\Models\Document;
 use App\Models\AppSetting;
 use App\Models\Instruction;
 use App\Models\IssuingAdministration;
@@ -772,11 +773,29 @@ class CourrierController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'code']);
 
+        $mesDocuments = collect();
+        if ($typeForm === 'depart') {
+            $mesDocuments = Document::query()
+                ->where(fn ($q) => $q->where('owner_id', Auth::id())->orWhere('created_by', Auth::id()))
+                ->whereNotNull('file_path')
+                ->where('mime_type', '!=', 'application/x-folder')
+                ->latest()
+                ->get(['id', 'title', 'file_path', 'file_size', 'mime_type'])
+                ->map(fn (Document $d) => [
+                    'id'    => (string) $d->id,
+                    'title' => (string) $d->title,
+                    'size'  => (int) $d->file_size,
+                    'mime'  => (string) $d->mime_type,
+                ])
+                ->values();
+        }
+
         return view('courrier.index', [
             'subtab'         => 'enregistrement',
             'subtabs'        => $this->visibleSubtabs(),
             'prochainNumero' => $this->prochainNumero($typeForm, $scopeCode),
             'recipientAdministrations' => $recipientAdministrations,
+            'mesDocuments'   => $mesDocuments,
         ]);
     }
 
@@ -1610,6 +1629,8 @@ class CourrierController extends Controller
             'observations'   => 'nullable|string',
             'pieces_jointes' => 'nullable|array',
             'pieces_jointes.*'=> 'nullable|file|max:10240',
+            'documents_ids'  => 'nullable|array',
+            'documents_ids.*'=> 'uuid',
             'accuse_reception'=> 'nullable|file|max:10240',
         ]);
 
@@ -1623,6 +1644,28 @@ class CourrierController extends Controller
             foreach ($request->file('pieces_jointes') as $file) {
                 ClamAvScanner::scan($file, 'courriers');
                 $pjPaths[] = $file->store('courriers/pieces_jointes', 'public');
+            }
+        }
+
+        // Fichiers choisis depuis "Mes documents" (copiés pour rester indépendants du document source)
+        $documentIds = array_values(array_unique($validated['documents_ids'] ?? []));
+        if ($documentIds) {
+            $userId = (string) Auth::id();
+            $docs = Document::query()
+                ->whereIn('id', $documentIds)
+                ->where(fn ($q) => $q->where('owner_id', $userId)->orWhere('created_by', $userId))
+                ->where('mime_type', '!=', 'application/x-folder')
+                ->get();
+
+            foreach ($docs as $doc) {
+                $relative = preg_replace('#^/?storage/#', '', ltrim((string) ($doc->final_file_path ?: $doc->file_path), '/'));
+                if (!$relative || !Storage::disk('public')->exists($relative)) {
+                    continue;
+                }
+                $ext = pathinfo($relative, PATHINFO_EXTENSION);
+                $target = 'courriers/pieces_jointes/' . Str::uuid() . ($ext ? '.' . $ext : '');
+                Storage::disk('public')->copy($relative, $target);
+                $pjPaths[] = $target;
             }
         }
 

@@ -325,6 +325,15 @@
                            onchange="updateFileList(this)">
                 </div>
                 <div id="file-list" class="mt-2 space-y-1"></div>
+
+                @if($typeForm === 'depart')
+                <button type="button" onclick="openDocPicker()"
+                    class="mt-2 inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-lg transition">
+                    <i class="fas fa-folder-open"></i> Choisir depuis Mes documents
+                </button>
+                <div id="doc-picked-inputs"></div>
+                <div id="doc-picked-list" class="mt-2 space-y-1"></div>
+                @endif
             </div>
 
             @if($typeForm === 'depart'){{-- champs direction/mode supprimés --}}@endif
@@ -359,8 +368,84 @@
     </form>
 </div>
 
+@if($typeForm === 'depart')
+<div id="docPickerModal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <h3 class="text-sm font-bold text-gray-900">Choisir depuis Mes documents</h3>
+            <button type="button" onclick="closeDocPicker()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="px-5 pt-3">
+            <input id="docPickerSearch" type="text" placeholder="Rechercher un document..." oninput="renderDocPicker()"
+                class="w-full border border-gray-200 rounded-xl px-4 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-300">
+        </div>
+        <div id="docPickerList" class="px-5 py-3 overflow-y-auto space-y-1 flex-1"></div>
+        <div class="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
+            <button type="button" onclick="closeDocPicker()" class="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg">Annuler</button>
+            <button type="button" onclick="confirmDocPicker()" class="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Ajouter la sélection</button>
+        </div>
+    </div>
+</div>
+@endif
+
 @push('scripts')
 <script>
+// ── Sélection depuis Mes documents ───────────────────────────────────────────
+const MES_DOCUMENTS = @json($mesDocuments ?? []);
+let pickedDocs = new Set();
+let pickerDraft = new Set();
+function escHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function openDocPicker() {
+    pickerDraft = new Set(pickedDocs);
+    document.getElementById('docPickerSearch').value = '';
+    renderDocPicker();
+    document.getElementById('docPickerModal').classList.remove('hidden');
+}
+function closeDocPicker() {
+    document.getElementById('docPickerModal').classList.add('hidden');
+}
+function renderDocPicker() {
+    const q = document.getElementById('docPickerSearch').value.trim().toLowerCase();
+    const list = document.getElementById('docPickerList');
+    const rows = MES_DOCUMENTS.filter(d => !q || d.title.toLowerCase().includes(q));
+    if (!rows.length) {
+        list.innerHTML = '<p class="text-xs text-gray-400 py-4 text-center">Aucun document trouvé.</p>';
+        return;
+    }
+    list.innerHTML = rows.map(d =>
+        '<label class="flex items-center gap-2 text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-100">' +
+        '<input type="checkbox" value="' + escHtml(d.id) + '"' + (pickerDraft.has(d.id) ? ' checked' : '') + ' onchange="togglePickerDoc(this)">' +
+        '<i class="fas fa-file text-gray-400"></i><span class="truncate">' + escHtml(d.title) + '</span>' +
+        '<span class="ml-auto text-gray-400">' + (d.size / 1024).toFixed(0) + ' Ko</span></label>'
+    ).join('');
+}
+function togglePickerDoc(cb) {
+    if (cb.checked) pickerDraft.add(cb.value); else pickerDraft.delete(cb.value);
+}
+function confirmDocPicker() {
+    pickedDocs = new Set(pickerDraft);
+    renderPickedDocs();
+    closeDocPicker();
+}
+function removePickedDoc(id) {
+    pickedDocs.delete(id);
+    renderPickedDocs();
+}
+function renderPickedDocs() {
+    const inputs = document.getElementById('doc-picked-inputs');
+    const list = document.getElementById('doc-picked-list');
+    inputs.innerHTML = '';
+    list.innerHTML = '';
+    MES_DOCUMENTS.filter(d => pickedDocs.has(d.id)).forEach(d => {
+        inputs.insertAdjacentHTML('beforeend', '<input type="hidden" name="documents_ids[]" value="' + escHtml(d.id) + '">');
+        list.insertAdjacentHTML('beforeend',
+            '<div class="flex items-center gap-2 text-xs text-gray-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-1.5">' +
+            '<i class="fas fa-folder-open text-blue-400"></i><span class="truncate">' + escHtml(d.title) + '</span>' +
+            '<span class="ml-auto text-gray-400">' + (d.size / 1024).toFixed(0) + ' Ko</span>' +
+            '<button type="button" onclick="removePickedDoc(\'' + escHtml(d.id) + '\')" class="text-gray-400 hover:text-red-500"><i class="fas fa-times"></i></button></div>');
+    });
+}
+
 // ── OCR Scanner ──────────────────────────────────────────────────────────────
 function openOcrModal() {
     document.getElementById('ocrModal').classList.remove('hidden');
