@@ -379,6 +379,13 @@
             <input id="docPickerSearch" type="text" placeholder="Rechercher un document..." oninput="renderDocPicker()"
                 class="w-full border border-gray-200 rounded-xl px-4 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-300">
         </div>
+        <div id="docPickerNav" class="hidden px-5 pt-3">
+            <div class="flex items-center gap-2 text-xs text-gray-600">
+                <button type="button" onclick="openPickerFolder('')" class="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded-lg"><i class="fas fa-arrow-left"></i> Retour</button>
+                <span id="docPickerPath" class="truncate font-semibold"></span>
+                <button type="button" onclick="selectAllInPickerFolder()" class="ml-auto px-2 py-1 text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg">Tout sélectionner</button>
+            </div>
+        </div>
         <div id="docPickerList" class="px-5 py-3 overflow-y-auto space-y-1 flex-1"></div>
         <div class="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
             <button type="button" onclick="closeDocPicker()" class="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg">Annuler</button>
@@ -395,8 +402,10 @@ const MES_DOCUMENTS = @json($mesDocuments ?? []);
 let pickedDocs = new Set();
 let pickerDraft = new Set();
 function escHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+let pickerFolder = ''; // nom du dossier ouvert ('' = racine)
 function openDocPicker() {
     pickerDraft = new Set(pickedDocs);
+    pickerFolder = '';
     document.getElementById('docPickerSearch').value = '';
     renderDocPicker();
     document.getElementById('docPickerModal').classList.remove('hidden');
@@ -404,19 +413,46 @@ function openDocPicker() {
 function closeDocPicker() {
     document.getElementById('docPickerModal').classList.add('hidden');
 }
+function openPickerFolder(name) {
+    pickerFolder = name;
+    document.getElementById('docPickerSearch').value = '';
+    renderDocPicker();
+}
+function selectAllInPickerFolder() {
+    const files = MES_DOCUMENTS.filter(d => !d.is_folder && d.folder === pickerFolder);
+    const allChecked = files.every(d => pickerDraft.has(d.id));
+    files.forEach(d => allChecked ? pickerDraft.delete(d.id) : pickerDraft.add(d.id));
+    renderDocPicker();
+}
 function renderDocPicker() {
     const q = document.getElementById('docPickerSearch').value.trim().toLowerCase();
     const list = document.getElementById('docPickerList');
-    const rows = MES_DOCUMENTS.filter(d => !q || d.title.toLowerCase().includes(q));
+    const nav = document.getElementById('docPickerNav');
+    let rows;
+    if (q) {
+        // Recherche : fichiers de tous les dossiers
+        rows = MES_DOCUMENTS.filter(d => !d.is_folder && d.title.toLowerCase().includes(q));
+        nav.classList.add('hidden');
+    } else {
+        rows = MES_DOCUMENTS.filter(d => d.is_folder ? pickerFolder === '' : d.folder === pickerFolder);
+        rows.sort((a, b) => (b.is_folder - a.is_folder));
+        nav.classList.toggle('hidden', pickerFolder === '');
+        document.getElementById('docPickerPath').textContent = 'Mes documents / ' + pickerFolder;
+    }
     if (!rows.length) {
-        list.innerHTML = '<p class="text-xs text-gray-400 py-4 text-center">Aucun document trouvé.</p>';
+        list.innerHTML = '<p class="text-xs text-gray-400 py-4 text-center">' + (q ? 'Aucun document trouvé.' : 'Ce dossier est vide.') + '</p>';
         return;
     }
-    list.innerHTML = rows.map(d =>
-        '<label class="flex items-center gap-2 text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-100">' +
-        '<input type="checkbox" value="' + escHtml(d.id) + '"' + (pickerDraft.has(d.id) ? ' checked' : '') + ' onchange="togglePickerDoc(this)">' +
-        '<i class="fas fa-file text-gray-400"></i><span class="truncate">' + escHtml(d.title) + '</span>' +
-        '<span class="ml-auto text-gray-400">' + (d.size / 1024).toFixed(0) + ' Ko</span></label>'
+    list.innerHTML = rows.map(d => d.is_folder
+        ? '<div ondblclick="openPickerFolder(' + escHtml(JSON.stringify(d.title)) + ')" title="Double-cliquez pour ouvrir" ' +
+          'class="flex items-center gap-2 text-xs text-gray-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 cursor-pointer hover:bg-amber-100 select-none">' +
+          '<i class="fas fa-folder text-amber-400"></i><span class="truncate font-semibold">' + escHtml(d.title) + '</span>' +
+          '<button type="button" onclick="openPickerFolder(' + escHtml(JSON.stringify(d.title)) + ')" class="ml-auto text-gray-400 hover:text-gray-600"><i class="fas fa-chevron-right"></i></button></div>'
+        : '<label class="flex items-center gap-2 text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-100">' +
+          '<input type="checkbox" value="' + escHtml(d.id) + '"' + (pickerDraft.has(d.id) ? ' checked' : '') + ' onchange="togglePickerDoc(this)">' +
+          '<i class="fas fa-file text-gray-400"></i><span class="truncate">' + escHtml(d.title) + '</span>' +
+          (q && d.folder ? '<span class="text-gray-400 truncate">(' + escHtml(d.folder) + ')</span>' : '') +
+          '<span class="ml-auto text-gray-400">' + (d.size / 1024).toFixed(0) + ' Ko</span></label>'
     ).join('');
 }
 function togglePickerDoc(cb) {

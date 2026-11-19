@@ -779,16 +779,23 @@ class CourrierController extends Controller
         if ($typeForm === 'depart') {
             $mesDocuments = Document::query()
                 ->where(fn ($q) => $q->where('owner_id', Auth::id())->orWhere('created_by', Auth::id()))
-                ->whereNotNull('file_path')
-                ->where('mime_type', '!=', 'application/x-folder')
+                ->where(fn ($q) => $q->whereNotNull('file_path')->orWhere('mime_type', 'application/x-folder'))
                 ->latest()
-                ->get(['id', 'title', 'file_path', 'file_size', 'mime_type'])
-                ->map(fn (Document $d) => [
-                    'id'    => (string) $d->id,
-                    'title' => (string) $d->title,
-                    'size'  => (int) $d->file_size,
-                    'mime'  => (string) $d->mime_type,
-                ])
+                ->get(['id', 'title', 'description', 'file_path', 'file_size', 'mime_type'])
+                ->map(function (Document $d) {
+                    $isFolder = $d->mime_type === 'application/x-folder' || $d->description === '[folder]';
+                    $desc = (string) $d->description;
+
+                    return [
+                        'id'        => (string) $d->id,
+                        'title'     => (string) $d->title,
+                        'size'      => (int) $d->file_size,
+                        'mime'      => (string) $d->mime_type,
+                        'is_folder' => $isFolder,
+                        // Nom du dossier parent ("Dossier: X"), vide à la racine
+                        'folder'    => (!$isFolder && str_starts_with($desc, 'Dossier: ')) ? substr($desc, 9) : '',
+                    ];
+                })
                 ->values();
         }
 
