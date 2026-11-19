@@ -98,6 +98,21 @@ class Courrier extends Model
         return $this->belongsTo(RecipientAdministration::class, 'destinataire_administration_id');
     }
 
+    /**
+     * Nom de l'administration destinataire : administration émettrice (nouveaux courriers)
+     * ou administration destinataire (anciens courriers).
+     */
+    public function getDestinataireAdministrationNomAttribute(): ?string
+    {
+        $id = $this->destinataire_administration_id;
+        if (!$id) {
+            return null;
+        }
+
+        return IssuingAdministration::query()->whereKey($id)->value('name')
+            ?? $this->destinataireAdministration?->name;
+    }
+
     public function sourceDocument()
     {
         return $this->belongsTo(Document::class, 'source_document_id');

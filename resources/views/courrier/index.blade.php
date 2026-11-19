@@ -1545,7 +1545,7 @@ document.addEventListener('keydown', function(e) {
 
 {{-- Modal Modifier Courrier --}}
 @php
-    $recipientAdminOptions = \App\Models\RecipientAdministration::query()
+    $recipientAdminOptions = \App\Models\IssuingAdministration::query()
         ->where('is_active', true)
         ->orderBy('name')
         ->get(['id', 'name', 'code']);

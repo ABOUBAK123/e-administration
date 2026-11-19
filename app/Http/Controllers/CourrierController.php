@@ -768,7 +768,9 @@ class CourrierController extends Controller
         $typeForm = $request->get('type_courrier', 'arrive');
         $scope = $this->currentUserCourrierScope();
         $scopeCode = $scope['sub_entity_code'] ?? null;
-        $recipientAdministrations = RecipientAdministration::query()
+        // Le champ "Administration destinataire" liste les administrations émettrices
+        // (une administration émettrice peut aussi recevoir des courriers d'autres administrations).
+        $recipientAdministrations = IssuingAdministration::query()
             ->where('is_active', true)
             ->orderBy('name')
             ->get(['id', 'name', 'code']);
@@ -834,7 +836,7 @@ class CourrierController extends Controller
                 'statut' => (string) $c->statut_libelle,
                 'agent' => (string) ($c->enregistrePar?->name ?? '—'),
                 'destinataire' => (string) ($c->destinataire ?? ''),
-                'destinataire_admin' => (string) ($c->destinataireAdministration?->name ?? '—'),
+                'destinataire_admin' => (string) ($c->destinataire_administration_nom ?? '—'),
                 'fichier' => $this->resolveFileUrl($firstFile),
                 'date_emission' => optional($c->date_emission)->format('Y-m-d') ?: '',
                 'numero_emission' => (string) ($c->numero_emission ?? ''),
@@ -1624,7 +1626,7 @@ class CourrierController extends Controller
             'date_emission'  => 'required|date',
             'expediteur'     => 'nullable|string',
             'destinataire'   => 'nullable|string',
-            'destinataire_administration_id' => 'required_if:type_courrier,depart|nullable|uuid|exists:recipient_administrations,id',
+            'destinataire_administration_id' => 'required_if:type_courrier,depart|nullable|uuid|exists:issuing_administrations,id',
             'numero_emission'=> 'nullable|string|max:100',
             'observations'   => 'nullable|string',
             'pieces_jointes' => 'nullable|array',
@@ -1718,7 +1720,7 @@ class CourrierController extends Controller
             'numero_emission' => 'nullable|string|max:100',
             'expediteur' => 'nullable|string',
             'destinataire' => 'nullable|string',
-            'destinataire_administration_id' => 'nullable|uuid|exists:recipient_administrations,id',
+            'destinataire_administration_id' => 'nullable|uuid|exists:issuing_administrations,id',
             'accuse_reception' => 'nullable|file|max:10240',
             'fichier' => 'nullable|file|max:10240',
         ]);
