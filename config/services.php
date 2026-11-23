@@ -47,6 +47,15 @@ return [
         'webhook_secret' => env('SIGNATURE_WEBHOOK_SECRET'),
     ],
 
+    'safy' => [
+        'url'              => env('SAFY_TRUSTED_SERVICE_URL'),   // avec slash final
+        'token'            => env('SAFY_API_TOKEN'),
+        'space'            => env('SAFY_SPACE_ID'),
+        'signature_policy' => env('SAFY_SIGNATURE_POLICY_ID'),
+        'timeout'          => env('SAFY_TIMEOUT', 30),
+        'verify_ssl'       => env('SAFY_VERIFY_SSL', true),
+    ],
+
     'mobile_money' => [
         // Secret partagé pour authentifier les webhooks entrants des fournisseurs mobile money.
         // Générer avec : php artisan tinker --execute="echo bin2hex(random_bytes(32));"

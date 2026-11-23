@@ -17,6 +17,7 @@ use App\Models\WorkflowStep;
 use App\Models\Notification;
 use App\Services\ClamAvScanner;
 use App\Services\NotificationService;
+use App\Services\SafyClient;
 use App\Services\Templates\TemplateGenerationCoreService;
 use App\Traits\GuardsPermissions;
 use Illuminate\Http\JsonResponse;
@@ -1573,1008 +1574,162 @@ class SignatureController extends Controller
         return [$field];
     }
 
-    private function buildPlatformInviteUrl(
-        SignatureProviderConfig $cfg,
-        string $ownerUserId,
-        string $actionType,
-        Document $document,
-        User $signer,
-        array $auditContext = []
-    ): ?string {
-        $this->lastPlatformError = null;
-
-        $endpoint  = self::normalizeEndpoint($cfg->endpoint);
-        $token     = $cfg->api_key;
-        $timeout   = max(10, (int) round($cfg->timeout_ms / 1000));
-        $verifySSL = (bool) $cfg->verify_ssl;
-
-        $consentPageId = $actionType === 'signature'
-            ? ($cfg->consent_page_id ?? '')
-            : ($cfg->consent_page_id_approval ?: $cfg->consent_page_id ?? '');
-
-        $sigProfileId = $cfg->signature_profile_id ?? '';
-
-        $recipientPlatformUserId = self::resolvePlatformUserIdByEmail($cfg, (string) $signer->email);
-        $nameParts = preg_split('/\s+/', trim((string) $signer->name)) ?: [];
-        $recipientFirstName = (string) ($nameParts[0] ?? $signer->name ?? 'Utilisateur');
-        $recipientLastName = trim((string) implode(' ', array_slice($nameParts, 1)));
-        $recipientPhone = self::resolveRecipientPhone($signer);
-
-        // Certaines pages de consentement requièrent un numéro de téléphone.
-        // Ne pas l'inclure si le téléphone n'est pas disponible.
-        Log::debug('SunnyStamp: phone resolution', [
-            'signer_email' => $signer->email,
-            'phone_resolved' => $recipientPhone,
-            'consent_page_id_before' => $consentPageId,
-        ]);
-
-        if (!empty($consentPageId) && empty($recipientPhone)) {
-            Log::warning('SunnyStamp: consentPageId ignored - no phone for recipient', [
-                'signer_email' => $signer->email,
-                'consent_page_id' => $consentPageId,
-                'recipient_phone' => $recipientPhone,
-            ]);
-            $consentPageId = '';
+    /**
+     * Instancie le client Safy. La config par administration (si présente) surcharge le .env :
+     *  endpoint -> URL Trusted Service, api_key -> token, signature_profile_id -> signaturePolicy.
+     * Le "space" vient de SAFY_SPACE_ID.
+     */
+    private function makeSafyClient(?SignatureProviderConfig $cfg = null): SafyClient
+    {
+        $o = [];
+        if ($cfg) {
+            if (!empty($cfg->endpoint))             $o['url'] = self::normalizeEndpoint($cfg->endpoint);
+            if (!empty($cfg->api_key))              $o['token'] = $cfg->api_key;
+            if (!empty($cfg->signature_profile_id)) $o['signature_policy'] = $cfg->signature_profile_id;
+            if (!empty($cfg->tenant_id))            $o['space'] = $cfg->tenant_id;
+            if ($cfg->timeout_ms)                   $o['timeout'] = max(10, (int) round($cfg->timeout_ms / 1000));
+            $o['verify_ssl'] = (bool) $cfg->verify_ssl;
         }
+        return SafyClient::fromConfig($o);
+    }
 
-        Log::debug('SunnyStamp: consentPageId final', [
-            'consent_page_id_after' => $consentPageId,
-            'will_be_sent' => !empty($consentPageId),
-        ]);
-
-        $client = Http::withToken($token)
-            ->timeout($timeout)
-            ->when(!$verifySSL, fn($h) => $h->withoutVerifying());
-
-        // 1. Créer le workflow
-        $stepType  = $actionType === 'signature' ? 'signature' : 'approval';
-        $recipient = [
-            'email' => $signer->email,
-            'firstName' => $recipientFirstName,
-            'lastName' => $recipientLastName,
-        ];
-        if (!empty($recipientPhone)) {
-            $recipient['phoneNumber'] = $recipientPhone;
-        }
-
-        $webhookToken = config('services.signature_platform.webhook_secret', '');
-        $platformWebhookUrl = rtrim(config('app.url'), '/') . '/api/signature/platform-webhook'
-            . ($webhookToken !== '' ? '?token=' . urlencode($webhookToken) : '');
-
-        $workflowPayload = [
-            'name'            => 'e-Parapheur — ' . $document->title,
-            'steps'           => [[
-                'stepType'           => $stepType,
-                'recipients'         => [$recipient],
-                'requiredRecipients' => 1,
-            ]],
-            'webhookUrl'      => $platformWebhookUrl,
-        ];
-
-        if (!empty($consentPageId)) {
-            $workflowPayload['consentPageId'] = $consentPageId;
-        }
-        if (!empty($sigProfileId)) {
-            $workflowPayload['signatureProfileId'] = $sigProfileId;
-        }
-
-        Log::debug('SunnyStamp: workflow creation request', [
-            'endpoint' => "{$endpoint}/api/users/{$ownerUserId}/workflows",
-            'ownerUserId' => $ownerUserId,
-            'recipient_email' => $signer->email,
-            'recipient_phone' => $recipientPhone,
-            'consent_page_id' => $consentPageId,
-            'payload_keys' => array_keys($workflowPayload),
-            'full_payload' => $workflowPayload,
-        ]);
-
-        $wflResp = $client
-            ->withHeaders(['Content-Type' => 'application/json'])
-            ->asJson()
-            ->post("{$endpoint}/api/users/{$ownerUserId}/workflows", $workflowPayload);
-
-        // LOG la réponse BRUTE complète
-        Log::info('SunnyStamp: **WORKFLOW CREATION RESPONSE FULL**', [
-            'status' => $wflResp->status(),
-            'body_raw' => $wflResp->body(),
-            'json_decoded' => $wflResp->json(),
-        ]);
-
-        if (!$wflResp->successful()) {
-            // Fallback payload: certaines versions API refusent des champs avancés.
-            $fallbackPayload = [
-                'name' => 'e-Parapheur — ' . $document->title,
-                'steps' => [[
-                    'stepType' => $stepType,
-                    'recipients' => [array_filter([
-                        'email' => $signer->email,
-                        'firstName' => $recipientFirstName,
-                        'lastName' => $recipientLastName,
-                        'phoneNumber' => $recipientPhone ?: null,
-                        'id' => $recipientPlatformUserId ?: null,
-                        'userId' => $recipientPlatformUserId ?: null,
-                    ], fn($v) => $v !== null && $v !== '')],
-                    'requiredRecipients' => 1,
-                ]],
-                'webhookUrl'      => $platformWebhookUrl,
-            ];
-
-            if (!empty($consentPageId)) {
-                $fallbackPayload['consentPageId'] = $consentPageId;
-            }
-            if (!empty($sigProfileId)) {
-                $fallbackPayload['signatureProfileId'] = $sigProfileId;
-            }
-
-            $fallbackResp = $client
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->asJson()
-                ->post("{$endpoint}/api/users/{$ownerUserId}/workflows", $fallbackPayload);
-            if ($fallbackResp->successful()) {
-                $wflResp = $fallbackResp;
-            }
-        }
-
-        if (!$wflResp->successful()) {
-            $errorCode = is_array($wflResp->json()) ? ($wflResp->json('code') ?? '') : '';
-            if ($errorCode === 'RecipientPhoneNumberRequired' && empty($recipientPhone)) {
-                $this->lastPlatformError = 'create_workflow: RecipientPhoneNumberRequired - le profil signataire ne contient pas de numero de telephone (champ personnel requis).';
-                Log::error('SunnyStamp: création workflow bloquée - phone manquant pour recipient', [
-                    'signer_user_id' => $signer->id,
-                    'signer_email' => $signer->email,
-                ]);
-                return null;
-            }
-
-            $this->lastPlatformError = 'create_workflow: ' . self::formatApiErrorDetail($wflResp);
-            Log::error('SunnyStamp: échec création workflow', [
-                'status' => $wflResp->status(), 'body' => $wflResp->body(),
-            ]);
-            return null;
-        }
-
-        // Extraire l'ID du workflow depuis la réponse (clés variées selon le tenant)
-        $wflRespJson = $wflResp->json();
-        $workflowId = $wflRespJson['id']
-            ?? $wflRespJson['workflowId']
-            ?? $wflRespJson['workflow_id']
-            ?? ($wflRespJson['workflow']['id'] ?? null)
-            ?? null;
-
-        // Vérifier si la réponse contient déjà l'URL d'invitation
-        $inviteUrlFromCreation = $wflRespJson['inviteUrl']
-            ?? $wflRespJson['invite']['url']
-            ?? $wflRespJson['invites'][0]['url']
-            ?? $wflRespJson['stepInvites'][0]['url']
-            ?? null;
-
-        Log::debug('SunnyStamp: workflow creation response', [
-            'workflow_id' => $workflowId,
-            'invite_url_in_response' => $inviteUrlFromCreation,
-            'response_keys' => array_keys($wflRespJson),
-            'steps' => $wflRespJson['steps'] ?? null,
-            'currentRecipientEmails' => $wflRespJson['currentRecipientEmails'] ?? null,
-            'currentRecipientUsers' => $wflRespJson['currentRecipientUsers'] ?? null,
-        ]);
-
-        if (is_string($inviteUrlFromCreation) && $inviteUrlFromCreation !== '') {
-            Log::info('SunnyStamp: URL d\'invitation trouvée dans réponse workflow', [
-                'workflow_id' => $workflowId,
-                'invite_url' => $inviteUrlFromCreation,
-            ]);
-            return $inviteUrlFromCreation;
-        }
-
-        if (!is_string($workflowId) || $workflowId === '') {
-            $this->lastPlatformError = 'create_workflow: ID du workflow non trouvé dans la réponse API - ' . self::formatApiErrorDetail($wflResp);
-            Log::error('SunnyStamp: ID workflow absent', [
-                'response' => $wflResp->json(),
-            ]);
-            return null;
-        }
-
-        $this->lastPlatformWorkflowId = $workflowId;
-
-        // 2. Uploader le document PDF
-        // Si un PDF déjà signé existe, l'utiliser comme base pour conserver les signatures précédentes.
-        $sourceFilePath = !empty($document->signed_file_path)
+    /** Charge le PDF à signer (version déjà signée si elle existe, pour conserver les signatures précédentes). */
+    private function loadDocumentPdfBytes(Document $document): ?array
+    {
+        $filePath = trim(!empty($document->signed_file_path)
             ? (string) $document->signed_file_path
-            : (string) ($document->final_file_path ?: $document->file_path ?: '');
+            : (string) ($document->final_file_path ?: $document->file_path ?: ''));
 
-        $filePath = trim($sourceFilePath);
-        $normalizedPublicDiskPath = ltrim($filePath, '/');
-        if (str_starts_with($normalizedPublicDiskPath, 'public/')) {
-            $normalizedPublicDiskPath = substr($normalizedPublicDiskPath, 7);
-        }
-        if (str_starts_with($normalizedPublicDiskPath, 'storage/')) {
-            $normalizedPublicDiskPath = substr($normalizedPublicDiskPath, 8);
+        $rel = ltrim($filePath, '/');
+        foreach (['public/', 'storage/'] as $prefix) {
+            if (str_starts_with($rel, $prefix)) {
+                $rel = substr($rel, strlen($prefix));
+            }
         }
 
-        // Gérer les différents formats historiques de file_path.
-        $candidatePaths = array_values(array_unique(array_filter([
+        $candidates = array_values(array_unique(array_filter([
             $filePath !== '' ? public_path(ltrim($filePath, '/')) : null,
-            $normalizedPublicDiskPath !== '' ? Storage::disk('public')->path($normalizedPublicDiskPath) : null,
-            $normalizedPublicDiskPath !== '' ? storage_path('app/public/' . $normalizedPublicDiskPath) : null,
+            $rel !== '' ? Storage::disk('public')->path($rel) : null,
+            $rel !== '' ? storage_path('app/public/' . $rel) : null,
         ])));
 
-        $absolutePath = null;
-        foreach ($candidatePaths as $candidatePath) {
-            if (is_string($candidatePath) && $candidatePath !== '' && file_exists($candidatePath)) {
-                $absolutePath = $candidatePath;
-                break;
-            }
-        }
-
-        if (!$absolutePath) {
-            $this->lastPlatformError = 'upload_document: fichier introuvable (' . $filePath . ')';
-            Log::error('SunnyStamp: fichier introuvable', [
-                'file_path' => $filePath,
-                'normalized' => $normalizedPublicDiskPath,
-                'candidates' => $candidatePaths,
-            ]);
-            return null;
-        }
-
-        $pdfBytes = file_get_contents($absolutePath);
-        if ($pdfBytes === false) {
-            $this->lastPlatformError = 'upload_document: impossible de lire le fichier (' . $absolutePath . ')';
-            Log::error('SunnyStamp: lecture fichier upload impossible', [
-                'absolute_path' => $absolutePath,
-            ]);
-            return null;
-        }
-
-        $fileSize = strlen($pdfBytes);
-        $fileHash = base64_encode(hash('sha256', $pdfBytes, true));
-        $fileName = basename($absolutePath);
-
-        // Étape 2a: POST /parts (raw application/pdf) selon Postman ARTCI.
-        $uploadUrl = "{$endpoint}/api/workflows/{$workflowId}/parts";
-        $uploadResp = null;
-
-        try {
-            $uploadResp = Http::withToken($token)
-                ->timeout($timeout)
-                ->when(!$verifySSL, fn($h) => $h->withoutVerifying())
-                ->withBody($pdfBytes, 'application/pdf')
-                ->withHeaders([
-                    'Content-Disposition' => 'attachment; filename="' . $fileName . '"',
-                ])
-                ->post($uploadUrl);
-
-            Log::info('SunnyStamp: tentative upload raw PDF', [
-                'workflow_id' => $workflowId,
-                'url' => $uploadUrl,
-                'status' => $uploadResp->status(),
-                'body_excerpt' => substr($uploadResp->body(), 0, 250),
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning('SunnyStamp: exception upload raw PDF', [
-                'workflow_id' => $workflowId,
-                'url' => $uploadUrl,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        // Fallback multipart si le tenant refuse le raw.
-        if (!$uploadResp || !$uploadResp->successful()) {
-            foreach (['document', 'file', 'part'] as $field) {
-                try {
-                    $candidate = $client
-                        ->attach($field, $pdfBytes, $fileName, ['Content-Type' => 'application/pdf'])
-                        ->post($uploadUrl);
-
-                    Log::info('SunnyStamp: fallback upload multipart', [
-                        'workflow_id' => $workflowId,
-                        'field' => $field,
-                        'url' => $uploadUrl,
-                        'status' => $candidate->status(),
-                    ]);
-
-                    if ($candidate->successful()) {
-                        $uploadResp = $candidate;
-                        break;
-                    }
-
-                    $uploadResp = $candidate;
-                    if (in_array($candidate->status(), [401, 403], true)) {
-                        break;
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('SunnyStamp: exception fallback upload multipart', [
-                        'workflow_id' => $workflowId,
-                        'field' => $field,
-                        'error' => $e->getMessage(),
-                    ]);
+        foreach ($candidates as $p) {
+            if (is_string($p) && file_exists($p)) {
+                $bytes = file_get_contents($p);
+                if ($bytes !== false) {
+                    return [$bytes, basename($p)];
                 }
             }
         }
-
-        if (!$uploadResp || !$uploadResp->successful()) {
-            if (!$uploadResp) {
-                $this->lastPlatformError = 'upload_document: aucune réponse exploitable reçue';
-                Log::error('SunnyStamp: échec upload document (aucune réponse)', ['workflow_id' => $workflowId]);
-                return null;
-            }
-
-            $this->lastPlatformError = 'upload_document: ' . self::formatApiErrorDetail($uploadResp);
-            Log::error('SunnyStamp: échec upload document', [
-                'status' => $uploadResp->status(),
-                'body' => $uploadResp->body(),
-            ]);
-            return null;
-        }
-
-        // 2b. Créer l'invite IMMÉDIATEMENT après l'upload, AVANT le document
-        // Cela empêche le workflow de se lancer automatiquement avant qu'on ait l'URL d'invitation
-        Log::debug('SunnyStamp: creating invite before document creation', [
-            'workflow_id' => $workflowId,
-            'recipient_email' => $signer->email,
-        ]);
-
-        // Essayer de récupérer les invites (pluriel) pour voir si elles existent déjà
-        $getInvitesResp = $client
-            ->withHeaders(['Content-Type' => 'application/json'])
-            ->asJson()
-            ->get("{$endpoint}/api/workflows/{$workflowId}/invites");
-
-        $inviteUrl = null;
-        Log::debug('SunnyStamp: GET /invites response', [
-            'workflow_id' => $workflowId,
-            'status' => $getInvitesResp->status(),
-            'successful' => $getInvitesResp->successful(),
-            'body_excerpt' => substr($getInvitesResp->body(), 0, 200),
-        ]);
-
-        if ($getInvitesResp->successful()) {
-            $invitesJson = $getInvitesResp->json();
-            Log::debug('SunnyStamp: retrieved invites (GET /invites)', [
-                'workflow_id' => $workflowId,
-                'invites_response' => $invitesJson,
-            ]);
-
-            // Essayer de trouver l'URL d'invitation
-            if (is_array($invitesJson)) {
-                $inviteUrl = $invitesJson['url']
-                    ?? $invitesJson[0]['url']
-                    ?? $invitesJson['invites'][0]['url']
-                    ?? null;
-            }
-
-            if (is_string($inviteUrl) && $inviteUrl !== '') {
-                Log::info('SunnyStamp: invite URL récupérée via GET /invites', [
-                    'workflow_id' => $workflowId,
-                    'invite_url' => $inviteUrl,
-                ]);
-                return $inviteUrl;
-            }
-        }
-
-        // Si GET /invites ne fonctionne pas, essayer POST /invites (pluriel) pour créer l'invite
-        $inviteResp = $client
-            ->withHeaders(['Content-Type' => 'application/json'])
-            ->asJson()
-            ->post("{$endpoint}/api/workflows/{$workflowId}/invites", ['recipientEmail' => $signer->email]);
-
-        // Si POST /invites échoue, essayer POST /invite (singulier)
-        if (!$inviteResp->successful()) {
-            Log::debug('SunnyStamp: POST /invites failed, trying POST /invite (singular)', [
-                'workflow_id' => $workflowId,
-                'status' => $inviteResp->status(),
-            ]);
-
-            $inviteResp = $client
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->asJson()
-                ->post("{$endpoint}/api/workflows/{$workflowId}/invite", ['recipientEmail' => $signer->email]);
-        }
-
-        if ($inviteResp->successful()) {
-            $inviteJson = $inviteResp->json();
-            $inviteUrl = $inviteJson['url'] ?? $inviteJson['inviteUrl'] ?? $inviteJson['link'] ?? null;
-            Log::info('SunnyStamp: invite récupérée avant document', [
-                'workflow_id' => $workflowId,
-                'invite_url' => $inviteUrl,
-                'method' => 'POST/GET',
-            ]);
-            if (is_string($inviteUrl) && $inviteUrl !== '') {
-                return $inviteUrl;
-            }
-        } else {
-            Log::warning('SunnyStamp: early invite creation/retrieval failed (will retry later)', [
-                'workflow_id' => $workflowId,
-                'status' => $inviteResp->status(),
-                'body_excerpt' => substr($inviteResp->body(), 0, 300),
-            ]);
-        }
-
-        // Étape 2c: POST /documents avec pdfSignatureFields (obligatoire pour positionner la zone).
-        $partData = $uploadResp->json();
-        $displayedPart = $partData['documents'][0]['displayedParts'][0]
-            ?? $partData['displayedParts'][0]
-            ?? $partData['parts'][0]
-            ?? null;
-
-        $docPart = [
-            'filename' => $displayedPart['filename'] ?? $fileName,
-            'contentType' => $displayedPart['contentType'] ?? 'application/pdf',
-            'size' => (int) ($displayedPart['size'] ?? $fileSize),
-            'hash' => $displayedPart['hash'] ?? $fileHash,
-        ];
-
-        $partId = $partData['id'] ?? $partData['partId'] ?? ($displayedPart['id'] ?? null);
-        if (is_string($partId) && $partId !== '') {
-            $docPart['id'] = $partId;
-        }
-
-        $docPayload = [
-            'parts' => [$docPart],
-            'pdfSignatureFields' => $this->buildPdfSignatureFields($document, $signer, $auditContext),
-        ];
-        if (!empty($sigProfileId)) {
-            $docPayload['signatureProfileId'] = $sigProfileId;
-        }
-
-        // Essayer d'ajouter l'invite directement dans le payload du document
-        $docPayload['recipients'] = [
-            array_filter([
-                'email' => $signer->email,
-                'firstName' => $recipientFirstName,
-                'lastName' => $recipientLastName,
-                'phoneNumber' => $recipientPhone,
-            ], fn($v) => !is_null($v) && $v !== '')
-        ];
-
-        try {
-            $docResp = $client->post("{$endpoint}/api/workflows/{$workflowId}/documents", $docPayload);
-            $docRespJson = $docResp->json();
-            $docId = $docRespJson['id'] ?? $docRespJson['documentId'] ?? $docRespJson['document']['id'] ?? null;
-
-            // LOG la réponse BRUTE complète du document
-            Log::info('SunnyStamp: **DOCUMENT CREATION RESPONSE FULL**', [
-                'workflow_id' => $workflowId,
-                'status' => $docResp->status(),
-                'body_raw' => $docResp->body(),
-                'json_decoded' => $docRespJson,
-            ]);
-
-            if (!$docResp->successful()) {
-                $this->lastPlatformError = 'create_document: ' . self::formatApiErrorDetail($docResp);
-                Log::error('SunnyStamp: échec création document via /documents', [
-                    'workflow_id' => $workflowId,
-                    'status' => $docResp->status(),
-                    'body' => $docResp->body(),
-                    'doc_payload' => $docPayload,
-                ]);
-                return null;
-            }
-
-            // Chercher l'invite URL dans la réponse du document
-            $docInviteUrl = $this->extractInviteUrl($docRespJson, $endpoint);
-            if (is_string($docInviteUrl) && $docInviteUrl !== '') {
-                Log::info('SunnyStamp: ✅ Invite URL trouvée dans réponse document', [
-                    'workflow_id' => $workflowId,
-                    'document_id' => $docId,
-                    'invite_url' => $docInviteUrl,
-                ]);
-                return $docInviteUrl;
-            }
-
-            // APRÈS le document: faire GET /workflows/{id} pour obtenir les invites générées
-            Log::debug('SunnyStamp: Document créé, récupération du workflow pour les invites', [
-                'workflow_id' => $workflowId,
-            ]);
-
-            try {
-                $workflowDetailsResp = $client->get("{$endpoint}/api/workflows/{$workflowId}");
-                if ($workflowDetailsResp->successful()) {
-                    $workflowDetailsJson = $workflowDetailsResp->json();
-                    Log::info('SunnyStamp: **WORKFLOW DETAILS AFTER DOCUMENT**', [
-                        'workflow_id' => $workflowId,
-                        'body_raw' => $workflowDetailsResp->body(),
-                    ]);
-
-                    $detailsInviteUrl = $this->extractInviteUrl($workflowDetailsJson, $endpoint);
-                    if (is_string($detailsInviteUrl) && $detailsInviteUrl !== '') {
-                        Log::info('SunnyStamp: ✅ Invite URL trouvée dans détails workflow APRÈS document', [
-                            'workflow_id' => $workflowId,
-                            'invite_url' => $detailsInviteUrl,
-                        ]);
-                        return $detailsInviteUrl;
-                    }
-
-                    // Essayer GET /workflows/{id}/invites pour récupérer les invitations
-                    Log::debug('SunnyStamp: Tentative GET /invites après document création', [
-                        'workflow_id' => $workflowId,
-                    ]);
-                    try {
-                        $getInvitesResp = $client->get("{$endpoint}/api/workflows/{$workflowId}/invites");
-                        if ($getInvitesResp->successful()) {
-                            Log::info('SunnyStamp: GET /invites response après document', [
-                                'workflow_id' => $workflowId,
-                                'body' => $getInvitesResp->body(),
-                            ]);
-                            $invitesUrl = $this->extractInviteUrl($getInvitesResp->json(), $endpoint);
-                            if (is_string($invitesUrl) && $invitesUrl !== '') {
-                                Log::info('SunnyStamp: ✅ Invite URL from GET /invites', [
-                                    'workflow_id' => $workflowId,
-                                    'invite_url' => $invitesUrl,
-                                ]);
-                                return $invitesUrl;
-                            }
-                        }
-                    } catch (\Throwable $e) {
-                        Log::warning('SunnyStamp: Exception GET /invites après document', [
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
-
-                    // Fallback: Construire manuellement avec différentes variations
-                    $stepId = $workflowDetailsJson['steps'][0]['id'] ?? null;
-
-                    // IMPORTANT: Mettre le workflow en état "started" (PAS "active"!)
-                    // Selon la collection Postman: PATCH /workflows/{id} avec {"workflowStatus": "started"}
-                    Log::debug('SunnyStamp: Lancement workflow via PATCH /workflows/{id}', [
-                        'workflow_id' => $workflowId,
-                    ]);
-                    try {
-                        $patchResp = $client->patch(
-                            "{$endpoint}/api/workflows/{$workflowId}",
-                            ['workflowStatus' => 'started']  // Correct: workflowStatus, pas status
-                        );
-                        Log::info('SunnyStamp: PATCH /workflows/{id} launched workflow', [
-                            'workflow_id' => $workflowId,
-                            'http_status' => $patchResp->status(),
-                            'body' => Str::limit($patchResp->body(), 500),
-                        ]);
-
-                        // Après lancement: essayer POST /workflows/{id}/invite (pas /sendInvite!)
-                        if ($patchResp->successful() || $patchResp->status() === 200) {
-                            Log::debug('SunnyStamp: Workflow lancé, tentative POST /invite', [
-                                'workflow_id' => $workflowId,
-                                'recipient_email' => $signer->email,
-                            ]);
-                            try {
-                                $inviteResp = $client->post(
-                                    "{$endpoint}/api/workflows/{$workflowId}/invite",
-                                    ['recipientEmail' => $signer->email]
-                                );
-                                if ($inviteResp->successful()) {
-                                    $inviteJson = $inviteResp->json();
-                                    Log::info('SunnyStamp: ✅ Invite créée via POST /invite', [
-                                        'workflow_id' => $workflowId,
-                                        'response' => $inviteJson,
-                                    ]);
-                                    $inviteUrl = $this->extractInviteUrl($inviteJson, $endpoint);
-                                    if (is_string($inviteUrl) && $inviteUrl !== '') {
-                                        Log::info('SunnyStamp: ✅ Invite URL from POST /invite', [
-                                            'workflow_id' => $workflowId,
-                                            'invite_url' => $inviteUrl,
-                                        ]);
-                                        return $inviteUrl;
-                                    }
-                                }
-                            } catch (\Throwable $e) {
-                                Log::warning('SunnyStamp: Exception POST /invite après launch', [
-                                    'error' => $e->getMessage(),
-                                ]);
-                            }
-                        }
-                    } catch (\Throwable $e) {
-                        Log::warning('SunnyStamp: Exception PATCH workflow', [
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
-
-                    $possibleUrls = [
-                        rtrim($endpoint, '/') . '/invite?workflowId=' . $workflowId,
-                        rtrim($endpoint, '/') . '/invite?id=' . $workflowId,
-                        rtrim($endpoint, '/') . '/workflows/' . $workflowId . '/invite',
-                        $stepId ? (rtrim($endpoint, '/') . '/invite?stepId=' . $stepId) : null,
-                        $stepId ? (rtrim($endpoint, '/') . '/invite?workflowId=' . $workflowId . '&stepId=' . $stepId) : null,
-                    ];
-                    $possibleUrls = array_filter($possibleUrls, fn($url) => $url !== null);
-
-                    // Utiliser la première (priorité au workflowId seul)
-                    $constructedInviteUrl = reset($possibleUrls);
-                    Log::info('SunnyStamp: ✅ Invite URL CONSTRUITE manuellement (fallback)', [
-                        'workflow_id' => $workflowId,
-                        'step_id' => $stepId,
-                        'invite_url' => $constructedInviteUrl,
-                        'all_attempts' => $possibleUrls,
-                    ]);
-                    return $constructedInviteUrl;
-                }
-            } catch (\Throwable $e) {
-                Log::warning('SunnyStamp: Exception lors du GET workflow après document', [
-                    'workflow_id' => $workflowId,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        } catch (\Throwable $e) {
-            $this->lastPlatformError = 'create_document: exception ' . $e->getMessage();
-            Log::error('SunnyStamp: exception création document /documents', [
-                'workflow_id' => $workflowId,
-                'error' => $e->getMessage(),
-            ]);
-            return null;
-        }
-
-        // 3. Démarrer le workflow
-        // DÉSACTIVÉ: Le workflow peut démarrer automatiquement lors de la création de l'invite
-        // Essayons directement de créer l'invite au lieu de démarrer manuellement
-
-        Log::debug('SunnyStamp: skipping direct workflow start, proceeding to invite creation', [
-            'workflow_id' => $workflowId,
-        ]);
-
-        // 4. Créer le lien d'invitation (directement, sans démarrage manuel du workflow)
-        Log::debug('SunnyStamp: proceeding to invite creation', [
-            'workflow_id' => $workflowId,
-        ]);
-        $recipientIdentity = array_filter([
-            'id' => $recipientPlatformUserId,
-            'userId' => $recipientPlatformUserId,
-            'email' => $signer->email,
-            'firstName' => $recipientFirstName,
-            'lastName' => $recipientLastName,
-            'name' => (string) $signer->name,
-            'phoneNumber' => $recipientPhone,
-        ], fn($v) => !is_null($v) && $v !== '');
-
-        $inviteAttempts = [
-            // Endpoints officiels SunnyStamp d'abord.
-            [
-                'label' => 'POST /api/workflows/{workflowId}/sendInvite recipientEmail',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/sendInvite",
-                'payloadType' => 'json',
-                'payload' => ['recipientEmail' => $signer->email],
-            ],
-            [
-                'label' => 'POST /api/workflows/{workflowId}/sendInvite email',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/sendInvite",
-                'payloadType' => 'json',
-                'payload' => ['email' => $signer->email],
-            ],
-            [
-                'label' => 'POST /api/workflows/{workflowId}/invite recipientEmail',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/invite",
-                'payloadType' => 'json',
-                'payload' => ['recipientEmail' => $signer->email],
-            ],
-            [
-                'label' => 'POST /api/workflows/{workflowId}/invite email',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/invite",
-                'payloadType' => 'json',
-                'payload' => ['email' => $signer->email],
-            ],
-            [
-                'label' => 'POST /api/workflows/{workflowId}/invite recipient',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/invite",
-                'payloadType' => 'json',
-                'payload' => ['recipient' => $recipientIdentity],
-            ],
-            [
-                'label' => 'POST /api/workflows/{workflowId}/invite recipientId',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/invite",
-                'payloadType' => 'json',
-                'payload' => ['recipientId' => $recipientPlatformUserId],
-            ],
-            [
-                'label' => 'POST /api/workflows/{workflowId}/invite userId',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/invite",
-                'payloadType' => 'json',
-                'payload' => ['userId' => $recipientPlatformUserId],
-            ],
-            [
-                'label' => 'POST /api/workflows/{workflowId}/invite/',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/invite/",
-                'payloadType' => 'json',
-                'payload' => ['recipientEmail' => $signer->email],
-            ],
-            [
-                'label' => 'GET /api/workflows/{workflowId}/invite recipientEmail',
-                'method' => 'GET',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/invite",
-                'payloadType' => 'query',
-                'payload' => ['recipientEmail' => $signer->email],
-            ],
-
-            // Variantes sous /api/users/{ownerUserId}/workflows/{workflowId}
-            [
-                'label' => 'POST /api/users/{ownerUserId}/workflows/{workflowId}/sendInvite recipientEmail',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/users/{$ownerUserId}/workflows/{$workflowId}/sendInvite",
-                'payloadType' => 'json',
-                'payload' => ['recipientEmail' => $signer->email],
-            ],
-            [
-                'label' => 'POST /api/users/{ownerUserId}/workflows/{workflowId}/invite recipientEmail',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/users/{$ownerUserId}/workflows/{$workflowId}/invite",
-                'payloadType' => 'json',
-                'payload' => ['recipientEmail' => $signer->email],
-            ],
-            [
-                'label' => 'POST /api/users/{ownerUserId}/workflows/{workflowId}/invite email',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/users/{$ownerUserId}/workflows/{$workflowId}/invite",
-                'payloadType' => 'json',
-                'payload' => ['email' => $signer->email],
-            ],
-            [
-                'label' => 'GET /api/users/{ownerUserId}/workflows/{workflowId}/invite recipientEmail',
-                'method' => 'GET',
-                'url' => "{$endpoint}/api/users/{$ownerUserId}/workflows/{$workflowId}/invite",
-                'payloadType' => 'query',
-                'payload' => ['recipientEmail' => $signer->email],
-            ],
-            [
-                'label' => 'POST /api/users/{ownerUserId}/workflows/{workflowId}/invite-link recipientEmail',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/users/{$ownerUserId}/workflows/{$workflowId}/invite-link",
-                'payloadType' => 'json',
-                'payload' => ['recipientEmail' => $signer->email],
-            ],
-            [
-                'label' => 'POST /api/users/{ownerUserId}/workflows/{workflowId}/invite-link recipientId',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/users/{$ownerUserId}/workflows/{$workflowId}/invite-link",
-                'payloadType' => 'json',
-                'payload' => ['recipientId' => $recipientPlatformUserId],
-            ],
-
-            // Autres variantes observées sur certains tenants.
-            [
-                'label' => 'POST /api/workflows/{workflowId}/invites recipientEmail',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/invites",
-                'payloadType' => 'json',
-                'payload' => ['recipientEmail' => $signer->email],
-            ],
-            [
-                'label' => 'POST /api/workflows/{workflowId}/invites recipient',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/invites",
-                'payloadType' => 'json',
-                'payload' => ['recipient' => $recipientIdentity],
-            ],
-            [
-                'label' => 'POST /api/workflows/{workflowId}/invite-link recipientEmail',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/workflows/{$workflowId}/invite-link",
-                'payloadType' => 'json',
-                'payload' => ['recipientEmail' => $signer->email],
-            ],
-            [
-                'label' => 'POST /api/users/{ownerUserId}/invite workflowId+recipientEmail',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/users/{$ownerUserId}/invite",
-                'payloadType' => 'json',
-                'payload' => [
-                    'workflowId' => $workflowId,
-                    'recipientEmail' => $signer->email,
-                ],
-            ],
-            [
-                'label' => 'POST /api/users/{ownerUserId}/invite workflowId+email',
-                'method' => 'POST',
-                'url' => "{$endpoint}/api/users/{$ownerUserId}/invite",
-                'payloadType' => 'json',
-                'payload' => [
-                    'workflowId' => $workflowId,
-                    'email' => $signer->email,
-                ],
-            ],
-        ];
-
-        $inviteResp = null;
-        $inviteAttemptTrace = [];
-        foreach ($inviteAttempts as $attempt) {
-            $label = (string) ($attempt['label'] ?? 'attempt');
-
-            try {
-                $method = strtoupper((string) ($attempt['method'] ?? 'POST'));
-                $url = (string) ($attempt['url'] ?? '');
-                $payloadType = (string) ($attempt['payloadType'] ?? 'json');
-                $payload = (array) ($attempt['payload'] ?? []);
-
-                $maxEntityLockRetries = 4;
-                $candidate = null;
-
-                for ($retry = 1; $retry <= $maxEntityLockRetries; $retry++) {
-                    if ($method === 'GET' || $payloadType === 'query') {
-                        $candidate = $client->send($method, $url, ['query' => $payload]);
-                    } else {
-                        $candidate = $client->send($method, $url, ['json' => $payload]);
-                    }
-
-                    $candidateJson = $candidate->json();
-                    $candidateApiCode = null;
-                    if (is_array($candidateJson)) {
-                        $candidateApiCode = $candidateJson['code']
-                            ?? $candidateJson['errorCode']
-                            ?? $candidateJson['error']
-                            ?? null;
-                    }
-
-                    $traceLine = $label . ' => HTTP ' . $candidate->status();
-                    if (is_string($candidateApiCode) && $candidateApiCode !== '') {
-                        $traceLine .= ' [' . Str::limit($candidateApiCode, 60, '...') . ']';
-                    }
-                    if ($retry > 1) {
-                        $traceLine .= ' (retry ' . $retry . '/' . $maxEntityLockRetries . ')';
-                    }
-                    $inviteAttemptTrace[] = $traceLine;
-
-                    if ($candidate->successful()) {
-                        break;
-                    }
-
-                    if (self::isEntityLockedResponse($candidate) && $retry < $maxEntityLockRetries) {
-                        usleep(250000 * $retry);
-                        continue;
-                    }
-
-                    break;
-                }
-
-                if (!$candidate) {
-                    continue;
-                }
-
-                if ($candidate->successful()) {
-                    $inviteResp = $candidate;
-                    break;
-                }
-
-                // Si toujours verrouillé après retries, on poursuit d'autres variantes.
-                if (self::isEntityLockedResponse($candidate)) {
-                    $inviteResp = $candidate;
-                    continue;
-                }
-
-                // Continuer sur endpoints non trouvés / méthode non supportée / payload refusé.
-                if (!in_array($candidate->status(), [400, 404, 405, 415], true)) {
-                    $inviteResp = $candidate;
-                    break;
-                }
-
-                $inviteResp = $candidate;
-            } catch (\Throwable $e) {
-                $inviteAttemptTrace[] = $label . ' => EXCEPTION ' . Str::limit($e->getMessage(), 100, '...');
-                Log::warning('SunnyStamp: tentative invite en exception', [
-                    'workflow_id' => $workflowId,
-                    'attempt_label' => $label,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        $inviteAttemptSummary = implode(' | ', array_slice($inviteAttemptTrace, -12));
-
-        if ($inviteResp && $inviteResp->successful()) {
-            Log::info('SunnyStamp: réponse invite reçue', [
-                'workflow_id' => $workflowId,
-                'status' => $inviteResp->status(),
-                'body' => $inviteResp->body(),
-            ]);
-
-            $inviteUrl = $this->extractInviteUrl($inviteResp->json(), $endpoint);
-
-            if ((!is_string($inviteUrl) || $inviteUrl === '') && is_string($inviteResp->body())) {
-                // Certaines instances renvoient une URL brute, un token brut, ou un JSON non typé.
-                $inviteUrl = self::extractFirstUrlFromText((string) $inviteResp->body());
-
-                if ((!is_string($inviteUrl) || $inviteUrl === '') && preg_match('/[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}/', (string) $inviteResp->body(), $m) === 1) {
-                    $inviteUrl = rtrim($endpoint, '/') . '/invite?token=' . ($m[0] ?? '');
-                }
-            }
-
-            if (is_string($inviteUrl) && $inviteUrl !== '') {
-                return $inviteUrl;
-            }
-
-            $this->lastPlatformError = 'invite: réponse sans URL exploitable - ' . self::formatApiErrorDetail($inviteResp)
-                . ' | attempts=' . ($inviteAttemptSummary !== '' ? $inviteAttemptSummary : 'n/a');
-            Log::warning('SunnyStamp: invite créé mais URL absente', [
-                'status' => $inviteResp->status(),
-                'body' => $inviteResp->body(),
-                'attempt_summary' => $inviteAttemptSummary,
-            ]);
-            return null;
-        }
-
-        if (!$inviteResp) {
-            $this->lastPlatformError = 'invite: aucune réponse exploitable reçue'
-                . ' | attempts=' . ($inviteAttemptSummary !== '' ? $inviteAttemptSummary : 'n/a');
-            Log::error('SunnyStamp: échec invite (aucune réponse)', [
-                'workflow_id' => $workflowId,
-                'attempt_summary' => $inviteAttemptSummary,
-            ]);
-            return null;
-        }
-
-        // Fallback quand les endpoints invite n'existent pas sur l'instance (404).
-        if ($inviteResp->status() === 404) {
-            try {
-                // Logguer la réponse 404 pour diagnostic
-                Log::warning('SunnyStamp: invite 404 - tentative fallback workflow details', [
-                    'workflow_id' => $workflowId,
-                    'last_invite_status' => $inviteResp->status(),
-                    'last_invite_body' => Str::limit((string) $inviteResp->body(), 300),
-                ]);
-
-                $workflowFallbackTrace = [];
-
-                $workflowResp = $client->get("{$endpoint}/api/workflows/{$workflowId}");
-                $workflowFallbackTrace[] = 'GET /api/workflows/{workflowId} => HTTP ' . $workflowResp->status();
-                if ($workflowResp->successful()) {
-                    Log::info('SunnyStamp: détail workflow reçu pour extraction invite URL', [
-                        'workflow_id' => $workflowId,
-                        'body' => $workflowResp->body(),
-                    ]);
-
-                    $workflowUrl = $this->extractInviteUrl($workflowResp->json(), $endpoint);
-
-                    if (is_string($workflowUrl) && $workflowUrl !== '') {
-                        Log::info('SunnyStamp: URL récupérée via détail workflow', [
-                            'workflow_id' => $workflowId,
-                            'url' => $workflowUrl,
-                        ]);
-                        return $workflowUrl;
-                    }
-                }
-
-                // Variante read sous espace users/{ownerId} pour instances multi-routes.
-                $workflowByUserResp = $client->get("{$endpoint}/api/users/{$ownerUserId}/workflows/{$workflowId}");
-                $workflowFallbackTrace[] = 'GET /api/users/{ownerUserId}/workflows/{workflowId} => HTTP ' . $workflowByUserResp->status();
-                if ($workflowByUserResp->successful()) {
-                    $workflowByUserUrl = $this->extractInviteUrl($workflowByUserResp->json(), $endpoint);
-                    if (is_string($workflowByUserUrl) && $workflowByUserUrl !== '') {
-                        Log::info('SunnyStamp: URL récupérée via détail workflow users/{id}', [
-                            'workflow_id' => $workflowId,
-                            'url' => $workflowByUserUrl,
-                        ]);
-                        return $workflowByUserUrl;
-                    }
-                }
-
-                $inviteAttemptSummary .= ($inviteAttemptSummary !== '' ? ' | ' : '') . implode(' | ', $workflowFallbackTrace);
-            } catch (\Throwable $e) {
-                Log::warning('SunnyStamp: fallback détail workflow en exception', [
-                    'workflow_id' => $workflowId,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-
-            // Eviter de retourner un lien approximatif qui mène à "invitation invalide".
-            // On échoue explicitement pour forcer un diagnostic côté API.
-            $this->lastPlatformError = 'invite: aucun lien exploitable trouvé (endpoints invite en 404 et workflow sans URL/token)'
-                . ' | attempts=' . ($inviteAttemptSummary !== '' ? $inviteAttemptSummary : 'n/a');
-            Log::warning('SunnyStamp: aucun lien invite exploitable trouvé après fallback', [
-                'workflow_id' => $workflowId,
-                'endpoint' => $endpoint,
-                'attempt_summary' => $inviteAttemptSummary,
-            ]);
-            return null;
-        }
-
-        Log::warning('SunnyStamp: invite non créé', [
-            'status' => $inviteResp->status(), 'body' => $inviteResp->body(),
-            'attempt_summary' => $inviteAttemptSummary,
-        ]);
-        $this->lastPlatformError = 'invite: ' . self::formatApiErrorDetail($inviteResp)
-            . ' | attempts=' . ($inviteAttemptSummary !== '' ? $inviteAttemptSummary : 'n/a');
         return null;
+    }
+
+    /**
+     * Convertit une zone (pourcentages ou points PDF, origine en haut à gauche)
+     * en annotation Safy (points PDF, origine en bas à gauche, A4 par défaut).
+     */
+    private function zoneToSafyAnnotation(?array $zone): array
+    {
+        $pageW = 595.0;
+        $pageH = 842.0;
+
+        if (!$zone) {
+            // Défaut : bas droite de la page 1 (150 x 60 pt).
+            return ['page' => 1, 'x1' => 390, 'y1' => 40, 'x2' => 540, 'y2' => 100];
+        }
+
+        $x = (float) ($zone['x'] ?? 0);
+        $y = (float) ($zone['y'] ?? 0);
+        $w = (float) ($zone['w'] ?? $zone['width'] ?? 0);
+        $h = (float) ($zone['h'] ?? $zone['height'] ?? 0);
+        $page = (int) ($zone['page'] ?? 1);
+
+        if ($w <= 0 || $h <= 0) {
+            return $this->zoneToSafyAnnotation(null);
+        }
+
+        if ($x > 100 || $y > 100 || $w > 100 || $h > 100) {
+            // Déjà en points PDF, origine en haut.
+            $x1 = $x; $x2 = min($pageW, $x + $w);
+            $y2 = $pageH - $y; $y1 = max(0, $y2 - $h);
+        } else {
+            $x1 = ($x / 100) * $pageW;
+            $x2 = min($pageW, $x1 + ($w / 100) * $pageW);
+            $y2 = $pageH - ($y / 100) * $pageH;
+            $y1 = max(0, $y2 - ($h / 100) * $pageH);
+        }
+
+        return ['page' => $page <= 0 ? 1 : $page, 'x1' => $x1, 'y1' => $y1, 'x2' => $x2, 'y2' => $y2];
+    }
+
+    /**
+     * Flux Safy : workflow -> upload -> zone de signature -> start -> lien de signature.
+     * Retourne l'URL de signature, ou null (détail dans $this->lastPlatformError).
+     */
+    private function buildSafyInviteUrl(?SignatureProviderConfig $cfg, Document $document, User $signer): ?string
+    {
+        $this->lastPlatformError = null;
+        $this->lastPlatformWorkflowId = null;
+
+        $step = 'init';
+        try {
+            $safy = $this->makeSafyClient($cfg);
+
+            $pdf = $this->loadDocumentPdfBytes($document);
+            if (!$pdf) {
+                $this->lastPlatformError = 'upload_document: fichier introuvable';
+                return null;
+            }
+            [$pdfBytes, $fileName] = $pdf;
+
+            $nameParts = preg_split('/\s+/', trim((string) $signer->name)) ?: [];
+            $firstName = (string) ($nameParts[0] ?? 'Utilisateur');
+            $lastName  = trim(implode(' ', array_slice($nameParts, 1))) ?: $firstName;
+
+            $step = 'create_workflow';
+            $wf = $safy->createWorkflow(
+                'e-Parapheur — ' . $document->title,
+                [[
+                    'email'     => $signer->email,
+                    'firstName' => $firstName,
+                    'lastName'  => $lastName,
+                    'phone'     => self::resolveRecipientPhone($signer),
+                ]],
+                ['invitationMode' => 'noInvitation', 'authenticationMode' => 'noAuthentication', 'locale' => 'fr']
+            );
+            $workflowId = (string) ($wf['id'] ?? '');
+            $signerId   = (string) ($wf['signers'][0]['id'] ?? '');
+            if ($workflowId === '' || $signerId === '') {
+                $this->lastPlatformError = 'create_workflow: id workflow/signataire absent de la réponse';
+                return null;
+            }
+            $this->lastPlatformWorkflowId = $workflowId;
+
+            $step = 'upload_document';
+            $documentId = $safy->uploadDocument($workflowId, $pdfBytes, $fileName);
+
+            $step = 'add_annotation';
+            $a = $this->zoneToSafyAnnotation($this->resolveSignatureZoneForPlatform($document, $signer));
+            $safy->addSignatureAnnotation($documentId, $signerId, $a['page'], $a['x1'], $a['y1'], $a['x2'], $a['y2']);
+
+            $step = 'start_workflow';
+            $started = $safy->start($workflowId);
+
+            $step = 'signature_link';
+            $redirect = rtrim((string) config('app.url'), '/') . '/signatures';
+            $url = $safy->createSignatureLink($workflowId, $signerId, $redirect, $started['etag'] ?? null);
+            if (!$url) {
+                $this->lastPlatformError = 'signature_link: aucun lien retourné';
+                return null;
+            }
+
+            Log::info('Safy: lien de signature créé', ['workflow_id' => $workflowId, 'document_id' => $documentId]);
+            return $url;
+        } catch (\Throwable $e) {
+            $this->lastPlatformError = $step . ': ' . $e->getMessage();
+            Log::error('Safy: échec ' . $step, ['error' => $e->getMessage(), 'document_id' => $document->id]);
+            return null;
+        }
     }
 
     /**
@@ -2604,43 +1759,8 @@ class SignatureController extends Controller
             'user_id' => Auth::id(),
         ]);
 
-        $cfg = $this->resolveSignatureConfig();
-        if (!$cfg) {
-            Log::warning('SunnyStamp: aucune configuration API active pour utilisateur', [
-                'user_id' => Auth::id(),
-                'email' => Auth::user()?->email,
-                'admin_id' => Auth::user()?->profile?->administration_id,
-            ]);
-            return response()->json([
-                'ok'      => false,
-                'message' => 'Aucune configuration API Signature active pour votre administration.',
-            ], 422);
-        }
-
-        $currentUser   = Auth::user();
-        self::$lastLookupApiError = null;
-        $platformUserId = self::resolvePlatformUserIdByEmail($cfg, $currentUser->email);
-        if (!$platformUserId) {
-            // Fallback: certaines plateformes n'autorisent pas la recherche utilisateur par email.
-            // On utilise alors l'utilisateur owner du token API pour créer le workflow.
-            $platformUserId = self::resolvePlatformOwnerUserId($cfg);
-        }
-        if (!$platformUserId) {
-            $apiDetail = self::$lastLookupApiError
-                ? ' [Erreur API: ' . self::$lastLookupApiError . ']'
-                : '';
-            Log::warning('SunnyStamp: compte plateforme introuvable pour utilisateur', [
-                'user_id'    => $currentUser->id,
-                'email'      => $currentUser->email,
-                'admin_id'   => $currentUser->profile?->administration_id,
-                'endpoint'   => $cfg->endpoint,
-                'api_error'  => self::$lastLookupApiError,
-            ]);
-            return response()->json([
-                'ok'      => false,
-                'message' => 'Impossible de trouver votre compte sur la plateforme de signature. Vérifiez que l\'adresse e-mail ' . $currentUser->email . ' est bien enregistrée sur la plateforme.' . $apiDetail,
-            ], 422);
-        }
+        $cfg = $this->resolveSignatureConfig(); // optionnelle : sinon valeurs .env (SAFY_*)
+        $currentUser = Auth::user();
 
         $userId    = Auth::id();
         $execution = WorkflowExecution::find($request->input('execution_id'));
@@ -2668,21 +1788,7 @@ class SignatureController extends Controller
             return response()->json(['ok' => false, 'message' => 'Document introuvable.'], 404);
         }
 
-        $inviteUrl = $this->buildPlatformInviteUrl(
-            $cfg,
-            $platformUserId,
-            $request->input('action_type'),
-            $document,
-            $currentUser,
-            [
-                'execution_id' => $execution->id,
-                'workflow_id' => $wf?->id,
-                'workflow_name' => $wf?->name,
-                'step_order' => (int) ($stepObj->order ?? 0),
-                'step_name' => (string) ($stepObj->name ?? ''),
-                'platformUserId' => $platformUserId,
-            ]
-        );
+        $inviteUrl = $this->buildSafyInviteUrl($cfg, $document, $currentUser);
 
         if (!$inviteUrl) {
             $msg = self::toBusinessPlatformMessage($this->lastPlatformError);
@@ -2759,132 +1865,52 @@ class SignatureController extends Controller
             ]);
         }
 
-        // Interroger la plateforme pour le statut temps réel.
+        // Interroger Safy pour le statut temps réel.
         $cfg = $this->resolveSignatureConfig();
-        if (!$cfg) {
-            return response()->json([
-                'ok'              => true,
-                'local_status'    => $execution->status,
-                'platform_status' => $execution->platform_status,
-                'phase'           => self::mapExecutionPhase($execution->status, $execution->platform_status),
-            ]);
-        }
-
-        $endpoint  = rtrim((string) $cfg->endpoint, '/');
-        $apiToken  = (string) ($cfg->api_key ?? $cfg->api_token ?? '');
-        if ($apiToken === '') {
-            Log::warning('SunnyStamp: getPlatformWorkflowStatus sans token API');
-            return response()->json([
-                'ok'              => true,
-                'local_status'    => $execution->status,
-                'platform_status' => $execution->platform_status,
-                'phase'           => self::mapExecutionPhase($execution->status, $execution->platform_status),
-            ]);
-        }
-        $client    = Http::withToken($apiToken)->timeout(10)->acceptJson();
+        $apiToken = (string) ($cfg->api_key ?? '');
+        $endpoint = rtrim((string) ($cfg->endpoint ?? ''), '/');
+        $verifySsl = (bool) ($cfg->verify_ssl ?? true);
 
         $platformStatus = null;
         $platformPhase  = null;
         try {
-            // 1. GET /api/workflows/{wflId} → champ workflowStatus (API ARTCI/UVCI)
-            $resp = $client->get("{$endpoint}/api/workflows/{$execution->platform_workflow_id}");
-            Log::info('SunnyStamp: polling workflow status', [
+            $safy = $this->makeSafyClient($cfg);
+            $wfData = $safy->getWorkflow((string) $execution->platform_workflow_id);
+            $wfStatus = strtolower((string) ($wfData['workflowStatus'] ?? ''));
+            $signerStatus = strtolower((string) ($wfData['signers'][0]['signatureStatus'] ?? ''));
+
+            if ($wfStatus === 'finished') {
+                // finished + refused => refus ; finished + signed => terminé.
+                $platformStatus = $signerStatus === 'refused' ? 'refused' : 'finished';
+            } elseif ($wfStatus !== '') {
+                $platformStatus = $wfStatus;
+            }
+
+            Log::info('Safy: polling workflow status', [
                 'execution_id' => $executionId,
                 'platform_workflow_id' => $execution->platform_workflow_id,
-                'http_status' => $resp->status(),
-                'body_excerpt' => substr($resp->body(), 0, 300),
+                'workflowStatus' => $wfStatus,
+                'signatureStatus' => $signerStatus,
             ]);
 
-            if ($resp->successful()) {
-                $data = $resp->json();
-                // workflowStatus est le champ principal selon la doc SunnyStamp/ARTCI.
-                $platformStatus = $data['workflowStatus'] ?? $data['status'] ?? $data['state'] ?? null;
-            }
-
-            // 2. Fallback via GET /api/notifications?items.workflowId={wflId}
-            //    pour détecter workflowFinished/recipientFinished même si GET /workflows ne suffit pas.
-            if (!$platformStatus || !in_array(strtolower((string)$platformStatus), ['finished','completed','done','refused','rejected'], true)) {
-                try {
-                    $notifResp = $client->get("{$endpoint}/api/notifications", [
-                        'items.workflowId' => $execution->platform_workflow_id,
-                    ]);
-                    if ($notifResp->successful()) {
-                        $notifItems = $notifResp->json('items') ?? $notifResp->json('data') ?? ($notifResp->json() ?? []);
-                        $notifItems = is_array($notifItems) ? $notifItems : [];
-                        // Trier par date décroissante pour avoir l'événement le plus récent.
-                        usort($notifItems, fn($a, $b) => strcmp(
-                            (string)($b['createdAt'] ?? $b['date'] ?? ''),
-                            (string)($a['createdAt'] ?? $a['date'] ?? '')
-                        ));
-                        foreach ($notifItems as $notif) {
-                            $eventType = (string)($notif['eventType'] ?? $notif['type'] ?? $notif['event'] ?? '');
-                            if (in_array($eventType, ['workflowFinished','workflow_finished','WORKFLOW_FINISHED'], true)) {
-                                $platformStatus = 'finished';
-                                Log::info('SunnyStamp: workflowFinished détecté via /notifications', [
-                                    'execution_id' => $executionId,
-                                    'event' => $eventType,
-                                ]);
-                                break;
-                            }
-                            if (in_array($eventType, ['recipientFinished','recipient_finished'], true)) {
-                                $platformStatus = $platformStatus ?? 'signing';
-                            }
-                        }
-                    }
-                } catch (\Throwable $ne) {
-                    Log::debug('SunnyStamp: /notifications non accessible', ['error' => $ne->getMessage()]);
-                }
-            }
-
-            // 3. Fallback via GET /api/webhookEvents/?items.workflowId={wflId}&items.eventType=workflowFinished
-            if (!$platformStatus || strtolower((string)$platformStatus) === 'started') {
-                try {
-                    $wbResp = $client->get("{$endpoint}/api/webhookEvents/", [
-                        'items.workflowId' => $execution->platform_workflow_id,
-                        'items.eventType'  => 'workflowFinished',
-                    ]);
-                    if ($wbResp->successful()) {
-                        $wbItems = $wbResp->json('items') ?? $wbResp->json('data') ?? ($wbResp->json() ?? []);
-                        if (!empty($wbItems)) {
-                            $platformStatus = 'finished';
-                            Log::info('SunnyStamp: workflowFinished détecté via /webhookEvents', [
-                                'execution_id' => $executionId,
-                            ]);
-                        }
-                    }
-                } catch (\Throwable $we) {
-                    Log::debug('SunnyStamp: /webhookEvents non accessible', ['error' => $we->getMessage()]);
-                }
-            }
-
-            // 4. Appliquer les transitions locales si statut changé.
             if (is_string($platformStatus) && $platformStatus !== '' && $platformStatus !== $execution->platform_status) {
                 $platformPhase = self::mapExecutionPhase($execution->status, $platformStatus);
                 $updates = ['platform_status' => $platformStatus];
 
-                $doneStatuses = ['finished', 'completed', 'done', 'FINISHED', 'COMPLETED', 'DONE'];
-                $isNowDone = in_array($platformStatus, $doneStatuses, true);
-                if ($isNowDone) {
+                if ($platformStatus === 'finished') {
                     $totalSteps = max($steps->count(), 1);
                     $currentStep = (int) ($execution->current_step ?? 1);
                     $willCompleteNow = $currentStep >= $totalSteps;
 
-                    // Télécharger la version signée de cette étape AVANT d'avancer l'exécution.
                     $this->downloadSignedDocumentFromPlatform(
-                        $execution->fresh(),
-                        $endpoint,
-                        $apiToken,
-                        (bool) ($cfg->verify_ssl ?? true),
-                        true,
-                        $willCompleteNow
+                        $execution->fresh(), $endpoint, $apiToken, $verifySsl, true, $willCompleteNow
                     );
 
                     $result = $this->advanceExecutionAfterPlatformDone($execution, $platformStatus);
                     $execution->refresh();
 
-                    Log::info('SunnyStamp: signature plateforme terminée, transition locale appliquée', [
+                    Log::info('Safy: signature terminée, transition locale appliquée', [
                         'execution_id' => $executionId,
-                        'platform_status' => $platformStatus,
                         'completed' => (bool) ($result['completed'] ?? false),
                         'current_step' => $execution->current_step,
                         'status' => $execution->status,
@@ -2895,23 +1921,17 @@ class SignatureController extends Controller
                 }
             }
 
-            // Vérifier aussi si déjà completed mais signed_file_path absent (rattrapage).
+            // Rattrapage : exécution terminée mais PDF signé absent.
             if ($execution->status === 'completed' && $execution->document_id) {
                 $doc = Document::find($execution->document_id);
                 if ($doc && empty($doc->signed_file_path)) {
-                    $this->downloadSignedDocumentFromPlatform(
-                        $execution,
-                        $endpoint,
-                        $apiToken,
-                        (bool) ($cfg->verify_ssl ?? true)
-                    );
+                    $this->downloadSignedDocumentFromPlatform($execution, $endpoint, $apiToken, $verifySsl);
                 }
             }
 
             $platformPhase = $platformPhase ?? self::mapExecutionPhase($execution->status, is_string($platformStatus) ? $platformStatus : null);
-
-        } catch (\Throwable $e) {
-            Log::warning('SunnyStamp: getPlatformWorkflowStatus exception', [
+        } catch (Throwable $e) {
+            Log::warning('Safy: getPlatformWorkflowStatus exception', [
                 'execution_id' => $executionId,
                 'error' => $e->getMessage(),
             ]);
@@ -2964,29 +1984,32 @@ class SignatureController extends Controller
         }
 
         try {
-            $downloadResp = Http::withToken($token)
-                ->timeout(60)
-                ->when(!$verifySSL, fn($h) => $h->withoutVerifying())
-                ->get("{$endpoint}/api/workflows/{$platformWorkflowId}/downloadDocuments");
+            $safy = SafyClient::fromConfig(['url' => $endpoint, 'token' => $token, 'verify_ssl' => $verifySSL]);
+            $dl = $safy->downloadSignedDocuments((string) $platformWorkflowId);
+            $pdfContent = $dl['body'];
 
-            Log::info('SunnyStamp: téléchargement document signé', [
-                'execution_id'       => $execution->id,
-                'platform_workflow_id' => $platformWorkflowId,
-                'http_status'        => $downloadResp->status(),
-                'content_type'       => $downloadResp->header('Content-Type'),
-                'content_length'     => $downloadResp->header('Content-Length'),
-            ]);
-
-            if (!$downloadResp->successful()) {
-                Log::error('SunnyStamp: échec téléchargement document signé', [
-                    'execution_id' => $execution->id,
-                    'status'       => $downloadResp->status(),
-                    'body_excerpt' => substr($downloadResp->body(), 0, 300),
-                ]);
-                return;
+            // Plusieurs documents => ZIP : on prend le premier PDF.
+            if (!empty($dl['is_zip']) && class_exists(ZipArchive::class)) {
+                $tmp = tempnam(sys_get_temp_dir(), 'safy');
+                file_put_contents($tmp, $pdfContent);
+                $zip = new ZipArchive();
+                $pdfContent = '';
+                if ($zip->open($tmp) === true) {
+                    for ($i = 0; $i < $zip->numFiles; $i++) {
+                        if (str_ends_with(strtolower($zip->getNameIndex($i)), '.pdf')) {
+                            $pdfContent = (string) $zip->getFromIndex($i);
+                            break;
+                        }
+                    }
+                    $zip->close();
+                }
+                @unlink($tmp);
             }
-
-            $pdfContent = $downloadResp->body();
+            Log::info('Safy: téléchargement document signé', [
+                'execution_id' => $execution->id,
+                'platform_workflow_id' => $platformWorkflowId,
+                'content_type' => $dl['content_type'],
+            ]);
             if (empty($pdfContent) || strlen($pdfContent) < 100) {
                 Log::warning('SunnyStamp: document signé vide ou trop petit', [
                     'execution_id' => $execution->id,

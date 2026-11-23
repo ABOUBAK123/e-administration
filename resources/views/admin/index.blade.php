@@ -10655,14 +10655,13 @@ function themingToggleDisable() {
 
         {{-- Flux d'integration --}}
         <div class="mb-5 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700 leading-relaxed">
-            <p class="font-semibold mb-1">Flux d'int&eacute;gration automatique (SunnyStamp / UVCI)</p>
+            <p class="font-semibold mb-1">Flux d'int&eacute;gration automatique (Safy)</p>
             <ol class="list-decimal ml-4 space-y-0.5">
-                <li>Recherche du signataire par e-mail sur la plateforme</li>
-                <li>Cr&eacute;ation du parapheur (workflow)</li>
-                <li>Envoi du fichier PDF vers la plateforme</li>
-                <li>Association du document au workflow</li>
+                <li>Cr&eacute;ation du workflow (Space + signataire + politique de signature)</li>
+                <li>Envoi du PDF vers le Document Service</li>
+                <li>Placement de la zone de signature</li>
                 <li>D&eacute;marrage du workflow</li>
-                <li>Envoi du lien d'invitation au signataire</li>
+                <li>G&eacute;n&eacute;ration du lien de signature du signataire</li>
             </ol>
             <p class="mt-1.5 text-blue-600">L'e-mail du signataire est automatiquement r&eacute;cup&eacute;r&eacute; depuis son compte utilisateur local.</p>
         </div>
@@ -10693,9 +10692,9 @@ function themingToggleDisable() {
                     <label class="block text-xs text-gray-500 mb-1">Endpoint (URL de base de l'API)</label>
                     <input type="text" name="endpoint"
                         value="{{ old('endpoint', $sigCfg?->endpoint ?? '') }}"
-                        placeholder="https://sgs-demo-test01.sunnystamp.com"
+                        placeholder="https://trusted-service.safy.ma"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300">
-                    <p class="text-xs text-gray-400 mt-0.5">Sans slash final. Ex&nbsp;: https://sgs-demo-test01.sunnystamp.com</p>
+                    <p class="text-xs text-gray-400 mt-0.5">URL du Trusted Service Safy. Ex&nbsp;: https://trusted-service.safy.ma</p>
                 </div>
 
                 {{-- API Key --}}
@@ -10714,78 +10713,24 @@ function themingToggleDisable() {
                     <p class="text-xs text-gray-400 mt-0.5">Token Bearer utilis&eacute; dans l'en-t&ecirc;te Authorization de tous les appels API.</p>
                 </div>
 
-                {{-- Provider Owner User ID (résolu par email, lecture seule) --}}
-                <div class="md:col-span-2">
-                    <label class="block text-xs text-gray-500 mb-1">
-                        Tester la recherche par e-mail
-                        <span class="text-gray-400 font-normal">— l'User ID est résolu dynamiquement via l'e-mail de chaque utilisateur</span>
-                    </label>
-                    <div class="flex gap-2">
-                        <input type="email" id="sig_test_email"
-                            placeholder="email@exemple.com"
-                            class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300">
-                        <button type="button" onclick="sigTestConnection()"
-                            class="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg whitespace-nowrap transition flex items-center gap-1.5">
-                            <i class="fas fa-plug"></i> Tester
-                        </button>
-                    </div>
-                    <p class="text-xs text-gray-400 mt-0.5">
-                        Saisissez l'e-mail d'un utilisateur de l'application pour vérifier qu'il existe sur la plateforme et récupérer son User ID.
-                        L'e-mail de chaque utilisateur est utilisé automatiquement lors des actions de signature/validation.
-                    </p>
-                    {{-- Résultat du test --}}
-                    <div id="sig_test_result" class="hidden mt-2 p-2.5 rounded-lg text-xs"></div>
-                    {{-- Champ caché conservé pour compatibilité formulaire (non requis) --}}
-                    <input type="hidden" name="provider_owner_user_id" value="{{ old('provider_owner_user_id', $sigCfg?->provider_owner_user_id ?? '') }}">
-                </div>
-
-                {{-- Tenant ID --}}
-                <div class="md:col-span-2">
-                    <label class="block text-xs text-gray-500 mb-1">Tenant ID <span class="text-amber-600">&#x2605; Requis pour certaines op&eacute;rations avancées</span></label>
+                {{-- Space ID (stocké dans tenant_id) --}}
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Space ID <span class="text-amber-600">&#x2605; Requis</span></label>
                     <input type="text" name="tenant_id" id="sig_tenant_id"
                         value="{{ old('tenant_id', $sigCfg?->tenant_id ?? '') }}"
-                        placeholder="ten_Guj71mvWbKxFVg8mMnZE4CAv"
+                        placeholder="spCJqkLusUDKsr"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300">
-                    <p class="text-xs text-gray-400 mt-0.5">Identifiant du tenant sur la plateforme. Utilis&eacute; pour les op&eacute;rations au niveau tenant (param&egrave;tres emails, m&eacute;tadonn&eacute;es, etc.). R&eacute;cup&eacute;r&eacute; automatiquement lors du test de connexion.</p>
+                    <p class="text-xs text-gray-400 mt-0.5">Identifiant de l'espace Safy dans lequel les workflows sont cr&eacute;&eacute;s.</p>
                 </div>
 
-                {{-- Consent Page ID Signature --}}
+                {{-- Signature policy (stocké dans signature_profile_id) --}}
                 <div>
-                    <label class="block text-xs text-gray-500 mb-1">Consent page ID &mdash; <span class="text-blue-600 font-medium">Signature</span></label>
-                    <input type="text" name="consent_page_id"
-                        value="{{ old('consent_page_id', $sigCfg?->consent_page_id ?? '') }}"
-                        placeholder="cop_BgKmiR1nxZEeBiGtYhswaUUc"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300">
-                    <p class="text-xs text-gray-400 mt-0.5">Utilis&eacute; pour les &eacute;tapes de type <code class="bg-gray-100 px-1 rounded">stepType: signature</code>.</p>
-                </div>
-
-                {{-- Consent Page ID Approbation --}}
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">Consent page ID &mdash; <span class="text-purple-600 font-medium">Approbation</span></label>
-                    <input type="text" name="consent_page_id_approval"
-                        value="{{ old('consent_page_id_approval', $sigCfg?->consent_page_id_approval ?? '') }}"
-                        placeholder="cop_Ka4BRrujjQ4VS1zE7GKg5oc9"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300">
-                    <p class="text-xs text-gray-400 mt-0.5">Utilis&eacute; pour les &eacute;tapes de type <code class="bg-gray-100 px-1 rounded">stepType: approval</code>. Peut &ecirc;tre diff&eacute;rent de celui de signature.</p>
-                </div>
-
-                {{-- Signature Profile ID --}}
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">Profil de signature (Signature Profile ID)</label>
+                    <label class="block text-xs text-gray-500 mb-1">Signature Policy ID <span class="text-amber-600">&#x2605; Requis</span></label>
                     <input type="text" name="signature_profile_id"
                         value="{{ old('signature_profile_id', $sigCfg?->signature_profile_id ?? '') }}"
-                        placeholder="sip_KA49jsZB5kMY82cGACwYgwp8"
+                        placeholder="sn0x18VkKJez81"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300">
-                    <p class="text-xs text-gray-400 mt-0.5">Utilis&eacute; lors de l'association du document au workflow.</p>
-                </div>
-
-                {{-- Sign path --}}
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">Sign path</label>
-                    <input type="text" name="sign_path"
-                        value="{{ old('sign_path', $sigCfg?->sign_path ?? '/v1/sign') }}"
-                        placeholder="/v1/sign"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300">
+                    <p class="text-xs text-gray-400 mt-0.5">Politique de signature autoris&eacute;e pour votre organisation.</p>
                 </div>
 
                 {{-- Timeout --}}
@@ -10794,6 +10739,29 @@ function themingToggleDisable() {
                     <input type="number" name="timeout_ms" min="1000"
                         value="{{ old('timeout_ms', $sigCfg?->timeout_ms ?? 30000) }}"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300">
+                </div>
+
+                {{-- Test de connexion --}}
+                <div class="md:col-span-2">
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button" onclick="sigTestConnection(false)"
+                            class="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg whitespace-nowrap transition flex items-center gap-1.5">
+                            <i class="fas fa-plug"></i> Tester le token
+                        </button>
+                        <button type="button" onclick="if(confirm('Créer un workflow de test (brouillon, jamais démarré) pour valider Space et Politique ?')) sigTestConnection(true)"
+                            class="px-3 py-2 bg-gray-700 hover:bg-gray-800 text-white text-xs font-semibold rounded-lg whitespace-nowrap transition flex items-center gap-1.5">
+                            <i class="fas fa-vial"></i> Test complet (Space + Politique)
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-0.5">
+                        Le test du token ne cr&eacute;e rien. Le test complet cr&eacute;e un workflow en brouillon qui n'est jamais d&eacute;marr&eacute;.
+                    </p>
+                    <div id="sig_test_result" class="hidden mt-2 p-2.5 rounded-lg text-xs"></div>
+                    {{-- Champs hérités de l'ancienne plateforme, conservés pour le formulaire --}}
+                    <input type="hidden" name="provider_owner_user_id" value="{{ old('provider_owner_user_id', $sigCfg?->provider_owner_user_id ?? '') }}">
+                    <input type="hidden" name="consent_page_id" value="">
+                    <input type="hidden" name="consent_page_id_approval" value="">
+                    <input type="hidden" name="sign_path" value="/v1/sign">
                 </div>
 
                 {{-- QR position is now managed in OnlyOffice settings only --}}
@@ -10834,15 +10802,17 @@ const __sigCsrf      = '{{ csrf_token() }}';
 const __sigEmitters  = @json($emitters->map(fn($e)=>['id'=>$e->id,'name'=>$e->name,'code'=>$e->code])->values());
 const __sigRecipients= @json($recipients->map(fn($r)=>['id'=>$r->id,'name'=>$r->name])->values());
 
-async function sigTestConnection() {
+async function sigTestConnection(full) {
     const endpoint = document.querySelector('input[name="endpoint"]')?.value?.trim();
     const apiKey   = document.getElementById('sig_api_key')?.value?.trim();
-    const email    = document.getElementById('sig_test_email')?.value?.trim();
+    const space    = document.getElementById('sig_tenant_id')?.value?.trim();
+    const policy   = document.querySelector('input[name="signature_profile_id"]')?.value?.trim();
     const resultEl = document.getElementById('sig_test_result');
+    const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
     if (!endpoint || !apiKey) {
         resultEl.className = 'mt-2 p-2.5 rounded-lg text-xs bg-red-50 border border-red-200 text-red-700';
-        resultEl.textContent = 'Veuillez renseigner l\'Endpoint et l\'API Key avant de tester.';
+        resultEl.textContent = 'Veuillez renseigner l\'Endpoint et l\'API Token avant de tester.';
         resultEl.classList.remove('hidden');
         return;
     }
@@ -10852,36 +10822,24 @@ async function sigTestConnection() {
     resultEl.classList.remove('hidden');
 
     try {
-        const body = { endpoint, api_key: apiKey };
-        if (email) body.email = email;
-
         const resp = await fetch(__sigTestUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': __sigCsrf },
-            body: JSON.stringify(body),
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': __sigCsrf, 'Accept': 'application/json' },
+            body: JSON.stringify({ endpoint, api_key: apiKey, space, signature_policy: policy, full: !!full }),
         });
         const data = await resp.json();
 
         if (data.ok) {
             resultEl.className = 'mt-2 p-2.5 rounded-lg text-xs bg-green-50 border border-green-200 text-green-700';
-            let html = '<i class="fas fa-check-circle mr-1"></i> <strong>Connexion réussie</strong>';
-            if (data.tenant_id) {
-                html += '<br>Tenant ID&nbsp;: <code class="bg-white px-1 rounded border">' + data.tenant_id + '</code>';
-            }
-            if (email) {
-                if (data.platform_user_id) {
-                    html += '<br>User ID trouvé pour <strong>' + email + '</strong>&nbsp;: <code class="bg-white px-1 rounded border">' + data.platform_user_id + '</code>';
-                } else {
-                    html += '<br><span class="text-amber-700"><i class="fas fa-exclamation-triangle mr-1"></i>Aucun utilisateur trouvé pour <strong>' + email + '</strong> sur la plateforme.</span>';
-                }
-            }
-            // Auto-remplir Tenant ID si vide
-            if (data.tenant_id && !document.getElementById('sig_tenant_id').value)
-                document.getElementById('sig_tenant_id').value = data.tenant_id;
+            let html = '<i class="fas fa-check-circle mr-1"></i> <strong>' + esc(data.message) + '</strong>';
+            (data.checks || []).forEach(c => {
+                html += '<br>' + (c.ok ? '&#10003; ' : '&#10007; ') + esc(c.label);
+            });
+            if (data.workflow_id) html += '<br>Workflow de test (brouillon)&nbsp;: <code class="bg-white px-1 rounded border">' + esc(data.workflow_id) + '</code>';
             resultEl.innerHTML = html;
         } else {
             resultEl.className = 'mt-2 p-2.5 rounded-lg text-xs bg-red-50 border border-red-200 text-red-700';
-            resultEl.innerHTML = '<i class="fas fa-times-circle mr-1"></i> <strong>Échec</strong> : ' + (data.message || 'Erreur inconnue.');
+            resultEl.innerHTML = '<i class="fas fa-times-circle mr-1"></i> <strong>Échec</strong> : ' + esc(data.message || 'Erreur inconnue.');
         }
     } catch (e) {
         resultEl.className = 'mt-2 p-2.5 rounded-lg text-xs bg-red-50 border border-red-200 text-red-700';

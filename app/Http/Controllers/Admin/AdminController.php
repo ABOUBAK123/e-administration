@@ -4013,61 +4013,71 @@ class AdminController extends Controller
     // ── Test connexion API Signature ──────────────────────────────────────────
     public function testSignatureConnection(Request $request): \Illuminate\Http\JsonResponse
     {
+        $this->guardPermission('administration.signature-provider');
+
         $endpoint = rtrim(trim($request->input('endpoint', '')), '/');
         $apiKey   = trim($request->input('api_key', ''));
-        $email    = trim($request->input('email', ''));
+        $space    = trim($request->input('space', ''));
+        $policy   = trim($request->input('signature_policy', ''));
+        $full     = $request->boolean('full');
 
         if ($endpoint === '' || $apiKey === '') {
-            return response()->json(['ok' => false, 'message' => 'Endpoint et API Key requis.'], 422);
+            return response()->json(['ok' => false, 'message' => 'Endpoint et API Token requis.'], 422);
+        }
+        if (!preg_match('#^https?://#i', $endpoint)) {
+            return response()->json(['ok' => false, 'message' => 'L\'endpoint doit commencer par http:// ou https://.'], 422);
         }
 
+        $checks = [];
         try {
-            // 1. Vérifier la connexion via /api/users/me (clé API)
-            $response = Http::withToken($apiKey)
-                ->timeout(10)
-                ->get($endpoint . '/api/users/me');
+            // 1. Test du token (sans rien créer) : un identifiant inexistant doit répondre 404 si le token est accepté,
+            //    et 401/403 s'il est refusé.
+            $probe = Http::withToken($apiKey)->acceptJson()->timeout(10)
+                ->get($endpoint . '/api/workflows/wf_connection_probe');
 
-            if (!$response->successful()) {
+            if (in_array($probe->status(), [401, 403], true)) {
                 return response()->json([
                     'ok'      => false,
-                    'message' => 'Erreur API (' . $response->status() . '): ' . ($response->json('message') ?? $response->body()),
+                    'message' => 'Token refusé par Safy (HTTP ' . $probe->status() . ').',
                 ], 422);
             }
+            if ($probe->serverError()) {
+                return response()->json([
+                    'ok'      => false,
+                    'message' => 'Le serveur Safy a répondu par une erreur (HTTP ' . $probe->status() . ').',
+                ], 422);
+            }
+            $checks[] = ['ok' => true, 'label' => 'Serveur joignable, token accepté'];
 
-            $data     = $response->json();
-            $tenantId = $data['tenantId'] ?? null;
-            $result   = [
-                'ok'        => true,
-                'message'   => 'Connexion réussie.',
-                'tenant_id' => $tenantId,
-            ];
+            $result = ['ok' => true, 'message' => 'Connexion réussie.', 'checks' => $checks];
 
-            // 2. Si un email est fourni, chercher l'utilisateur par email
-            if ($email !== '') {
-                $cfg = new \App\Models\SignatureProviderConfig([
-                    'endpoint'   => $endpoint,
-                    'api_key'    => $apiKey,
-                    'verify_ssl' => true,
-                    'timeout_ms' => 10000,
-                ]);
-
-                // Invalider le cache pour cet email afin de forcer une recherche fraîche
-                $cacheKey = 'sunnystamp_uid_' . md5($endpoint . '|' . $email);
-                \Illuminate\Support\Facades\Cache::forget($cacheKey);
-
-                $platformUserId = \App\Http\Controllers\SignatureController::resolvePlatformUserIdByEmail($cfg, $email);
-
-                $result['platform_user_id'] = $platformUserId;
-                $result['email']            = $email;
-                if ($platformUserId) {
-                    $result['message'] = 'Connexion réussie. Utilisateur trouvé sur la plateforme.';
-                } else {
-                    $result['message'] = 'Connexion réussie, mais aucun utilisateur trouvé pour l\'e-mail "' . $email . '" sur la plateforme.';
+            // 2. Test complet : crée un workflow brouillon (jamais démarré) pour valider Space et Policy.
+            if ($full) {
+                if ($space === '' || $policy === '') {
+                    return response()->json(['ok' => false, 'message' => 'Space ID et Signature Policy ID requis pour le test complet.'], 422);
                 }
+
+                $user = auth()->user();
+                $safy = new \App\Services\SafyClient($endpoint . '/', $apiKey, $space, $policy, 15);
+                $wf = $safy->createWorkflow('Test de connexion e-Parapheur', [[
+                    'email'     => $user?->email ?: 'test@example.com',
+                    'firstName' => 'Test',
+                    'lastName'  => 'Connexion',
+                ]]);
+
+                $checks[] = ['ok' => true, 'label' => 'Space valide'];
+                $checks[] = ['ok' => true, 'label' => 'Politique de signature valide'];
+                $result['checks'] = $checks;
+                $result['workflow_id'] = $wf['id'] ?? null;
+                $result['message'] = 'Configuration complète validée.';
             }
 
             return response()->json($result);
-
+        } catch (\App\Services\SafyException $e) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Safy a refusé la configuration : ' . $e->getMessage(),
+            ], 422);
         } catch (\Throwable $e) {
             return response()->json(['ok' => false, 'message' => 'Impossible de joindre le serveur: ' . $e->getMessage()], 422);
         }
