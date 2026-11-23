@@ -10692,18 +10692,18 @@ function themingToggleDisable() {
                     <label class="block text-xs text-gray-500 mb-1">Endpoint (URL de base de l'API)</label>
                     <input type="text" name="endpoint"
                         value="{{ old('endpoint', $sigCfg?->endpoint ?? '') }}"
-                        placeholder="https://trusted-service.safy.ma"
+                        placeholder="https://app.preprod.pki.anssi.ci"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300">
-                    <p class="text-xs text-gray-400 mt-0.5">URL du Trusted Service Safy. Ex&nbsp;: https://trusted-service.safy.ma</p>
+                    <p class="text-xs text-gray-400 mt-0.5">URL du <strong>Trusted Service</strong> (trustedServiceURL). Ex&nbsp;: https://app.preprod.pki.anssi.ci &mdash; l'URL du Document Service (<code class="bg-gray-100 px-1 rounded">documentServiceURL</code>) est fournie automatiquement par l'API, il n'y a rien &agrave; saisir.</p>
                 </div>
 
                 {{-- API Key --}}
                 <div class="md:col-span-2">
-                    <label class="block text-xs text-gray-500 mb-1">API Key (Bearer token)</label>
+                    <label class="block text-xs text-gray-500 mb-1">API Token (apiToken)</label>
                     <div class="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-300">
                         <input type="password" name="api_key" id="sig_api_key"
                             value="{{ old('api_key', $sigCfg?->api_key ?? '') }}"
-                            placeholder="act_38Xcy1gjrQ9jTUfozSvpWYMi.xxxx"
+                            placeholder="eyJhdCI6Im..."
                             class="flex-1 px-3 py-2 text-sm outline-none">
                         <button type="button" onclick="sigToggleApiKey()" id="sig_apikey_btn"
                             class="px-3 text-gray-400 hover:text-gray-600 transition text-xs whitespace-nowrap">
@@ -10718,7 +10718,7 @@ function themingToggleDisable() {
                     <label class="block text-xs text-gray-500 mb-1">Space ID <span class="text-amber-600">&#x2605; Requis</span></label>
                     <input type="text" name="tenant_id" id="sig_tenant_id"
                         value="{{ old('tenant_id', $sigCfg?->tenant_id ?? '') }}"
-                        placeholder="spCJqkLusUDKsr"
+                        placeholder="spE7Vr4scWkMQ4"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300">
                     <p class="text-xs text-gray-400 mt-0.5">Identifiant de l'espace Safy dans lequel les workflows sont cr&eacute;&eacute;s.</p>
                 </div>
@@ -10728,7 +10728,7 @@ function themingToggleDisable() {
                     <label class="block text-xs text-gray-500 mb-1">Signature Policy ID <span class="text-amber-600">&#x2605; Requis</span></label>
                     <input type="text" name="signature_profile_id"
                         value="{{ old('signature_profile_id', $sigCfg?->signature_profile_id ?? '') }}"
-                        placeholder="sn0x18VkKJez81"
+                        placeholder="sn2qLpRbr5mEos"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300">
                     <p class="text-xs text-gray-400 mt-0.5">Politique de signature autoris&eacute;e pour votre organisation.</p>
                 </div>

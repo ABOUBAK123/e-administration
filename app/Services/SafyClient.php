@@ -126,21 +126,21 @@ class SafyClient
     /** Lien de signature (à utiliser avec invitationMode=noInvitation). */
     public function createSignatureLink(string $workflowId, string $signerId, ?string $redirectUrl = null, ?string $etag = null): ?string
     {
-        // If-Match (ETag) : on le lit sur le workflow si non fourni.
-        if (!$etag) {
+        $body = $redirectUrl ? ['redirectUrl' => $redirectUrl] : (object) [];
+        $path = "api/workflows/{$workflowId}/signers/{$signerId}/signatureLinks";
+
+        // If-Match n'est pas exigé en préproduction : on essaie sans, puis avec l'ETag courant si Safy refuse (409/412/428).
+        $req = $etag ? $this->trusted()->withHeaders(['If-Match' => $etag]) : $this->trusted();
+        $resp = $req->post($path, $body);
+
+        if (in_array($resp->status(), [409, 412, 428], true)) {
             $r = $this->trusted()->get("api/workflows/{$workflowId}");
-            if ($r->successful()) {
-                $etag = $r->header('ETag') ?: null;
+            if ($r->successful() && ($tag = $r->header('ETag'))) {
+                $resp = $this->trusted()->withHeaders(['If-Match' => $tag])->post($path, $body);
             }
         }
-        $req = $this->trusted();
-        if ($etag) {
-            $req = $req->withHeaders(['If-Match' => $etag]);
-        }
-        $body = $redirectUrl ? ['redirectUrl' => $redirectUrl] : (object) [];
-        $data = $this->json($req->post("api/workflows/{$workflowId}/signers/{$signerId}/signatureLinks", $body), 'signature_link');
 
-        return $data['signatureLink'] ?? null;
+        return $this->json($resp, 'signature_link')['signatureLink'] ?? null;
     }
 
     // ------------------------------------------------------------------
