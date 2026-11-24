@@ -537,6 +537,41 @@ class SignatureController extends Controller
         return self::extractFirstUrlFromPayload($payload);
     }
 
+    /**
+     * Page de retour après la signature sur la plateforme (redirectUrl Safy).
+     * Accessible à tout utilisateur connecté (le signataire n'a pas forcément la permission « signatures.view ») :
+     * synchronise ses signatures en attente puis l'envoie vers la première page qu'il peut consulter.
+     */
+    public function signatureReturn()
+    {
+        $user = Auth::user();
+
+        try {
+            $mine = WorkflowExecution::query()
+                ->where('status', 'in_progress')
+                ->whereNotNull('platform_workflow_id')
+                ->with('workflow.steps')
+                ->get()
+                ->filter(function ($e) use ($user) {
+                    $step = $e->workflow?->steps?->firstWhere('order', (int) ($e->current_step ?? 1));
+                    return $step && (string) $step->assignee_id === (string) $user->id;
+                });
+            if ($mine->isNotEmpty()) {
+                $this->syncPendingPlatformExecutions($mine);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Safy: synchronisation au retour de signature impossible', ['error' => $e->getMessage()]);
+        }
+
+        $target = match (true) {
+            $this->canPermission('signatures.view') => route('signatures.index'),
+            $this->canPermission('workflows.view')  => route('workflows.index'),
+            default                                 => route('dashboard'),
+        };
+
+        return redirect($target)->with('success', 'Signature effectuée. Le statut du workflow est en cours de mise à jour.');
+    }
+
     public function index()
     {
         $this->guardPermission('signatures.view');
@@ -1808,7 +1843,7 @@ class SignatureController extends Controller
             $started = $safy->start($workflowId);
 
             $step = 'signature_link';
-            $redirect = rtrim((string) config('app.url'), '/') . '/signatures';
+            $redirect = route('signatures.return');
             $url = $safy->createSignatureLink($workflowId, $signerId, $redirect, $started['etag'] ?? null);
             if (!$url) {
                 $this->lastPlatformError = 'signature_link: aucun lien retourné';
@@ -1846,7 +1881,7 @@ class SignatureController extends Controller
             foreach ($wf['signers'] ?? [] as $s) {
                 $done = in_array(strtolower((string) ($s['signatureStatus'] ?? '')), ['signed', 'refused'], true);
                 if (!$done && strcasecmp((string) ($s['email'] ?? ''), (string) $signer->email) === 0 && !empty($s['id'])) {
-                    $redirect = rtrim((string) config('app.url'), '/') . '/signatures';
+                    $redirect = route('signatures.return');
                     $url = $safy->createSignatureLink($wfId, (string) $s['id'], $redirect);
                     if ($url) {
                         $this->lastPlatformWorkflowId = $wfId;

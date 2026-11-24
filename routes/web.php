@@ -275,6 +275,8 @@ Route::middleware('auth')->group(function () {
 
     // Signatures
     Route::get('/signatures',                  [SignatureController::class, 'index'])->name('signatures.index');
+    // Retour après signature sur la plateforme (accessible à tout utilisateur connecté, avant la route {signature})
+    Route::get('/signatures/retour',           [SignatureController::class, 'signatureReturn'])->name('signatures.return');
     Route::post('/signatures',                 [SignatureController::class, 'store'])->name('signatures.store');
     Route::post('/signatures/request',         [SignatureController::class, 'request'])->name('signatures.request');
     // Upload & signer depuis l'ordinateur
