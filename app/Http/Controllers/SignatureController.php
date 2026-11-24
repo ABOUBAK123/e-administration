@@ -553,7 +553,9 @@ class SignatureController extends Controller
         }
         $url = $this->prepareWorkflowSignatureLink($executions, $signer, (string) ($execution->workflow?->name ?? ''));
         if (!$url) {
-            abort(503, 'La plateforme de signature est momentanément indisponible. Merci de réessayer dans quelques instants.');
+            Log::error('Safy: lien direct impossible', ['execution_id' => $executionId, 'user_id' => $userId, 'error' => $this->lastPlatformError]);
+            abort(503, 'La plateforme de signature est momentanément indisponible. Merci de réessayer dans quelques instants.'
+                . ($this->lastPlatformError ? ' [Détail : ' . mb_substr($this->lastPlatformError, 0, 400) . ']' : ''));
         }
 
         return redirect()->away($url);
