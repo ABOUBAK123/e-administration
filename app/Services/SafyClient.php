@@ -57,7 +57,7 @@ class SafyClient
     {
         $defaults = [
             'invitationMode'             => 'noInvitation', // on génère le lien nous-mêmes
-            'authenticationMode'         => 'noAuthentication',
+            'authenticationMode'         => 'noAuthentication', // pas d'OTP à l'ouverture du lien (l'OTP de signature dépend de la politique)
             'locale'                     => 'fr',
             'forceViewDocuments'         => true,
             'sendDownloadLinkOnFinished' => false,
