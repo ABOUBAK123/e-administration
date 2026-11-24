@@ -248,7 +248,7 @@ $currentUserId = Auth::id();
 
 {{-- ══ MODAL CRÉATION WORKFLOW / MODÈLE / VUE LECTURE ══ --}}
 <div id="modal-main" class="hidden fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto">
-    <div class="wf-modal-scroll w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 my-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
+    <div class="wf-modal-scroll w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 my-6 max-h-[calc(100vh-3rem)] overflow-y-scroll">
 
         {{-- En-tête --}}
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10 rounded-t-2xl">
@@ -2595,6 +2595,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (mainEl) {
             mainEl.style.padding = '0';
             mainEl.style.height = '100vh';
+            mainEl.style.overflow = 'hidden';
         }
 
         const modalMain = document.getElementById('modal-main');
@@ -2611,11 +2612,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             modalMain.classList.remove('hidden', 'fixed', 'inset-0', 'bg-black/40', 'p-4', 'overflow-y-auto');
             modalMain.classList.add('relative', 'bg-transparent', 'p-0', 'overflow-visible', 'h-full');
+            // Hauteur explicite : sans elle, le panneau s'étire au contenu et aucune barre de défilement n'apparaît.
+            modalMain.style.height = '100vh';
 
             const modalPanel = modalMain.firstElementChild;
             if (modalPanel) {
                 modalPanel.classList.remove('max-w-2xl', 'my-6', 'max-h-[calc(100vh-3rem)]');
                 modalPanel.classList.add('max-w-none', 'w-full', 'h-full', 'rounded-none', 'border-0', 'shadow-none');
+                modalPanel.style.height = '100vh';
+                modalPanel.style.maxHeight = '100vh';
+                modalPanel.style.overflowY = 'scroll'; // curseur latéral toujours visible
             }
         }
     }
