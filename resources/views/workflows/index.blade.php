@@ -586,9 +586,24 @@ function getCompletedSignedDownloadUrl(wf) {
     return SIGNED_DOC_DOWNLOAD_TEMPLATE.replace('__EXEC_ID__', encodeURIComponent(completedExecWithSigned.id));
 }
 
+// Vrai si le workflow attend une action (validation/signature) de l'utilisateur connecté :
+// une exécution active dont l'étape courante lui est assignée.
+function isMyTurn(wf) {
+    const steps = wf.steps || [];
+    return (wf.executions || []).some(e => {
+        if (!/pending|in_progress|en_attente|started/i.test(String(e.status || ''))) return false;
+        const step = steps.find(s => Number(s.order) === Number(e.current_step || 1));
+        return !!step && String(step.assignee_id || '') === String(ME);
+    });
+}
+
 function computeTileCounts() {
     const c = { 'En attente':0, 'Brouillon':0, 'En cours':0, 'Terminé':0, 'Rejeté':0 };
-    workflows.forEach(wf => { const t = getTracking(wf); if (c[t.label] !== undefined) c[t.label]++; });
+    workflows.forEach(wf => {
+        const t = getTracking(wf);
+        if (t.label !== 'En attente' && c[t.label] !== undefined) c[t.label]++;
+        if (isMyTurn(wf)) c['En attente']++;
+    });
     return c;
 }
 
@@ -597,7 +612,8 @@ function renderTable() {
     const q = (document.getElementById('search-input').value||'').toLowerCase();
     const filtered = workflows.filter(wf => {
         const t = getTracking(wf);
-        if (statusFilter !== 'Tous' && t.label !== statusFilter) return false;
+        if (statusFilter === 'En attente') { if (!isMyTurn(wf)) return false; }
+        else if (statusFilter !== 'Tous' && t.label !== statusFilter) return false;
         if (q && !(wf.name||'').toLowerCase().includes(q)) return false;
         return true;
     });
