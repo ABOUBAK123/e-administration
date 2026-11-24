@@ -1626,7 +1626,7 @@ class SignatureController extends Controller
 
     /**
      * Convertit une zone (pourcentages ou points PDF, origine en haut à gauche)
-     * en annotation Safy (points PDF, origine en bas à gauche, A4 par défaut).
+     * en annotation Safy (points PDF, origine en HAUT à gauche : confirmé par un test réel).
      */
     /**
      * Dimensions réelles (points PDF) d'une page du PDF ; A4 par défaut si illisible.
@@ -1662,8 +1662,8 @@ class SignatureController extends Controller
         }
 
         if (!$zone) {
-            // Défaut : bas droite de la page 1 (150 x 60 pt).
-            return ['page' => 1, 'x1' => 390, 'y1' => 40, 'x2' => 540, 'y2' => 100];
+            // Défaut : bas droite de la page 1 (150 x 60 pt), origine en haut à gauche.
+            return ['page' => 1, 'x1' => 390, 'y1' => 742, 'x2' => 540, 'y2' => 802];
         }
 
         $x = (float) ($zone['x'] ?? 0);
@@ -1679,12 +1679,12 @@ class SignatureController extends Controller
         if ($x > 100 || $y > 100 || $w > 100 || $h > 100) {
             // Déjà en points PDF, origine en haut.
             $x1 = $x; $x2 = min($pageW, $x + $w);
-            $y2 = $pageH - $y; $y1 = max(0, $y2 - $h);
+            $y1 = $y; $y2 = min($pageH, $y + $h);
         } else {
             $x1 = ($x / 100) * $pageW;
             $x2 = min($pageW, $x1 + ($w / 100) * $pageW);
-            $y2 = $pageH - ($y / 100) * $pageH;
-            $y1 = max(0, $y2 - ($h / 100) * $pageH);
+            $y1 = ($y / 100) * $pageH;
+            $y2 = min($pageH, $y1 + ($h / 100) * $pageH);
         }
 
         return ['page' => $page <= 0 ? 1 : $page, 'x1' => $x1, 'y1' => $y1, 'x2' => $x2, 'y2' => $y2];

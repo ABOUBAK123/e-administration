@@ -184,8 +184,8 @@ class SafyClient
 
     /**
      * Zone de signature en points PDF.
-     * Coordonnées Safy : x1,y1 = coin bas-gauche ; x2,y2 = coin haut-droit (origine en bas à gauche).
-     * À valider sur un premier test réel.
+     * Coordonnées Safy : x1,y1 = coin haut-gauche ; x2,y2 = coin bas-droit (origine en HAUT à gauche).
+     * Confirmé par un test réel.
      */
     public function addSignatureAnnotation(string $documentId, string $signerId, int $page, float $x1, float $y1, float $x2, float $y2): array
     {
@@ -201,7 +201,7 @@ class SafyClient
 
     /**
      * Convertit une zone en pourcentages (origine en haut à gauche, comme l'UI de l'app)
-     * en coordonnées Safy (points PDF, origine en bas à gauche). Page A4 par défaut.
+     * en coordonnées Safy (points PDF, même origine en haut à gauche). Page A4 par défaut.
      */
     public static function percentZoneToAnnotation(array $zone, float $pageW = 595.0, float $pageH = 842.0): array
     {
@@ -213,9 +213,8 @@ class SafyClient
 
         $x1 = ($x / 100) * $pageW;
         $x2 = min($pageW, $x1 + ($w / 100) * $pageW);
-        $yTop = $pageH - ($y / 100) * $pageH;
-        $y2 = $yTop;
-        $y1 = max(0, $yTop - ($h / 100) * $pageH);
+        $y1 = ($y / 100) * $pageH;
+        $y2 = min($pageH, $y1 + ($h / 100) * $pageH);
 
         return ['page' => $page <= 0 ? 1 : $page, 'x1' => $x1, 'y1' => $y1, 'x2' => $x2, 'y2' => $y2];
     }
