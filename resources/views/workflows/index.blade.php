@@ -113,6 +113,12 @@ $currentUserId = Auth::id();
         padding: 6px 12px;
         backdrop-filter: blur(4px);
     }
+/* Curseur latéral visible dans la fenêtre « Nouveau workflow » */
+.wf-modal-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; overscroll-behavior: contain; }
+.wf-modal-scroll::-webkit-scrollbar { width: 10px; }
+.wf-modal-scroll::-webkit-scrollbar-track { background: #f3f4f6; border-radius: 9999px; }
+.wf-modal-scroll::-webkit-scrollbar-thumb { background: #9ca3af; border-radius: 9999px; border: 2px solid #f3f4f6; }
+.wf-modal-scroll::-webkit-scrollbar-thumb:hover { background: #6b7280; }
 </style>
 
 {{-- Toasts --}}
@@ -242,10 +248,10 @@ $currentUserId = Auth::id();
 
 {{-- ══ MODAL CRÉATION WORKFLOW / MODÈLE / VUE LECTURE ══ --}}
 <div id="modal-main" class="hidden fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto">
-    <div class="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 my-6">
+    <div class="wf-modal-scroll w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 my-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
 
         {{-- En-tête --}}
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10 rounded-t-2xl">
             <div>
                 <h2 id="modal-title" class="text-lg font-bold text-gray-900">Nouveau Workflow</h2>
                 <p id="modal-subtitle" class="text-xs text-gray-400 hidden"></p>
@@ -2608,7 +2614,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const modalPanel = modalMain.firstElementChild;
             if (modalPanel) {
-                modalPanel.classList.remove('max-w-2xl', 'my-6');
+                modalPanel.classList.remove('max-w-2xl', 'my-6', 'max-h-[calc(100vh-3rem)]');
                 modalPanel.classList.add('max-w-none', 'w-full', 'h-full', 'rounded-none', 'border-0', 'shadow-none');
             }
         }
