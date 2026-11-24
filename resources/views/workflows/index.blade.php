@@ -2595,7 +2595,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (mainEl) {
             mainEl.style.padding = '0';
             mainEl.style.height = '100vh';
-            mainEl.style.overflow = 'hidden';
         }
 
         const modalMain = document.getElementById('modal-main');
@@ -2610,18 +2609,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
 
-            modalMain.classList.remove('hidden', 'fixed', 'inset-0', 'bg-black/40', 'p-4', 'overflow-y-auto');
-            modalMain.classList.add('relative', 'bg-transparent', 'p-0', 'overflow-visible', 'h-full');
-            // Hauteur explicite : sans elle, le panneau s'étire au contenu et aucune barre de défilement n'apparaît.
-            modalMain.style.height = '100vh';
+            // Mode intégré : la fenêtre occupe tout l'écran visible (position fixe, donc indépendante de la mise
+            // en page de la page hôte) et c'est elle qui défile, avec une barre latérale toujours visible.
+            modalMain.classList.remove('hidden', 'bg-black/40', 'p-4', 'overflow-y-auto');
+            modalMain.classList.add('fixed', 'inset-0', 'bg-white', 'p-0', 'wf-modal-scroll');
+            modalMain.style.overflowY = 'scroll';
+            modalMain.style.overflowX = 'hidden';
+            modalMain.style.zIndex = '50';
 
             const modalPanel = modalMain.firstElementChild;
             if (modalPanel) {
-                modalPanel.classList.remove('max-w-2xl', 'my-6', 'max-h-[calc(100vh-3rem)]');
-                modalPanel.classList.add('max-w-none', 'w-full', 'h-full', 'rounded-none', 'border-0', 'shadow-none');
-                modalPanel.style.height = '100vh';
-                modalPanel.style.maxHeight = '100vh';
-                modalPanel.style.overflowY = 'scroll'; // curseur latéral toujours visible
+                modalPanel.classList.remove('max-w-2xl', 'my-6', 'max-h-[calc(100vh-3rem)]', 'overflow-y-scroll', 'wf-modal-scroll');
+                modalPanel.classList.add('max-w-none', 'w-full', 'rounded-none', 'border-0', 'shadow-none');
+                modalPanel.style.maxHeight = 'none';
+                modalPanel.style.overflow = 'visible';
+                modalPanel.style.minHeight = '100%';
             }
         }
     }
