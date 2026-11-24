@@ -1232,9 +1232,9 @@ class SignatureController extends Controller
     /**
      * Résoudre la configuration API de signature pour l'utilisateur connecté.
      */
-    private function resolveSignatureConfig(): ?SignatureProviderConfig
+    private function resolveSignatureConfig(?User $user = null): ?SignatureProviderConfig
     {
-        $user = Auth::user();
+        $user = $user ?? Auth::user();
         if (!$user) return null;
         $adminId = $user->profile?->administration_id ?? null;
         if (!$adminId) return null;
@@ -1242,6 +1242,34 @@ class SignatureController extends Controller
         return SignatureProviderConfig::where('administration_id', $adminId)
             ->where('is_active', true)
             ->first();
+    }
+
+    /**
+     * Configuration de signature à utiliser pour une exécution, sans dépendre de l'utilisateur connecté
+     * (tâche planifiée, page d'un autre utilisateur) : utilisateur connecté, puis créateur du workflow,
+     * puis assignés des étapes, puis l'unique configuration active.
+     */
+    private function resolveSignatureConfigForExecution(WorkflowExecution $execution): ?SignatureProviderConfig
+    {
+        $workflow = $execution->workflow()->with('steps')->first();
+
+        $candidates = [Auth::user()];
+        if ($workflow?->created_by) {
+            $candidates[] = User::find($workflow->created_by);
+        }
+        foreach ($workflow?->steps ?? [] as $s) {
+            if ($s->assignee_id) {
+                $candidates[] = User::find($s->assignee_id);
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            if ($candidate && ($cfg = $this->resolveSignatureConfig($candidate))) {
+                return $cfg;
+            }
+        }
+
+        return SignatureProviderConfig::where('is_active', true)->first();
     }
 
     /**
@@ -1843,7 +1871,7 @@ class SignatureController extends Controller
             $e->loadMissing('document');
         }
 
-        $cfg = $this->resolveSignatureConfig();
+        $cfg = $this->resolveSignatureConfigForExecution($executions->first());
         $url = $this->reuseSafyInviteUrl($cfg, $executions->first(), $signer);
 
         if (!$url) {
@@ -2023,7 +2051,7 @@ class SignatureController extends Controller
         }
 
         // Interroger Safy pour le statut temps réel.
-        $cfg = $this->resolveSignatureConfig();
+        $cfg = $this->resolveSignatureConfigForExecution($execution);
         $apiToken = (string) ($cfg->api_key ?? '');
         $endpoint = rtrim((string) ($cfg->endpoint ?? ''), '/');
         $verifySsl = (bool) ($cfg->verify_ssl ?? true);
@@ -2199,7 +2227,11 @@ class SignatureController extends Controller
         }
 
         try {
-            $safy = SafyClient::fromConfig(['url' => $endpoint, 'token' => $token, 'verify_ssl' => $verifySSL]);
+            // Ne surcharge le .env que par des valeurs renseignées (évite d'écraser l'URL/token par du vide).
+            $overrides = ['verify_ssl' => $verifySSL];
+            if ($endpoint !== '') $overrides['url'] = $endpoint;
+            if ($token !== '')    $overrides['token'] = $token;
+            $safy = SafyClient::fromConfig($overrides);
             $dl = $safy->downloadSignedDocuments((string) $platformWorkflowId);
             $pdfContent = $dl['body'];
 
