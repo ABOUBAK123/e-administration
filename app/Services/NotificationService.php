@@ -271,6 +271,16 @@ class NotificationService
             if ($executions->isNotEmpty()) {
                 $signatureUrl = app(\App\Http\Controllers\SignatureController::class)
                     ->prepareWorkflowSignatureLink($executions, $user, (string) ($workflow->name ?? ''));
+
+                // Échec de génération : lien signé qui créera le lien Safy au clic et redirigera vers la plateforme
+                // (jamais le lien de l'application).
+                if (!$signatureUrl) {
+                    $signatureUrl = \Illuminate\Support\Facades\URL::temporarySignedRoute(
+                        'signatures.direct',
+                        now()->addDays(7),
+                        ['executionId' => $executions->first()->id, 'userId' => $user->id]
+                    );
+                }
             }
         } catch (\Throwable $e) {
             Log::warning('Invitation signature: lien direct indisponible', ['workflow_id' => $workflow->id ?? null, 'error' => $e->getMessage()]);

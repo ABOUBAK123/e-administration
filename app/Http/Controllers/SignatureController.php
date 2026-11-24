@@ -538,6 +538,28 @@ class SignatureController extends Controller
     }
 
     /**
+     * GET /signature-directe/{executionId}/{userId} (URL signée) — lien de secours de l'e-mail d'invitation :
+     * crée/réutilise le lien Safy puis redirige directement vers la plateforme de signature.
+     */
+    public function directSignatureRedirect(Request $request, string $executionId, string $userId)
+    {
+        $execution = WorkflowExecution::find($executionId);
+        $signer = User::find($userId);
+        abort_unless($execution && $signer, 404);
+
+        $executions = $this->executionsAtSameStep($execution);
+        if ($executions->isEmpty()) {
+            $executions = collect([$execution]);
+        }
+        $url = $this->prepareWorkflowSignatureLink($executions, $signer, (string) ($execution->workflow?->name ?? ''));
+        if (!$url) {
+            abort(503, 'La plateforme de signature est momentanément indisponible. Merci de réessayer dans quelques instants.');
+        }
+
+        return redirect()->away($url);
+    }
+
+    /**
      * Page de retour après la signature sur la plateforme (redirectUrl Safy).
      * Accessible à tout utilisateur connecté (le signataire n'a pas forcément la permission « signatures.view ») :
      * synchronise ses signatures en attente puis l'envoie vers la première page qu'il peut consulter.

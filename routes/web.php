@@ -97,6 +97,11 @@ Route::get('/telechargement-signe/{executionId}', [WorkflowController::class, 'd
     ->middleware('signed')
     ->name('workflows.signed-download');
 
+// Lien de secours de l'e-mail d'invitation : génère le lien Safy au clic puis redirige DIRECTEMENT vers la plateforme.
+Route::get('/signature-directe/{executionId}/{userId}', [\App\Http\Controllers\SignatureController::class, 'directSignatureRedirect'])
+    ->middleware('signed')
+    ->name('signatures.direct');
+
 // Webhook SunnyStamp (sans session, sans CSRF, appelé par la plateforme externe)
 // Le middleware verify.webhook valide le token secret embarqué dans l'URL.
 Route::post('/api/signature/platform-webhook', [SignatureController::class, 'platformWebhook'])
