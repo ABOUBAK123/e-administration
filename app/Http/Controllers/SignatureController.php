@@ -1816,7 +1816,8 @@ class SignatureController extends Controller
                     'lastName'  => $lastName,
                     'phone'     => self::resolveRecipientPhone($signer),
                 ]],
-                ['invitationMode' => 'noInvitation', 'authenticationMode' => 'noAuthentication', 'locale' => 'fr']
+                // authenticationMode : valeur par défaut de SafyClient (OTP par e-mail, config services.safy.authentication_mode).
+                ['invitationMode' => 'noInvitation', 'locale' => 'fr']
             );
             $workflowId = (string) ($wf['id'] ?? '');
             $signerId   = (string) ($wf['signers'][0]['id'] ?? '');

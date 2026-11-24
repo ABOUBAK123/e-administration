@@ -55,9 +55,15 @@ class SafyClient
      */
     public function createWorkflow(string $shortName, array $signers, array $options = []): array
     {
+        $authMode = (string) config('services.safy.authentication_mode', 'authenticateWithEmail');
+        if (!in_array($authMode, ['authenticateWithEmail', 'authenticateWithPhone', 'authenticateWithWhatsapp', 'noAuthentication'], true)) {
+            $authMode = 'authenticateWithEmail';
+        }
+
         $defaults = [
-            'invitationMode'             => 'noInvitation', // on génère le lien nous-mêmes
-            'authenticationMode'         => 'noAuthentication', // pas d'OTP à l'ouverture du lien (l'OTP de signature dépend de la politique)
+            'invitationMode'             => 'noInvitation', // on génère le lien nous-mêmes (signatureLinks exige noInvitation)
+            // Code OTP envoyé par Safy au signataire à l'ouverture du lien, avant la signature.
+            'authenticationMode'         => $authMode,
             'locale'                     => 'fr',
             'forceViewDocuments'         => true,
             'sendDownloadLinkOnFinished' => false,

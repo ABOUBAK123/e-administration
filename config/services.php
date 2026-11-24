@@ -54,6 +54,9 @@ return [
         'signature_policy' => env('SAFY_SIGNATURE_POLICY_ID'),
         'timeout'          => env('SAFY_TIMEOUT', 30),
         'verify_ssl'       => env('SAFY_VERIFY_SSL', true),
+        // Authentification du signataire avant signature : authenticateWithEmail (code OTP envoyé par e-mail,
+        // comme dans la collection SIGFAE), authenticateWithPhone, authenticateWithWhatsapp ou noAuthentication.
+        'authentication_mode' => env('SAFY_AUTHENTICATION_MODE', 'authenticateWithEmail'),
     ],
 
     'mobile_money' => [
