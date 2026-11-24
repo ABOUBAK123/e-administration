@@ -240,6 +240,21 @@ class WorkflowController extends Controller
             ->latest()->get();
 
         if (request()->wantsJson()) {
+            // Actualisation automatique : récupère auprès de la plateforme de signature les workflows
+            // signés (statut, PDF signés, étape suivante) avant de renvoyer la liste.
+            try {
+                $pending = $workflows->flatMap(fn($wf) => $wf->executions)
+                    ->filter(fn($e) => $e->status === 'in_progress' && !empty($e->platform_workflow_id));
+                if ($pending->isNotEmpty()
+                    && app(\App\Http\Controllers\SignatureController::class)->syncPendingPlatformExecutions($pending) > 0) {
+                    $workflows = Workflow::with(['steps.assignee', 'executions.document'])
+                        ->whereIn('id', $this->visibleWorkflowIdsForUser($userId))
+                        ->latest()->get();
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Synchronisation plateforme de signature impossible', ['error' => $e->getMessage()]);
+            }
+
             return response()->json($workflows->map(fn($wf) => $this->formatWorkflow($wf))->values());
         }
 

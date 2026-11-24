@@ -238,3 +238,27 @@ Artisan::command('signatures:backfill-signed-docs
 
     return $failed > 0 ? 2 : 0;
 })->purpose('Rattrape les PDF signés manquants pour les exécutions completed');
+
+// Synchronise avec la plateforme de signature (Safy) les workflows en attente de signature :
+// statut, PDF signés récupérés, passage à l'étape suivante. Nécessite le scheduler Laravel
+// (php artisan schedule:run chaque minute, ou schedule:work en développement).
+Artisan::command('signatures:sync-platform {--limit=50 : Nombre max d\'exécutions interrogées}', function () {
+    $pending = WorkflowExecution::query()
+        ->where('status', 'in_progress')
+        ->whereNotNull('platform_workflow_id')
+        ->orderBy('started_at')
+        ->limit(max(1, (int) $this->option('limit')) * 3)
+        ->get();
+
+    $checked = app(\App\Http\Controllers\SignatureController::class)
+        ->syncPendingPlatformExecutions($pending, max(1, (int) $this->option('limit')));
+
+    $this->info("Exécutions interrogées : {$checked} / en attente : {$pending->count()}");
+})->purpose('Synchronise les workflows en attente de signature avec la plateforme');
+
+Schedule::command('signatures:sync-platform')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->onFailure(function () {
+        Log::error('La commande signatures:sync-platform a echoue.');
+    });

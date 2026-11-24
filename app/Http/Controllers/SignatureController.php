@@ -1996,19 +1996,19 @@ class SignatureController extends Controller
      * AJAX — Récupère le statut actuel du workflow sur la plateforme de signature.
      * GET /signatures/platform-status/{execution}
      */
-    public function getPlatformWorkflowStatus(string $executionId): JsonResponse
+    public function getPlatformWorkflowStatus(string $executionId, bool $internal = false): JsonResponse
     {
         $execution = WorkflowExecution::find($executionId);
         if (!$execution) {
             return response()->json(['ok' => false, 'message' => 'Exécution introuvable.'], 404);
         }
 
-        // Vérifier que l'utilisateur a le droit de voir cette exécution
+        // Vérifier que l'utilisateur a le droit de voir cette exécution (sauf synchronisation interne).
         $wf = $execution->workflow()->with('steps')->first();
         $steps = $wf?->steps?->sortBy('order') ?? collect();
         $stepObj = $steps->firstWhere('order', (int) ($execution->current_step ?? 1));
         $userId = Auth::id();
-        if ($stepObj?->assignee_id && $stepObj->assignee_id !== $userId) {
+        if (!$internal && $stepObj?->assignee_id && $stepObj->assignee_id !== $userId) {
             return response()->json(['ok' => false, 'message' => 'Accès refusé.'], 403);
         }
 
@@ -2126,6 +2126,39 @@ class SignatureController extends Controller
             'platform_workflow_id' => $execution->platform_workflow_id,
             'phase'               => $platformPhase ?? self::mapExecutionPhase($execution->status, $execution->platform_status),
         ]);
+    }
+
+    /**
+     * Synchronise avec Safy les exécutions en attente de signature (statut, PDF signés, étape suivante),
+     * sans dépendre d'un onglet ouvert chez le signataire. Limité et temporisé pour ne pas saturer Safy.
+     *
+     * @param iterable<WorkflowExecution> $executions
+     * @return int nombre d'exécutions réellement interrogées
+     */
+    public function syncPendingPlatformExecutions(iterable $executions, int $limit = 10): int
+    {
+        $checked = 0;
+        foreach ($executions as $execution) {
+            if ($checked >= $limit) {
+                break;
+            }
+            // Re-lire : une exécution du même workflow Safy a pu être traitée juste avant.
+            $fresh = WorkflowExecution::find($execution->id);
+            if (!$fresh || $fresh->status !== 'in_progress' || empty($fresh->platform_workflow_id)
+                || in_array(strtolower((string) $fresh->platform_status), ['finished', 'refused'], true)) {
+                continue;
+            }
+            if (!\Illuminate\Support\Facades\Cache::add('safy-sync:' . $fresh->platform_workflow_id, 1, 8)) {
+                continue;
+            }
+            try {
+                $this->getPlatformWorkflowStatus((string) $fresh->id, true);
+                $checked++;
+            } catch (\Throwable $e) {
+                Log::warning('Safy: synchronisation échouée', ['execution_id' => $fresh->id, 'error' => $e->getMessage()]);
+            }
+        }
+        return $checked;
     }
 
     /**
