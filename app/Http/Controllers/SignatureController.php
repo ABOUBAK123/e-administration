@@ -1628,10 +1628,38 @@ class SignatureController extends Controller
      * Convertit une zone (pourcentages ou points PDF, origine en haut à gauche)
      * en annotation Safy (points PDF, origine en bas à gauche, A4 par défaut).
      */
-    private function zoneToSafyAnnotation(?array $zone): array
+    /**
+     * Dimensions réelles (points PDF) d'une page du PDF ; A4 par défaut si illisible.
+     * @return array{0:float,1:float} [largeur, hauteur]
+     */
+    private function pdfPageSize(?string $pdfBytes, int $page): array
+    {
+        $a4 = [595.0, 842.0];
+        if (!$pdfBytes || !class_exists(\setasign\Fpdi\Tcpdf\Fpdi::class)) {
+            return $a4;
+        }
+        try {
+            $fpdi  = new \setasign\Fpdi\Tcpdf\Fpdi('P', 'pt');
+            $count = $fpdi->setSourceFile(\setasign\Fpdi\PdfParser\StreamReader::createByString($pdfBytes));
+            $p     = min(max(1, $page), max(1, $count));
+            $size  = $fpdi->getTemplateSize($fpdi->importPage($p));
+            if (!empty($size['width']) && !empty($size['height'])) {
+                return [(float) $size['width'], (float) $size['height']];
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Safy: taille de page PDF illisible, A4 utilisé', ['error' => $e->getMessage()]);
+        }
+        return $a4;
+    }
+
+    private function zoneToSafyAnnotation(?array $zone, ?string $pdfBytes = null): array
     {
         $pageW = 595.0;
         $pageH = 842.0;
+        if ($zone) {
+            $zp = (int) ($zone['page'] ?? 1);
+            [$pageW, $pageH] = $this->pdfPageSize($pdfBytes, $zp <= 0 ? 1 : $zp);
+        }
 
         if (!$zone) {
             // Défaut : bas droite de la page 1 (150 x 60 pt).
@@ -1709,7 +1737,9 @@ class SignatureController extends Controller
             $documentId = $safy->uploadDocument($workflowId, $pdfBytes, $fileName);
 
             $step = 'add_annotation';
-            $a = $this->zoneToSafyAnnotation($this->resolveSignatureZoneForPlatform($document, $signer));
+            $zone = $this->resolveSignatureZoneForPlatform($document, $signer);
+            $a = $this->zoneToSafyAnnotation($zone, $pdfBytes);
+            Log::info('Safy: zone de signature envoyée', ['document_id' => $document->id, 'zone_app' => $zone, 'annotation' => $a]);
             $safy->addSignatureAnnotation($documentId, $signerId, $a['page'], $a['x1'], $a['y1'], $a['x2'], $a['y2']);
 
             $step = 'start_workflow';
