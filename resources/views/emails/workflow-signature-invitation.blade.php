@@ -16,34 +16,35 @@
             <p style="color:#374151; font-size:14px; margin:0 0 12px;">Bonjour {{ $recipientName }},</p>
             <p style="color:#374151; font-size:14px; line-height:1.6; margin:0 0 20px;">
                 <strong>{{ $creatorName }}</strong> vous invite à signer électroniquement
-                {{ count($documents) > 1 ? 'des documents' : 'un document' }}
-                dans le cadre du dossier <strong>« {{ $workflowName }} »</strong>.
+                {{ count($documentTitles) > 1 ? 'les documents' : 'le document' }}
+                du dossier <strong>« {{ $workflowName }} »</strong>.
             </p>
 
-            <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:16px 20px; margin:0 0 20px;">
-                <p style="margin:0 0 10px; color:#6b7280; font-size:11px; font-weight:bold; text-transform:uppercase; letter-spacing:0.05em;">
-                    {{ count($documents) > 1 ? 'Documents à signer' : 'Document à signer' }}
-                </p>
-                @foreach ($documents as $doc)
-                    <div style="padding:10px 0; {{ !$loop->first ? 'border-top:1px solid #e5e7eb;' : '' }}">
-                        <p style="margin:0 0 8px; color:#111827; font-size:14px; font-weight:bold;">{{ $doc['title'] }}</p>
-                        <a href="{{ $doc['url'] ?: $fallbackUrl }}"
-                           style="display:inline-block; background:#4f46e5; color:#ffffff; font-size:14px; font-weight:bold; padding:10px 24px; border-radius:8px; text-decoration:none;">
-                            Signer le document
-                        </a>
-                    </div>
-                @endforeach
+            @if (count($documentTitles) > 0)
+                <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:16px 20px; margin:0 0 24px;">
+                    <p style="margin:0 0 10px; color:#6b7280; font-size:11px; font-weight:bold; text-transform:uppercase; letter-spacing:0.05em;">
+                        {{ count($documentTitles) > 1 ? 'Documents à signer (' . count($documentTitles) . ')' : 'Document à signer' }}
+                    </p>
+                    @foreach ($documentTitles as $title)
+                        <p style="margin:0; padding:6px 0; color:#111827; font-size:14px; {{ !$loop->first ? 'border-top:1px solid #e5e7eb;' : '' }}">{{ $title }}</p>
+                    @endforeach
+                </div>
+            @endif
+
+            <div style="text-align:center; margin:0 0 24px;">
+                <a href="{{ $signatureUrl }}"
+                   style="display:inline-block; background:#4f46e5; color:#ffffff; font-size:14px; font-weight:bold; padding:12px 32px; border-radius:8px; text-decoration:none;">
+                    {{ count($documentTitles) > 1 ? 'Signer les documents' : 'Signer le document' }}
+                </a>
             </div>
 
             <p style="color:#6b7280; font-size:13px; line-height:1.6; margin:0 0 8px;">
-                Le bouton vous conduit directement sur la plateforme de signature sécurisée. Vous pourrez y consulter le document, puis le signer ; un code de vérification peut vous être demandé pour confirmer votre identité.
+                Ce lien vous conduit directement sur la plateforme de signature sécurisée. Vous pourrez y consulter {{ count($documentTitles) > 1 ? 'les documents' : 'le document' }}, puis {{ count($documentTitles) > 1 ? 'les signer' : 'le signer' }} ; un code de vérification peut vous être demandé pour confirmer votre identité.
             </p>
-            <p style="color:#6b7280; font-size:13px; line-height:1.6; margin:0 0 8px;">
-                Si un bouton ne fonctionne pas, copiez le lien correspondant dans la barre d'adresse de votre navigateur :
+            <p style="color:#6b7280; font-size:13px; line-height:1.6; margin:0 0 6px;">
+                Si le bouton ne fonctionne pas, copiez ce lien dans la barre d'adresse de votre navigateur :
             </p>
-            @foreach ($documents as $doc)
-                <p style="color:#4f46e5; font-size:12px; word-break:break-all; margin:0 0 6px;">{{ $doc['url'] ?: $fallbackUrl }}</p>
-            @endforeach
+            <p style="color:#4f46e5; font-size:12px; word-break:break-all; margin:0;">{{ $signatureUrl }}</p>
 
             <p style="color:#374151; font-size:14px; margin:24px 0 0;">
                 Cordialement,<br>

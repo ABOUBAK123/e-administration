@@ -34,6 +34,8 @@ class SignatureController extends Controller
 
     private ?string $lastPlatformError = null;
     private ?string $lastPlatformWorkflowId = null;
+    /** @var array<int,string> IDs locaux des documents, dans l'ordre de dépôt dans le dernier workflow Safy. */
+    private array $lastPlatformDocOrder = [];
 
     private function syncCompletedVirtualCardToAgentDocuments(WorkflowExecution $execution): void
     {
@@ -120,7 +122,7 @@ class SignatureController extends Controller
         $execution->update(['step_data' => $stepData]);
     }
 
-    private function advanceExecutionAfterPlatformDone(WorkflowExecution $execution, ?string $platformStatus = null): array
+    private function advanceExecutionAfterPlatformDone(WorkflowExecution $execution, ?string $platformStatus = null, bool $notify = true): array
     {
         if ($execution->status !== 'in_progress') {
             return ['completed' => $execution->status === 'completed'];
@@ -196,11 +198,12 @@ class SignatureController extends Controller
             $this->createSignatureRequestsForStep($workflow, $nextStepObj, is_array($docZones) ? $docZones : []);
         }
 
-        if ($workflow) {
-            NotificationService::workflowStepAdvanced($workflow, $nextStep, $currentStepObj?->assignee?->name ?? 'Signataire');
+        $actorName = $currentStepObj?->assignee?->name ?? 'Signataire';
+        if ($workflow && $notify) {
+            NotificationService::workflowStepAdvanced($workflow, $nextStep, $actorName);
         }
 
-        return ['completed' => false];
+        return ['completed' => false, 'next_step' => $nextStep, 'actor' => $actorName];
     }
 
     private function getSignatureStepIndex(Workflow $workflow, WorkflowStep $step): ?int
@@ -1694,21 +1697,44 @@ class SignatureController extends Controller
      * Flux Safy : workflow -> upload -> zone de signature -> start -> lien de signature.
      * Retourne l'URL de signature, ou null (détail dans $this->lastPlatformError).
      */
-    private function buildSafyInviteUrl(?SignatureProviderConfig $cfg, Document $document, User $signer): ?string
+    /**
+     * Un seul workflow Safy (donc un seul lien de signature) pour un ou plusieurs documents.
+     * Chaque PDF est déposé sous un nom contenant un repère unique de 8 caractères de l'ID du document,
+     * pour retrouver le bon fichier dans l'archive des documents signés.
+     *
+     * @param Document|array<int, Document> $documents
+     */
+    private function buildSafyInviteUrl(?SignatureProviderConfig $cfg, Document|array $documents, User $signer, ?string $shortName = null): ?string
     {
         $this->lastPlatformError = null;
         $this->lastPlatformWorkflowId = null;
+        $this->lastPlatformDocOrder = [];
+
+        $documents = is_array($documents) ? array_values($documents) : [$documents];
+        $document  = $documents[0] ?? null;
+        if (!$document) {
+            $this->lastPlatformError = 'upload_document: aucun document';
+            return null;
+        }
 
         $step = 'init';
         try {
             $safy = $this->makeSafyClient($cfg);
 
-            $pdf = $this->loadDocumentPdfBytes($document);
-            if (!$pdf) {
-                $this->lastPlatformError = 'upload_document: fichier introuvable';
-                return null;
+            $payloads = [];
+            foreach ($documents as $doc) {
+                $pdf = $this->loadDocumentPdfBytes($doc);
+                if (!$pdf) {
+                    $this->lastPlatformError = 'upload_document: fichier introuvable (' . $doc->title . ')';
+                    return null;
+                }
+                $base = Str::slug(pathinfo((string) ($doc->title ?: 'document'), PATHINFO_FILENAME)) ?: 'document';
+                $payloads[] = [
+                    'doc'   => $doc,
+                    'bytes' => $pdf[0],
+                    'name'  => $base . '-' . substr(str_replace('-', '', (string) $doc->id), 0, 8) . '.pdf',
+                ];
             }
-            [$pdfBytes, $fileName] = $pdf;
 
             $nameParts = preg_split('/\s+/', trim((string) $signer->name)) ?: [];
             $firstName = (string) ($nameParts[0] ?? 'Utilisateur');
@@ -1716,7 +1742,7 @@ class SignatureController extends Controller
 
             $step = 'create_workflow';
             $wf = $safy->createWorkflow(
-                'e-Parapheur — ' . $document->title,
+                $shortName ?: ('e-Parapheur — ' . $document->title),
                 [[
                     'email'     => $signer->email,
                     'firstName' => $firstName,
@@ -1733,14 +1759,18 @@ class SignatureController extends Controller
             }
             $this->lastPlatformWorkflowId = $workflowId;
 
-            $step = 'upload_document';
-            $documentId = $safy->uploadDocument($workflowId, $pdfBytes, $fileName);
+            foreach ($payloads as $p) {
+                $step = 'upload_document';
+                $documentId = $safy->uploadDocument($workflowId, $p['bytes'], $p['name']);
 
-            $step = 'add_annotation';
-            $zone = $this->resolveSignatureZoneForPlatform($document, $signer);
-            $a = $this->zoneToSafyAnnotation($zone, $pdfBytes);
-            Log::info('Safy: zone de signature envoyée', ['document_id' => $document->id, 'zone_app' => $zone, 'annotation' => $a]);
-            $safy->addSignatureAnnotation($documentId, $signerId, $a['page'], $a['x1'], $a['y1'], $a['x2'], $a['y2']);
+                $step = 'add_annotation';
+                $zone = $this->resolveSignatureZoneForPlatform($p['doc'], $signer);
+                $a = $this->zoneToSafyAnnotation($zone, $p['bytes']);
+                Log::info('Safy: zone de signature envoyée', ['document_id' => $p['doc']->id, 'zone_app' => $zone, 'annotation' => $a]);
+                $safy->addSignatureAnnotation($documentId, $signerId, $a['page'], $a['x1'], $a['y1'], $a['x2'], $a['y2']);
+
+                $this->lastPlatformDocOrder[] = (string) $p['doc']->id;
+            }
 
             $step = 'start_workflow';
             $started = $safy->start($workflowId);
@@ -1753,7 +1783,7 @@ class SignatureController extends Controller
                 return null;
             }
 
-            Log::info('Safy: lien de signature créé', ['workflow_id' => $workflowId, 'document_id' => $documentId]);
+            Log::info('Safy: lien de signature créé', ['workflow_id' => $workflowId, 'documents' => count($payloads)]);
             return $url;
         } catch (\Throwable $e) {
             $this->lastPlatformError = $step . ': ' . $e->getMessage();
@@ -1769,6 +1799,7 @@ class SignatureController extends Controller
     private function reuseSafyInviteUrl(?SignatureProviderConfig $cfg, WorkflowExecution $execution, User $signer): ?string
     {
         $this->lastPlatformWorkflowId = null;
+        $this->lastPlatformDocOrder = [];
         $wfId = (string) ($execution->platform_workflow_id ?? '');
         if ($wfId === '' || !in_array(strtolower((string) $execution->platform_status), ['started', 'draft', 'in_progress'], true)) {
             return null;
@@ -1802,27 +1833,53 @@ class SignatureController extends Controller
      * (utilisé par l'e-mail d'invitation). Crée le workflow Safy si nécessaire et le lie à l'exécution.
      * Retourne null en cas d'échec (l'appelant retombe sur le lien de l'application).
      */
-    public function prepareDirectSignatureLink(WorkflowExecution $execution, User $signer): ?string
+    public function prepareWorkflowSignatureLink(iterable $executions, User $signer, ?string $workflowName = null): ?string
     {
-        $execution->loadMissing('document');
-        $document = $execution->document;
-        if (!$document) {
+        $executions = collect($executions)->filter(fn ($e) => !empty($e->document_id))->values();
+        if ($executions->isEmpty()) {
             return null;
+        }
+        foreach ($executions as $e) {
+            $e->loadMissing('document');
         }
 
         $cfg = $this->resolveSignatureConfig();
-        $url = $this->reuseSafyInviteUrl($cfg, $execution, $signer) ?? $this->buildSafyInviteUrl($cfg, $document, $signer);
+        $url = $this->reuseSafyInviteUrl($cfg, $executions->first(), $signer);
+
+        if (!$url) {
+            $docs = $executions->map(fn ($e) => $e->document)->filter()->values()->all();
+            $url = $this->buildSafyInviteUrl($cfg, $docs, $signer, $workflowName ? ('e-Parapheur — ' . $workflowName) : null);
+        }
 
         if ($url && $this->lastPlatformWorkflowId) {
-            $execution->update([
-                'platform_workflow_id' => $this->lastPlatformWorkflowId,
-                'platform_status'      => 'started',
-            ]);
+            foreach ($executions as $e) {
+                $data = is_array($e->step_data) ? $e->step_data : [];
+                $idx = array_search((string) $e->document_id, $this->lastPlatformDocOrder, true);
+                if ($idx !== false) {
+                    $data['platform_doc_index'] = $idx;
+                }
+                $e->update([
+                    'platform_workflow_id' => $this->lastPlatformWorkflowId,
+                    'platform_status'      => 'started',
+                    'step_data'            => $data,
+                ]);
+            }
         }
         if (!$url) {
-            Log::warning('Safy: lien direct indisponible pour l\'e-mail', ['execution_id' => $execution->id, 'error' => $this->lastPlatformError]);
+            Log::warning('Safy: lien direct indisponible', ['executions' => $executions->pluck('id')->all(), 'error' => $this->lastPlatformError]);
         }
         return $url ?: null;
+    }
+
+    /** Exécutions du même workflow, en cours, à la même étape que celle donnée (elle incluse). */
+    private function executionsAtSameStep(WorkflowExecution $execution)
+    {
+        return WorkflowExecution::query()
+            ->where('workflow_id', $execution->workflow_id)
+            ->where('status', 'in_progress')
+            ->where('current_step', $execution->current_step)
+            ->whereNotNull('document_id')
+            ->get();
     }
 
     /**
@@ -1881,8 +1938,14 @@ class SignatureController extends Controller
             return response()->json(['ok' => false, 'message' => 'Document introuvable.'], 404);
         }
 
-        $inviteUrl = $this->reuseSafyInviteUrl($cfg, $execution, $currentUser)
-            ?? $this->buildSafyInviteUrl($cfg, $document, $currentUser);
+        // Un seul workflow/lien pour tous les documents du workflow à cette étape.
+        $siblings = $this->executionsAtSameStep($execution);
+        if ($siblings->count() > 1 && $siblings->contains('id', $execution->id)) {
+            $inviteUrl = $this->prepareWorkflowSignatureLink($siblings, $currentUser, (string) ($wf?->name ?? ''));
+        } else {
+            $inviteUrl = $this->reuseSafyInviteUrl($cfg, $execution, $currentUser)
+                ?? $this->buildSafyInviteUrl($cfg, $document, $currentUser);
+        }
 
         if (!$inviteUrl) {
             $msg = self::toBusinessPlatformMessage($this->lastPlatformError);
@@ -1993,15 +2056,40 @@ class SignatureController extends Controller
 
                 if ($platformStatus === 'finished') {
                     $totalSteps = max($steps->count(), 1);
-                    $currentStep = (int) ($execution->current_step ?? 1);
-                    $willCompleteNow = $currentStep >= $totalSteps;
 
-                    $this->downloadSignedDocumentFromPlatform(
-                        $execution->fresh(), $endpoint, $apiToken, $verifySsl, true, $willCompleteNow
+                    // Un workflow Safy peut porter plusieurs documents (une exécution locale par document) :
+                    // on traite toutes les exécutions liées au même workflow Safy, puis on notifie UNE fois.
+                    $group = collect([$execution])->merge(
+                        WorkflowExecution::query()
+                            ->where('platform_workflow_id', $execution->platform_workflow_id)
+                            ->where('id', '!=', $execution->id)
+                            ->where('status', 'in_progress')
+                            ->get()
                     );
 
-                    $result = $this->advanceExecutionAfterPlatformDone($execution, $platformStatus);
+                    $nextStepToNotify = null;
+                    $actorToNotify = 'Signataire';
+                    $result = [];
+                    foreach ($group as $groupExecution) {
+                        $groupStep = (int) ($groupExecution->current_step ?? 1);
+                        $this->downloadSignedDocumentFromPlatform(
+                            $groupExecution->fresh(), $endpoint, $apiToken, $verifySsl, true, $groupStep >= $totalSteps
+                        );
+
+                        $groupResult = $this->advanceExecutionAfterPlatformDone($groupExecution, $platformStatus, false);
+                        if ($groupExecution->is($execution)) {
+                            $result = $groupResult;
+                        }
+                        if (isset($groupResult['next_step'])) {
+                            $nextStepToNotify = (int) $groupResult['next_step'];
+                            $actorToNotify = (string) ($groupResult['actor'] ?? $actorToNotify);
+                        }
+                    }
                     $execution->refresh();
+
+                    if ($nextStepToNotify !== null && $wf) {
+                        NotificationService::workflowStepAdvanced($wf, $nextStepToNotify, $actorToNotify);
+                    }
 
                     Log::info('Safy: signature terminée, transition locale appliquée', [
                         'execution_id' => $executionId,
@@ -2082,18 +2170,38 @@ class SignatureController extends Controller
             $dl = $safy->downloadSignedDocuments((string) $platformWorkflowId);
             $pdfContent = $dl['body'];
 
-            // Plusieurs documents => ZIP : on prend le premier PDF.
+            // Plusieurs documents => ZIP : on retrouve le PDF de CE document (repère de 8 caractères dans le nom,
+            // sinon position de dépôt), à défaut le premier PDF.
             if (!empty($dl['is_zip']) && class_exists(ZipArchive::class)) {
                 $tmp = tempnam(sys_get_temp_dir(), 'safy');
                 file_put_contents($tmp, $pdfContent);
                 $zip = new ZipArchive();
                 $pdfContent = '';
                 if ($zip->open($tmp) === true) {
+                    $pdfEntries = [];
                     for ($i = 0; $i < $zip->numFiles; $i++) {
-                        if (str_ends_with(strtolower($zip->getNameIndex($i)), '.pdf')) {
-                            $pdfContent = (string) $zip->getFromIndex($i);
+                        $entry = (string) $zip->getNameIndex($i);
+                        if (str_ends_with(strtolower($entry), '.pdf')) {
+                            $pdfEntries[] = $entry;
+                        }
+                    }
+                    sort($pdfEntries);
+
+                    $tag = substr(str_replace('-', '', (string) $document->id), 0, 8);
+                    $chosen = null;
+                    foreach ($pdfEntries as $entry) {
+                        if ($tag !== '' && stripos($entry, $tag) !== false) {
+                            $chosen = $entry;
                             break;
                         }
+                    }
+                    if ($chosen === null) {
+                        $idx = $execution->step_data['platform_doc_index'] ?? null;
+                        $chosen = (is_int($idx) && isset($pdfEntries[$idx]) && count($pdfEntries) > 1) ? $pdfEntries[$idx] : ($pdfEntries[0] ?? null);
+                        Log::warning('Safy: PDF non retrouvé par nom dans l\'archive', ['execution_id' => $execution->id, 'entries' => $pdfEntries, 'chosen' => $chosen]);
+                    }
+                    if ($chosen !== null) {
+                        $pdfContent = (string) $zip->getFromName($chosen);
                     }
                     $zip->close();
                 }

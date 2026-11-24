@@ -114,7 +114,9 @@ class NotificationService
             return null;
         }
 
-        $documents = [];
+        // UN seul lien de signature pour tous les documents du workflow à cette étape.
+        $titles = [];
+        $signatureUrl = null;
         try {
             $executions = \App\Models\WorkflowExecution::query()
                 ->where('workflow_id', $workflow->id)
@@ -122,32 +124,27 @@ class NotificationService
                 ->where('current_step', (int) ($step->order ?? 1))
                 ->whereNotNull('document_id')
                 ->with('document')
-                ->get();
+                ->get()
+                ->filter(fn ($e) => $e->document);
 
-            $signatureController = app(\App\Http\Controllers\SignatureController::class);
             foreach ($executions as $execution) {
-                if (!$execution->document) {
-                    continue;
-                }
-                $documents[] = [
-                    'title' => (string) ($execution->document->title ?? 'Document'),
-                    'url'   => $signatureController->prepareDirectSignatureLink($execution, $user),
-                ];
+                $titles[] = (string) ($execution->document->title ?? 'Document');
+            }
+
+            if ($executions->isNotEmpty()) {
+                $signatureUrl = app(\App\Http\Controllers\SignatureController::class)
+                    ->prepareWorkflowSignatureLink($executions, $user, (string) ($workflow->name ?? ''));
             }
         } catch (\Throwable $e) {
             Log::warning('Invitation signature: lien direct indisponible', ['workflow_id' => $workflow->id ?? null, 'error' => $e->getMessage()]);
-        }
-
-        if (empty($documents)) {
-            $documents[] = ['title' => (string) ($workflow->name ?? 'Document'), 'url' => null];
         }
 
         return new \App\Mail\WorkflowSignatureInvitationMail(
             (string) ($user->full_name ?: $user->name ?: $user->email),
             $actorName,
             (string) ($workflow->name ?? 'Sans nom'),
-            $documents,
-            $fallbackUrl
+            $titles,
+            $signatureUrl ?: $fallbackUrl
         );
     }
 
