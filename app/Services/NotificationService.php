@@ -103,7 +103,55 @@ class NotificationService
         return null;
     }
 
-    private static function sendWorkflowEmailToUser(?string $userId, string $subject, string $body, string $context, ?string $actionUrl = null): void
+    /**
+     * E-mail HTML d'invitation à signer, avec un lien direct vers la plateforme de signature
+     * pour chaque document en attente (repli sur le lien de l'application si indisponible).
+     */
+    private static function buildSignatureInvitationMailable(object $workflow, object $step, string $assigneeId, string $actorName, string $fallbackUrl): ?\App\Mail\WorkflowSignatureInvitationMail
+    {
+        $user = User::query()->whereKey($assigneeId)->first();
+        if (!$user) {
+            return null;
+        }
+
+        $documents = [];
+        try {
+            $executions = \App\Models\WorkflowExecution::query()
+                ->where('workflow_id', $workflow->id)
+                ->where('status', 'in_progress')
+                ->where('current_step', (int) ($step->order ?? 1))
+                ->whereNotNull('document_id')
+                ->with('document')
+                ->get();
+
+            $signatureController = app(\App\Http\Controllers\SignatureController::class);
+            foreach ($executions as $execution) {
+                if (!$execution->document) {
+                    continue;
+                }
+                $documents[] = [
+                    'title' => (string) ($execution->document->title ?? 'Document'),
+                    'url'   => $signatureController->prepareDirectSignatureLink($execution, $user),
+                ];
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Invitation signature: lien direct indisponible', ['workflow_id' => $workflow->id ?? null, 'error' => $e->getMessage()]);
+        }
+
+        if (empty($documents)) {
+            $documents[] = ['title' => (string) ($workflow->name ?? 'Document'), 'url' => null];
+        }
+
+        return new \App\Mail\WorkflowSignatureInvitationMail(
+            (string) ($user->full_name ?: $user->name ?: $user->email),
+            $actorName,
+            (string) ($workflow->name ?? 'Sans nom'),
+            $documents,
+            $fallbackUrl
+        );
+    }
+
+    private static function sendWorkflowEmailToUser(?string $userId, string $subject, string $body, string $context, ?string $actionUrl = null, ?\Illuminate\Mail\Mailable $mailable = null): void
     {
         $normalizedUserId = trim((string) ($userId ?? ''));
         if ($normalizedUserId === '') {
@@ -126,9 +174,13 @@ class NotificationService
         }
 
         try {
-            Mail::raw($body, function ($message) use ($user, $subject): void {
-                $message->to($user->email)->subject($subject);
-            });
+            if ($mailable) {
+                Mail::to($user->email)->send($mailable);
+            } else {
+                Mail::raw($body, function ($message) use ($user, $subject): void {
+                    $message->to($user->email)->subject($subject);
+                });
+            }
         } catch (\Throwable $e) {
             Log::error($context, [
                 'recipient_user_id' => $normalizedUserId,
@@ -231,9 +283,11 @@ class NotificationService
         $actionUrl = route('workflows.index') . '#en-cours';
         $emailBody = "Bonjour,\n\nLe workflow \"{$workflowName}\" a été lancé par {$actorName}.\n\nVous êtes assigné à la première étape pour traiter la demande.\n";
 
+        $mailable = null;
         if (!empty($firstStep->requires_signature)) {
             $emailBody = self::buildSignatureInvitationEmailBody($actorName, $workflowName, $actionUrl);
             $subject = 'Demande de signature sur la plateforme';
+            $mailable = self::buildSignatureInvitationMailable($workflow, $firstStep, $assigneeId, $actorName, $actionUrl);
         } else {
             $subject = sprintf('Workflow démarré : %s', $workflowName);
         }
@@ -243,7 +297,8 @@ class NotificationService
             $subject,
             $emailBody,
             'WorkflowExecutionStarted email failed',
-            $actionUrl
+            $actionUrl,
+            $mailable
         );
     }
 
@@ -276,9 +331,11 @@ class NotificationService
         $actionUrl = route('workflows.index') . '#en-cours';
         $emailBody = "Bonjour,\n\nLe workflow \"{$workflowName}\" est maintenant à votre étape \"{$stepName}\".\nIl a été avancé par {$actorName}.\n";
 
+        $mailable = null;
         if (!empty($nextStep->requires_signature)) {
             $emailBody = self::buildSignatureInvitationEmailBody($actorName, $workflowName, $actionUrl);
             $subject = 'Demande de signature sur la plateforme';
+            $mailable = self::buildSignatureInvitationMailable($workflow, $nextStep, $assigneeId, $actorName, $actionUrl);
         } else {
             $subject = sprintf('Étape du workflow : %s', $workflowName);
         }
@@ -288,7 +345,8 @@ class NotificationService
             $subject,
             $emailBody,
             'WorkflowStepAdvanced email failed',
-            $actionUrl
+            $actionUrl,
+            $mailable
         );
     }
 

@@ -1763,6 +1763,69 @@ class SignatureController extends Controller
     }
 
     /**
+     * Réutilise le workflow Safy déjà lancé pour cette exécution (nouveau lien pour le même signataire),
+     * afin de ne pas créer de doublon quand le lien a déjà été généré (e-mail d'invitation, puis bouton « Signer »).
+     */
+    private function reuseSafyInviteUrl(?SignatureProviderConfig $cfg, WorkflowExecution $execution, User $signer): ?string
+    {
+        $this->lastPlatformWorkflowId = null;
+        $wfId = (string) ($execution->platform_workflow_id ?? '');
+        if ($wfId === '' || !in_array(strtolower((string) $execution->platform_status), ['started', 'draft', 'in_progress'], true)) {
+            return null;
+        }
+
+        try {
+            $safy = $this->makeSafyClient($cfg);
+            $wf = $safy->getWorkflow($wfId);
+            if (strtolower((string) ($wf['workflowStatus'] ?? '')) !== 'started') {
+                return null;
+            }
+            foreach ($wf['signers'] ?? [] as $s) {
+                $done = in_array(strtolower((string) ($s['signatureStatus'] ?? '')), ['signed', 'refused'], true);
+                if (!$done && strcasecmp((string) ($s['email'] ?? ''), (string) $signer->email) === 0 && !empty($s['id'])) {
+                    $redirect = rtrim((string) config('app.url'), '/') . '/signatures';
+                    $url = $safy->createSignatureLink($wfId, (string) $s['id'], $redirect);
+                    if ($url) {
+                        $this->lastPlatformWorkflowId = $wfId;
+                        return $url;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Safy: réutilisation du workflow impossible, nouveau workflow', ['execution_id' => $execution->id, 'error' => $e->getMessage()]);
+        }
+        return null;
+    }
+
+    /**
+     * Lien de signature DIRECT sur la plateforme Safy pour un signataire et une exécution
+     * (utilisé par l'e-mail d'invitation). Crée le workflow Safy si nécessaire et le lie à l'exécution.
+     * Retourne null en cas d'échec (l'appelant retombe sur le lien de l'application).
+     */
+    public function prepareDirectSignatureLink(WorkflowExecution $execution, User $signer): ?string
+    {
+        $execution->loadMissing('document');
+        $document = $execution->document;
+        if (!$document) {
+            return null;
+        }
+
+        $cfg = $this->resolveSignatureConfig();
+        $url = $this->reuseSafyInviteUrl($cfg, $execution, $signer) ?? $this->buildSafyInviteUrl($cfg, $document, $signer);
+
+        if ($url && $this->lastPlatformWorkflowId) {
+            $execution->update([
+                'platform_workflow_id' => $this->lastPlatformWorkflowId,
+                'platform_status'      => 'started',
+            ]);
+        }
+        if (!$url) {
+            Log::warning('Safy: lien direct indisponible pour l\'e-mail', ['execution_id' => $execution->id, 'error' => $this->lastPlatformError]);
+        }
+        return $url ?: null;
+    }
+
+    /**
      * AJAX — Obtenir le lien d'invitation vers la plateforme pour Signer / Valider.
      * POST /signatures/get-invite-url
      */
@@ -1818,7 +1881,8 @@ class SignatureController extends Controller
             return response()->json(['ok' => false, 'message' => 'Document introuvable.'], 404);
         }
 
-        $inviteUrl = $this->buildSafyInviteUrl($cfg, $document, $currentUser);
+        $inviteUrl = $this->reuseSafyInviteUrl($cfg, $execution, $currentUser)
+            ?? $this->buildSafyInviteUrl($cfg, $document, $currentUser);
 
         if (!$inviteUrl) {
             $msg = self::toBusinessPlatformMessage($this->lastPlatformError);
