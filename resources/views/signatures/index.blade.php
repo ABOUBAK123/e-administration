@@ -941,7 +941,10 @@ function startPlatformStatusPolling(executionId) {
     if (__wfStatusPolls[executionId]) return;
 
     let failureCount = 0;
-    const pollInterval = setInterval(async () => {
+    let busy = false;
+    const pollOnce = async () => {
+        if (busy || !__wfStatusPolls[executionId]) return;
+        busy = true;
         try {
             const resp = await fetch(__wfStatusPollUrl.replace('__PLACEHOLDER__', executionId), {
                 method: 'GET',
@@ -955,9 +958,9 @@ function startPlatformStatusPolling(executionId) {
 
             if (!resp.ok) {
                 failureCount++;
-                if (failureCount >= 5) {
-                    console.warn(`Polling stopped for ${executionId} after 5 failures`);
-                    clearInterval(pollInterval);
+                if (failureCount >= 20) {
+                    console.warn(`Polling stopped for ${executionId} after 20 failures`);
+                    clearInterval(__wfStatusPolls[executionId]);
                     delete __wfStatusPolls[executionId];
                 }
                 return;
@@ -977,29 +980,36 @@ function startPlatformStatusPolling(executionId) {
                 if (phase === 'signing') {
                     showNotification('Signature commencée', 'La page de signature est maintenant active.', 'info');
                 } else if (phase === 'completed') {
-                    showNotification('Workflow terminé', 'Le document signé est disponible. Actualisation…', 'success');
-                    clearInterval(pollInterval);
+                    showNotification('Document signé', 'Actualisation de la page…', 'success');
+                    clearInterval(__wfStatusPolls[executionId]);
                     delete __wfStatusPolls[executionId];
-                    // Recharger la page après 2s pour afficher le bouton "Voir signé"
-                    setTimeout(() => window.location.reload(), 2000);
+                    // Recharger la page pour afficher le document signé
+                    setTimeout(() => window.location.reload(), 1200);
                 } else if (phase === 'rejected') {
                     showNotification('Workflow refusé', 'Le workflow a été refusé par un signataire.', 'error');
-                    clearInterval(pollInterval);
+                    clearInterval(__wfStatusPolls[executionId]);
                     delete __wfStatusPolls[executionId];
                 }
             }
         } catch (err) {
             console.warn('Error polling workflow status:', err);
             failureCount++;
-            if (failureCount >= 5) {
-                console.warn(`Polling stopped for ${executionId} after 5 failures`);
-                clearInterval(pollInterval);
+            if (failureCount >= 20) {
+                console.warn(`Polling stopped for ${executionId} after 20 failures`);
+                clearInterval(__wfStatusPolls[executionId]);
                 delete __wfStatusPolls[executionId];
             }
+        } finally {
+            busy = false;
         }
-    }, 3000); // Poll every 3 seconds
+    };
 
-    __wfStatusPolls[executionId] = pollInterval;
+    __wfStatusPolls[executionId] = setInterval(pollOnce, 3000); // toutes les 3 secondes
+
+    // Vérification immédiate quand l'utilisateur revient sur cet onglet après avoir signé.
+    const onFocus = () => { if (document.visibilityState !== 'hidden') pollOnce(); };
+    document.addEventListener('visibilitychange', onFocus);
+    window.addEventListener('focus', onFocus);
 }
 
 function showNotification(title, message, type = 'info') {
