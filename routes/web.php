@@ -91,6 +91,12 @@ Route::get('/e-administration_laravel/public/documents/{document}/onlyoffice-fil
 Route::get('/public/documents/{document}/onlyoffice-file', [DocumentController::class, 'onlyofficeFile'])
     ->name('documents.onlyofficeFile.public');
 
+// Téléchargement d'un document signé via lien sécurisé (signé et temporaire, sans session) :
+// utilisé dans les e-mails de fin de workflow envoyés aux parties prenantes.
+Route::get('/telechargement-signe/{executionId}', [WorkflowController::class, 'downloadSigned'])
+    ->middleware('signed')
+    ->name('workflows.signed-download');
+
 // Webhook SunnyStamp (sans session, sans CSRF, appelé par la plateforme externe)
 // Le middleware verify.webhook valide le token secret embarqué dans l'URL.
 Route::post('/api/signature/platform-webhook', [SignatureController::class, 'platformWebhook'])

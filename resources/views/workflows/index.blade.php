@@ -114,11 +114,11 @@ $currentUserId = Auth::id();
         backdrop-filter: blur(4px);
     }
 /* Curseur latéral visible dans la fenêtre « Nouveau workflow » */
-.wf-modal-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; overscroll-behavior: contain; }
-.wf-modal-scroll::-webkit-scrollbar { width: 10px; }
-.wf-modal-scroll::-webkit-scrollbar-track { background: #f3f4f6; border-radius: 9999px; }
-.wf-modal-scroll::-webkit-scrollbar-thumb { background: #9ca3af; border-radius: 9999px; border: 2px solid #f3f4f6; }
-.wf-modal-scroll::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+.wf-modal-scroll { scrollbar-width: auto; scrollbar-color: #6b7280 #e5e7eb; overscroll-behavior: contain; }
+.wf-modal-scroll::-webkit-scrollbar { width: 14px; }
+.wf-modal-scroll::-webkit-scrollbar-track { background: #e5e7eb; border-radius: 9999px; }
+.wf-modal-scroll::-webkit-scrollbar-thumb { background: #6b7280; border-radius: 9999px; border: 3px solid #e5e7eb; min-height: 48px; }
+.wf-modal-scroll::-webkit-scrollbar-thumb:hover { background: #374151; }
 </style>
 
 {{-- Toasts --}}
@@ -248,7 +248,7 @@ $currentUserId = Auth::id();
 
 {{-- ══ MODAL CRÉATION WORKFLOW / MODÈLE / VUE LECTURE ══ --}}
 <div id="modal-main" class="hidden fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto">
-    <div class="wf-modal-scroll w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 my-6 max-h-[calc(100vh-3rem)] overflow-y-scroll">
+    <div id="modal-panel" class="wf-modal-scroll w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 my-6 max-h-[calc(100vh-3rem)] overflow-y-scroll">
 
         {{-- En-tête --}}
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10 rounded-t-2xl">
@@ -316,6 +316,18 @@ $currentUserId = Auth::id();
                 </div>
             </div>
         </div>
+    </div>
+
+    {{-- Navigation haut/bas toujours visible (utile quand la barre de défilement du navigateur se masque) --}}
+    <div id="wf-scroll-nav" class="fixed right-4 bottom-6 flex flex-col gap-2" style="z-index:60">
+        <button type="button" onclick="wfScrollModal(-1)" title="Monter"
+            class="h-10 w-10 rounded-full bg-[#2453d6] text-white shadow-lg hover:bg-[#1f47bb] flex items-center justify-center">
+            <i class="fas fa-chevron-up"></i>
+        </button>
+        <button type="button" onclick="wfScrollModal(1)" title="Descendre"
+            class="h-10 w-10 rounded-full bg-[#2453d6] text-white shadow-lg hover:bg-[#1f47bb] flex items-center justify-center">
+            <i class="fas fa-chevron-down"></i>
+        </button>
     </div>
 </div>
 
@@ -861,6 +873,16 @@ function renderStep() {
 
     btnPrev.classList.toggle('hidden', currentStep === 1);
     btnNext.classList.toggle('hidden', currentStep >= max || isViewMode);
+
+    // Étape Documents : « Suivant » reste grisé tant qu'une zone de signature manque sur un document.
+    const missingZoneDocs = (currentStep === 3 && creationMode === 'workflow' && !isViewMode)
+        ? docsMissingSignatureZone() : [];
+    btnNext.disabled = missingZoneDocs.length > 0;
+    btnNext.classList.toggle('opacity-50', missingZoneDocs.length > 0);
+    btnNext.classList.toggle('cursor-not-allowed', missingZoneDocs.length > 0);
+    btnNext.title = missingZoneDocs.length > 0
+        ? 'Placez la zone de signature sur ' + (missingZoneDocs.length > 1 ? 'chaque document' : 'le document') + ' pour continuer'
+        : '';
     btnSubmit.classList.toggle('hidden', currentStep !== max || isViewMode || creationMode === 'workflow');
     btnClose.classList.toggle('hidden', !isViewMode);
 
@@ -1114,11 +1136,33 @@ async function uploadDocFile(input) {
     }
 }
 
+// Documents à signer (PDF, non scellés) dont le nombre de zones de signature est insuffisant.
+function docsMissingSignatureZone() {
+    const required = Math.max(1, form.signatureSteps.filter(s => s.signerId).length);
+    return form.docsToSign.filter(id => {
+        const doc = DOCUMENTS.find(d => d.id === id);
+        const isPdf = !doc || !doc.mime_type || doc.mime_type === 'application/pdf';
+        if (!isPdf || form.sealedDocZones[id]) return false; // impossible à positionner / déjà scellé
+        const z = form.docZones[id];
+        const count = Array.isArray(z) ? z.length : (z ? 1 : 0);
+        return count < required;
+    });
+}
+
 function renderStepDocuments() {
     const docOpts = DOCUMENTS.map(d =>
         `<option value="${d.id}">${esc(d.title)}</option>`
     ).join('');
     const requiredZones = Math.max(1, form.signatureSteps.filter(s => s.signerId).length);
+    const missingZones = docsMissingSignatureZone().length;
+    const zoneNotice = form.docsToSign.length === 0 ? '' : (missingZones > 0
+        ? `<div class="flex items-start gap-2 p-3 bg-amber-50 border border-amber-300 rounded-lg text-amber-800 text-xs font-medium">
+               <i class="fas fa-exclamation-triangle mt-0.5"></i>
+               <span>Placez la zone de signature sur ${missingZones > 1 ? 'chacun des ' + missingZones + ' documents restants' : 'le document restant'} (bouton « Positionner ») pour pouvoir passer à l'étape suivante.</span>
+           </div>`
+        : `<div class="flex items-center gap-2 p-3 bg-green-50 border border-green-300 rounded-lg text-green-800 text-xs font-medium">
+               <i class="fas fa-check-circle"></i><span>Toutes les zones de signature sont placées.</span>
+           </div>`);
 
     const toSignRows = form.docsToSign.map(id => {
         const doc  = DOCUMENTS.find(d => d.id === id);
@@ -1171,6 +1215,8 @@ function renderStepDocuments() {
         </div>`).join('');
 
     return `<div class="space-y-5">
+
+        ${zoneNotice}
 
         <!-- Documents à signer -->
         <div class="border border-red-200 bg-red-50/50 rounded-xl p-4 space-y-3">
@@ -1957,7 +2003,17 @@ async function wfDemarrer() {
         const resp2 = await fetch(`${WORKFLOWS_BASE}/${d1.workflow.id}/execute`, {
             method: 'POST',
             headers: { 'Content-Type':'application/json', 'X-CSRF-TOKEN':CSRF, 'Accept':'application/json' },
-            body: JSON.stringify({ doc_zones: form.docZones }),
+            body: JSON.stringify({
+                doc_zones: form.docZones,
+                // Réglages de l'étape « Notifications » (destinataires, copie, événements, lien de téléchargement).
+                notification_config: form.notifyEmail ? {
+                    enabled: true,
+                    emails: splitEmails(form.notifyEmails),
+                    cc: splitEmails(form.notifyCc),
+                    stages: form.notifyStages,
+                    sendDownloadLink: !!form.sendDownloadLink,
+                } : { enabled: false },
+            }),
         });
         const d2 = await resp2.json();
         if (!resp2.ok) throw new Error(d2.message || 'Erreur démarrage workflow');
@@ -2204,9 +2260,35 @@ function nextStep() {
         }
     }
 
+    // Étape Documents : zone de signature obligatoire sur chaque document à signer.
+    if (currentStep === 3 && creationMode === 'workflow' && !isViewMode) {
+        const missing = docsMissingSignatureZone();
+        if (missing.length > 0) {
+            showModalError('Placez la zone de signature sur ' + (missing.length > 1 ? 'chaque document' : 'le document') + ' avant de continuer.');
+            return;
+        }
+    }
+
+    // Étape Notifications : adresses e-mail valides si les notifications sont activées.
+    if (currentStep === 4 && creationMode === 'workflow' && !isViewMode && form.notifyEmail) {
+        const bad = [...splitEmails(form.notifyEmails), ...splitEmails(form.notifyCc)].filter(e => !isValidEmail(e));
+        if (bad.length > 0) {
+            showModalError('Adresse(s) e-mail invalide(s) : ' + bad.join(', '));
+            return;
+        }
+    }
+
     currentStep = Math.min(currentStep + 1, maxSteps());
     renderStep();
 }
+
+function splitEmails(value) {
+    return String(value || '').split(/[,;\s]+/).map(e => e.trim()).filter(Boolean);
+}
+function isValidEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
+}
+
 function prevStep() {
     clearModalError();
     currentStep = Math.max(currentStep - 1, 1);
@@ -2562,6 +2644,16 @@ function showSuccess(msg) {
     el.innerHTML = `<i class="fas fa-check-circle mr-2 text-green-500"></i>${msg}`;
     el.classList.remove('hidden');
     setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+// Défilement de la fenêtre « Nouveau workflow » (boutons ▲ ▼) : le conteneur qui défile est le panneau,
+// ou la fenêtre elle-même en mode intégré.
+function wfScrollModal(direction) {
+    const scroller = IS_EMBEDDED
+        ? document.getElementById('modal-main')
+        : document.getElementById('modal-panel');
+    if (!scroller) return;
+    scroller.scrollBy({ top: direction * Math.round(scroller.clientHeight * 0.8), behavior: 'smooth' });
 }
 
 async function refreshWorkflows({silent = true} = {}) {

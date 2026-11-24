@@ -462,6 +462,9 @@ class WorkflowController extends Controller
             // Zones de signature par document {docId: [{page,x,y,width,height,label}, ...]}
             $docZones = $request->input('doc_zones', []);
 
+            // Réglages de notification (étape « Notifications ») : destinataires, copie, événements, lien.
+            $notificationConfig = NotificationService::sanitizeNotificationConfig($request->input('notification_config'));
+
             $docIds = $workflow->docs_to_sign ?? [];
             if (empty($docIds) && $request->document_id) {
                 $docIds = [$request->document_id];
@@ -470,13 +473,13 @@ class WorkflowController extends Controller
                 $docIds = [null];
             }
 
-            $executions = collect($docIds)->map(function ($docId) use ($workflow, $docZones) {
+            $executions = collect($docIds)->map(function ($docId) use ($workflow, $docZones, $notificationConfig) {
                 return WorkflowExecution::create([
                     'workflow_id'  => $workflow->id,
                     'document_id'  => $docId,
                     'status'       => 'in_progress',
                     'current_step' => 1,
-                    'step_data'    => ['doc_zones' => $docZones],
+                    'step_data'    => ['doc_zones' => $docZones, 'notification_config' => $notificationConfig],
                 ]);
             });
 
@@ -548,6 +551,26 @@ class WorkflowController extends Controller
         return response()->json(['execution' => $this->formatExecution($execution->fresh()->load('document'))]);
     }
 
+    /**
+     * Téléchargement d'un document signé via un lien sécurisé temporaire (URL signée, 7 jours).
+     */
+    public function downloadSigned(Request $request, string $executionId)
+    {
+        abort_unless($request->hasValidSignature(), 403, 'Lien invalide ou expiré.');
+
+        $execution = WorkflowExecution::with('document')->find($executionId);
+        $document = $execution?->document;
+        abort_unless($document && !empty($document->signed_file_path), 404, 'Document signé introuvable.');
+
+        $path = ltrim(str_replace('/storage/', '', (string) $document->signed_file_path), '/');
+        abort_unless(\Illuminate\Support\Facades\Storage::disk('public')->exists($path), 404, 'Fichier introuvable.');
+
+        $title = preg_replace('/[\/\\\\\x00-\x1f]+/', '-', (string) ($document->title ?: 'document-signe'));
+        $title = preg_replace('/\.pdf$/i', '', trim((string) $title, '-')) ?: 'document-signe';
+
+        return \Illuminate\Support\Facades\Storage::disk('public')->download($path, $title . '.pdf');
+    }
+
     public function reject(Request $request, Workflow $workflow)
     {
         $this->guardPermission('workflows.validate');
@@ -558,6 +581,7 @@ class WorkflowController extends Controller
         }
 
         $execution->update(['status' => 'rejected']);
+        NotificationService::workflowRejected($workflow, (string) (Auth::user()->name ?? 'Utilisateur'), $execution, (string) $request->input('reason', ''), null);
 
         return response()->json(['execution' => $this->formatExecution($execution->fresh()->load('document'))]);
     }

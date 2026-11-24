@@ -86,21 +86,158 @@ class NotificationService
             'mail.from.address' => $smtp->mail_from_address,
             'mail.from.name' => $smtp->mail_from_name ?? config('app.name'),
         ]);
+
+        // Le gestionnaire de courrier met les transports en cache : on le purge pour que
+        // la configuration SMTP de cette administration soit réellement utilisée.
+        Mail::purge('smtp');
     }
 
+    /**
+     * Applique le SMTP de l'administration de l'utilisateur. Sans configuration (ou incomplète),
+     * on garde le courrier par défaut de l'application (.env) au lieu de ne rien envoyer.
+     */
     private static function configureWorkflowMailerForUserId(?string $userId): ?string
     {
         $smtp = self::resolveWorkflowSmtpSetting($userId);
-        if (!$smtp) {
-            return 'Aucune configuration SMTP d\'administration n\'a ete trouvee pour l\'utilisateur.';
-        }
-
-        if (!$smtp->mail_host || !$smtp->mail_from_address) {
-            return 'La configuration SMTP d\'administration est incomplete (hote ou expediteur manquant).';
+        if (!$smtp || !$smtp->mail_host || !$smtp->mail_from_address) {
+            Log::notice('Workflow e-mail: SMTP d\'administration absent ou incomplet, courrier par défaut utilisé.', [
+                'user_id' => $userId,
+                'mailer'  => config('mail.default'),
+            ]);
+            return null;
         }
 
         self::applyWorkflowScopedSmtpConfiguration($smtp);
         return null;
+    }
+
+    // ── Réglages de l'étape « Notifications » du workflow ────────────────────
+
+    /** Nettoie la configuration reçue du formulaire (adresses valides, événements booléens). */
+    public static function sanitizeNotificationConfig($raw): array
+    {
+        if (!is_array($raw) || empty($raw['enabled'])) {
+            return ['enabled' => false];
+        }
+
+        $clean = function ($value): array {
+            $list = is_array($value) ? $value : preg_split('/[,;\s]+/', (string) $value);
+            $list = array_map(fn ($e) => strtolower(trim((string) $e)), $list ?: []);
+            return array_values(array_unique(array_filter($list, fn ($e) => filter_var($e, FILTER_VALIDATE_EMAIL))));
+        };
+
+        $stages = [];
+        foreach (['onValidationStep', 'onSignatureStep', 'onApproved', 'onRejected', 'onCompleted'] as $key) {
+            $stages[$key] = !empty($raw['stages'][$key]);
+        }
+
+        return [
+            'enabled'          => true,
+            'emails'           => $clean($raw['emails'] ?? []),
+            'cc'               => $clean($raw['cc'] ?? []),
+            'stages'           => $stages,
+            'sendDownloadLink' => !empty($raw['sendDownloadLink']),
+        ];
+    }
+
+    private static function notificationConfigFor(object $workflow): ?array
+    {
+        $executions = \App\Models\WorkflowExecution::query()->where('workflow_id', $workflow->id)->get(['id', 'step_data']);
+        foreach ($executions as $execution) {
+            $cfg = is_array($execution->step_data) ? ($execution->step_data['notification_config'] ?? null) : null;
+            if (is_array($cfg) && !empty($cfg['enabled'])) {
+                return $cfg;
+            }
+        }
+        return null;
+    }
+
+    /** Liens sécurisés (7 jours) vers les documents signés du workflow. */
+    private static function signedDocumentLinks(object $workflow): array
+    {
+        $links = [];
+        $executions = \App\Models\WorkflowExecution::query()
+            ->where('workflow_id', $workflow->id)
+            ->whereNotNull('document_id')
+            ->with('document')
+            ->get();
+
+        foreach ($executions as $execution) {
+            $doc = $execution->document;
+            if (!$doc || empty($doc->signed_file_path)) {
+                continue;
+            }
+            $links[] = [
+                'label' => (string) ($doc->title ?: 'Document signé'),
+                'url'   => \Illuminate\Support\Facades\URL::temporarySignedRoute(
+                    'workflows.signed-download', now()->addDays(7), ['executionId' => $execution->id]
+                ),
+            ];
+        }
+        return $links;
+    }
+
+    /**
+     * Envoie l'e-mail « parties prenantes » (destinataires To/Cc de l'étape Notifications) si l'événement est activé.
+     * Dédoublonné 60 s par workflow/événement/étape (plusieurs documents = plusieurs exécutions).
+     */
+    private static function notifyStakeholders(object $workflow, string $stageKey, \Closure $buildMail, string $dedupeKey = ''): void
+    {
+        try {
+            $cfg = self::notificationConfigFor($workflow);
+            if (!$cfg || empty($cfg['stages'][$stageKey])) {
+                return;
+            }
+
+            $to = array_values($cfg['emails'] ?? []);
+            $cc = array_values($cfg['cc'] ?? []);
+            if (empty($to)) {
+                $to = $cc;
+                $cc = [];
+            }
+            if (empty($to)) {
+                return;
+            }
+
+            if (!\Illuminate\Support\Facades\Cache::add("wf-stage-mail:{$workflow->id}:{$stageKey}:{$dedupeKey}", 1, 60)) {
+                return;
+            }
+
+            $mailable = $buildMail($cfg);
+            if (!$mailable) {
+                return;
+            }
+
+            self::configureWorkflowMailerForUserId((string) ($workflow->created_by ?? ''));
+
+            $pending = Mail::to($to);
+            if (!empty($cc)) {
+                $pending->cc($cc);
+            }
+            $pending->send($mailable);
+        } catch (\Throwable $e) {
+            Log::error('Workflow e-mail parties prenantes échoué', [
+                'workflow_id' => $workflow->id ?? null,
+                'stage'       => $stageKey,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private static function userDisplayName(?string $userId): string
+    {
+        $user = $userId ? User::query()->find($userId) : null;
+        return (string) ($user?->full_name ?: $user?->name ?: 'Non renseigné');
+    }
+
+    private static function stageMail(
+        string $subject, string $headline, string $tone, string $recipient,
+        array $paragraphs, array $details, ?string $buttonLabel = null, ?string $buttonUrl = null,
+        array $links = [], ?string $note = null
+    ): \App\Mail\WorkflowNotificationMail {
+        return new \App\Mail\WorkflowNotificationMail(
+            $subject, $headline, $tone, $recipient, $paragraphs, $details, $buttonLabel, $buttonUrl, $links, $note
+        );
     }
 
     /**
@@ -278,15 +415,32 @@ class NotificationService
 
         $workflowName = (string) ($workflow->name ?? 'Sans nom');
         $actionUrl = route('workflows.index') . '#en-cours';
+        $stepName = trim((string) ($firstStep->name ?? '')) !== '' ? (string) $firstStep->name : 'Première étape';
+        $assigneeName = self::userDisplayName($assigneeId);
+        $isSignature = !empty($firstStep->requires_signature);
+
         $emailBody = "Bonjour,\n\nLe workflow \"{$workflowName}\" a été lancé par {$actorName}.\n\nVous êtes assigné à la première étape pour traiter la demande.\n";
 
         $mailable = null;
-        if (!empty($firstStep->requires_signature)) {
+        if ($isSignature) {
             $emailBody = self::buildSignatureInvitationEmailBody($actorName, $workflowName, $actionUrl);
-            $subject = 'Demande de signature sur la plateforme';
+            $subject = 'Demande de signature : ' . $workflowName;
             $mailable = self::buildSignatureInvitationMailable($workflow, $firstStep, $assigneeId, $actorName, $actionUrl);
         } else {
             $subject = sprintf('Workflow démarré : %s', $workflowName);
+            $mailable = self::stageMail(
+                $subject,
+                'Une validation vous est demandée',
+                'warning',
+                $assigneeName,
+                [
+                    "Le workflow « {$workflowName} » vient d'être lancé par {$actorName}.",
+                    'Vous êtes assigné à la première étape. Merci de l\'examiner et de donner suite dans les meilleurs délais.',
+                ],
+                ['Workflow' => $workflowName, 'Étape' => $stepName, 'Lancé par' => $actorName, 'Date' => now()->format('d/m/Y à H:i')],
+                'Ouvrir mes workflows',
+                $actionUrl
+            );
         }
 
         self::sendWorkflowEmailToUser(
@@ -296,6 +450,23 @@ class NotificationService
             'WorkflowExecutionStarted email failed',
             $actionUrl,
             $mailable
+        );
+
+        // Parties prenantes (destinataires de l'étape « Notifications »).
+        self::notifyStakeholders(
+            $workflow,
+            $isSignature ? 'onSignatureStep' : 'onValidationStep',
+            fn () => self::stageMail(
+                ($isSignature ? 'Étape de signature en cours : ' : 'Étape de validation en cours : ') . $workflowName,
+                $isSignature ? 'Étape de signature en cours' : 'Étape de validation en cours',
+                'info',
+                'Madame, Monsieur',
+                ["Le workflow « {$workflowName} » vient d'être lancé par {$actorName}."],
+                ['Workflow' => $workflowName, 'Étape' => $stepName, 'Assigné à' => $assigneeName, 'Date' => now()->format('d/m/Y à H:i')],
+                'Suivre le workflow',
+                $actionUrl
+            ),
+            'step' . (int) ($firstStep->order ?? 1)
         );
     }
 
@@ -323,18 +494,33 @@ class NotificationService
             workflowId: (string) ($workflow->id ?? null)
         );
 
-        $stepName = trim((string) ($nextStep->name ?? '')) !== '' ? $nextStep->name : 'votre étape';
+        $stepName = trim((string) ($nextStep->name ?? '')) !== '' ? (string) $nextStep->name : 'Votre étape';
         $workflowName = (string) ($workflow->name ?? 'Sans nom');
         $actionUrl = route('workflows.index') . '#en-cours';
+        $assigneeName = self::userDisplayName($assigneeId);
+        $isSignature = !empty($nextStep->requires_signature);
         $emailBody = "Bonjour,\n\nLe workflow \"{$workflowName}\" est maintenant à votre étape \"{$stepName}\".\nIl a été avancé par {$actorName}.\n";
 
         $mailable = null;
-        if (!empty($nextStep->requires_signature)) {
+        if ($isSignature) {
             $emailBody = self::buildSignatureInvitationEmailBody($actorName, $workflowName, $actionUrl);
-            $subject = 'Demande de signature sur la plateforme';
+            $subject = 'Demande de signature : ' . $workflowName;
             $mailable = self::buildSignatureInvitationMailable($workflow, $nextStep, $assigneeId, $actorName, $actionUrl);
         } else {
             $subject = sprintf('Étape du workflow : %s', $workflowName);
+            $mailable = self::stageMail(
+                $subject,
+                'Le workflow est arrivé à votre étape',
+                'warning',
+                $assigneeName,
+                [
+                    "Le workflow « {$workflowName} » vient d'arriver à votre étape, après l'action de {$actorName}.",
+                    'Merci de l\'examiner et de donner suite dans les meilleurs délais.',
+                ],
+                ['Workflow' => $workflowName, 'Étape' => $stepName, 'Transmis par' => $actorName, 'Date' => now()->format('d/m/Y à H:i')],
+                'Ouvrir mes workflows',
+                $actionUrl
+            );
         }
 
         self::sendWorkflowEmailToUser(
@@ -345,6 +531,49 @@ class NotificationService
             $actionUrl,
             $mailable
         );
+
+        // Parties prenantes : étape en cours (validation ou signature).
+        self::notifyStakeholders(
+            $workflow,
+            $isSignature ? 'onSignatureStep' : 'onValidationStep',
+            fn () => self::stageMail(
+                ($isSignature ? 'Étape de signature en cours : ' : 'Étape de validation en cours : ') . $workflowName,
+                $isSignature ? 'Étape de signature en cours' : 'Étape de validation en cours',
+                'info',
+                'Madame, Monsieur',
+                ["Le workflow « {$workflowName} » est passé à l'étape suivante, après l'action de {$actorName}."],
+                ['Workflow' => $workflowName, 'Étape' => $stepName, 'Assigné à' => $assigneeName, 'Date' => now()->format('d/m/Y à H:i')],
+                'Suivre le workflow',
+                $actionUrl
+            ),
+            'step' . $nextStepOrder
+        );
+
+        // Parties prenantes : toutes les validations sont terminées (la suite est une signature).
+        try {
+            $allSteps = $workflow->steps()->orderBy('order')->get();
+            $previous = $allSteps->firstWhere('order', $nextStepOrder - 1);
+            $validationsLeft = $allSteps->filter(fn ($s) => (int) $s->order >= $nextStepOrder && empty($s->requires_signature))->count();
+            if ($previous && empty($previous->requires_signature) && $validationsLeft === 0) {
+                self::notifyStakeholders(
+                    $workflow,
+                    'onApproved',
+                    fn () => self::stageMail(
+                        'Workflow approuvé : ' . $workflowName,
+                        'Le workflow a été approuvé',
+                        'success',
+                        'Madame, Monsieur',
+                        ["Toutes les étapes de validation du workflow « {$workflowName} » ont été approuvées.", 'Il passe maintenant à l\'étape de signature.'],
+                        ['Workflow' => $workflowName, 'Dernière validation par' => $actorName, 'Date' => now()->format('d/m/Y à H:i')],
+                        'Suivre le workflow',
+                        $actionUrl
+                    ),
+                    'validations'
+                );
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Workflow approbation: notification impossible', ['workflow_id' => $workflow->id ?? null, 'error' => $e->getMessage()]);
+        }
     }
 
     public static function workflowCompleted(object $workflow, string $actorName): void
@@ -364,11 +593,124 @@ class NotificationService
         );
 
         $workflowName = (string) ($workflow->name ?? 'Sans nom');
+        $actionUrl = route('workflows.index') . '#termine';
+        $creatorName = self::userDisplayName($creatorId);
+
         self::sendWorkflowEmailToUser(
             $creatorId,
             sprintf('Workflow terminé : %s', $workflowName),
             "Bonjour,\n\nLe workflow \"{$workflowName}\" est terminé.\nIl a été clôturé par {$actorName}.\n",
-            'WorkflowCompleted email failed'
+            'WorkflowCompleted email failed',
+            $actionUrl,
+            self::stageMail(
+                sprintf('Workflow terminé : %s', $workflowName),
+                'Votre workflow est terminé',
+                'success',
+                $creatorName,
+                ["Le workflow « {$workflowName} » est arrivé au terme de son circuit.", 'Le ou les documents signés sont disponibles dans l\'application.'],
+                ['Workflow' => $workflowName, 'Clôturé par' => $actorName, 'Date' => now()->format('d/m/Y à H:i')],
+                'Voir le workflow',
+                $actionUrl
+            )
+        );
+
+        // Parties prenantes : circuit sans signature = « approuvé » ; puis « document signé disponible ».
+        try {
+            $hasSignatureStep = $workflow->steps()->where('requires_signature', true)->exists();
+            if (!$hasSignatureStep) {
+                self::notifyStakeholders(
+                    $workflow,
+                    'onApproved',
+                    fn () => self::stageMail(
+                        'Workflow approuvé : ' . $workflowName,
+                        'Le workflow a été approuvé',
+                        'success',
+                        'Madame, Monsieur',
+                        ["Toutes les étapes du workflow « {$workflowName} » ont été approuvées."],
+                        ['Workflow' => $workflowName, 'Clôturé par' => $actorName, 'Date' => now()->format('d/m/Y à H:i')],
+                        'Voir le workflow',
+                        $actionUrl
+                    ),
+                    'completed'
+                );
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Workflow approbation: notification impossible', ['workflow_id' => $workflow->id ?? null, 'error' => $e->getMessage()]);
+        }
+
+        self::notifyStakeholders(
+            $workflow,
+            'onCompleted',
+            function (array $cfg) use ($workflow, $workflowName, $actorName, $actionUrl) {
+                $links = !empty($cfg['sendDownloadLink']) ? self::signedDocumentLinks($workflow) : [];
+                return self::stageMail(
+                    'Document signé disponible : ' . $workflowName,
+                    count($links) > 1 ? 'Les documents signés sont disponibles' : 'Le document signé est disponible',
+                    'success',
+                    'Madame, Monsieur',
+                    ["Le circuit du workflow « {$workflowName} » est terminé : le ou les documents signés sont disponibles."],
+                    ['Workflow' => $workflowName, 'Clôturé par' => $actorName, 'Date' => now()->format('d/m/Y à H:i')],
+                    'Voir le workflow',
+                    $actionUrl,
+                    $links
+                );
+            },
+            'completed'
+        );
+    }
+
+    /**
+     * Workflow rejeté : e-mail au créateur et aux parties prenantes (si l'événement est activé).
+     */
+    public static function workflowRejected(object $workflow, string $actorName, ?object $execution = null, string $reason = '', ?string $stepName = null): void
+    {
+        $workflowName = (string) ($workflow->name ?? 'Sans nom');
+        $actionUrl = route('workflows.index') . '#rejete';
+        $reason = trim($reason);
+        $details = ['Workflow' => $workflowName, 'Rejeté par' => $actorName];
+        if ($stepName) {
+            $details['Étape'] = $stepName;
+        }
+        if ($reason !== '') {
+            $details['Motif'] = $reason;
+        }
+        $details['Date'] = now()->format('d/m/Y à H:i');
+
+        $creatorId = (string) ($workflow->created_by ?? '');
+        if ($creatorId !== '') {
+            self::sendWorkflowEmailToUser(
+                $creatorId,
+                'Workflow rejeté : ' . $workflowName,
+                "Bonjour,\n\nLe workflow \"{$workflowName}\" a été rejeté par {$actorName}.\n",
+                'WorkflowRejected email failed',
+                $actionUrl,
+                self::stageMail(
+                    'Workflow rejeté : ' . $workflowName,
+                    'Votre workflow a été rejeté',
+                    'danger',
+                    self::userDisplayName($creatorId),
+                    ["Le workflow « {$workflowName} » a été rejeté par {$actorName}.", 'Vous pouvez consulter le motif et relancer un nouveau workflow si nécessaire.'],
+                    $details,
+                    'Voir le workflow',
+                    $actionUrl
+                )
+            );
+        }
+
+        self::notifyStakeholders(
+            $workflow,
+            'onRejected',
+            fn () => self::stageMail(
+                'Workflow rejeté : ' . $workflowName,
+                'Le workflow a été rejeté',
+                'danger',
+                'Madame, Monsieur',
+                ["Le workflow « {$workflowName} » a été rejeté par {$actorName}."],
+                $details,
+                'Voir le workflow',
+                $actionUrl
+            ),
+            'rejected' . ($execution->id ?? '')
         );
     }
 

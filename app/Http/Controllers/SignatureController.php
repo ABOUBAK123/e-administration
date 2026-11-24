@@ -177,7 +177,7 @@ class SignatureController extends Controller
                 ]);
             }
 
-            if ($workflow) {
+            if ($workflow && $notify) {
                 NotificationService::workflowCompleted($workflow, Auth::user()?->name ?? 'Signataire');
             }
 
@@ -984,6 +984,10 @@ class SignatureController extends Controller
                         workflowId: (string) ($wf->id ?? null),
                         executionId: (string) $execution->id
                     );
+                }
+
+                if ($wf) {
+                    NotificationService::workflowRejected($wf, (string) $actorName, $execution, (string) $rejectReason, $currentStepObj?->name);
                 }
 
                 $successCount++;
@@ -2097,6 +2101,7 @@ class SignatureController extends Controller
 
                     $nextStepToNotify = null;
                     $actorToNotify = 'Signataire';
+                    $completedAny = false;
                     $result = [];
                     foreach ($group as $groupExecution) {
                         $groupStep = (int) ($groupExecution->current_step ?? 1);
@@ -2112,11 +2117,18 @@ class SignatureController extends Controller
                             $nextStepToNotify = (int) $groupResult['next_step'];
                             $actorToNotify = (string) ($groupResult['actor'] ?? $actorToNotify);
                         }
+                        if (!empty($groupResult['completed'])) {
+                            $completedAny = true;
+                        }
                     }
                     $execution->refresh();
 
+                    // Une seule notification pour tout le groupe de documents.
                     if ($nextStepToNotify !== null && $wf) {
                         NotificationService::workflowStepAdvanced($wf, $nextStepToNotify, $actorToNotify);
+                    }
+                    if ($completedAny && $wf) {
+                        NotificationService::workflowCompleted($wf, Auth::user()?->name ?? 'Signataire');
                     }
 
                     Log::info('Safy: signature terminée, transition locale appliquée', [
