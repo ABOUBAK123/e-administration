@@ -694,11 +694,16 @@ class AdminController extends Controller
                 $parseDate = fn ($value) => is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)
                     ? Carbon::createFromFormat('Y-m-d', $value)
                     : null;
-                $statistics = app(\App\Services\AdminStatisticsService::class)->build(
+                $statisticsService = app(\App\Services\AdminStatisticsService::class);
+                $statisticsParam = fn (string $key) => is_string($request->query($key)) ? trim($request->query($key)) : null;
+                $statistics = $statisticsService->build(
                     $adminScope,
                     $parseDate($request->query('stats_from')),
-                    $parseDate($request->query('stats_to'))
+                    $parseDate($request->query('stats_to')),
+                    $statisticsParam('stats_admin') ?: ($adminScope['id'] ?? null),
+                    $statisticsParam('stats_entity')
                 );
+                $statistics['options'] = $statisticsService->options($adminScope);
             }
 
             // ── Journal antivirus ─────────────────────────────────────────────

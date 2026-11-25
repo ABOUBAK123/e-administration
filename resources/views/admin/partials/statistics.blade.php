@@ -1,21 +1,66 @@
 @php
     $statsData = $statistics ?? ['administrations' => [], 'totals' => ['signed' => 0, 'arrive' => 0, 'depart' => 0]];
+    $statsOptions = $statsData['options'] ?? [];
+    // Une seule administration autorisée : elle est présélectionnée.
+    $statsAdmin = count($statsOptions) === 1 ? $statsOptions[0]['id'] : (string) request()->query('stats_admin', '');
+    $statsEntity = (string) request()->query('stats_entity', '');
+    $statsEntities = collect($statsOptions)->firstWhere('id', $statsAdmin)['entities'] ?? [];
 @endphp
 
-{{-- Filtre par période --}}
-<form method="GET" action="{{ route('admin.index') }}" class="mb-5 bg-white rounded-2xl border border-gray-200 shadow-sm p-4 flex flex-wrap items-end gap-3">
+{{-- Formulaire de recherche --}}
+<form method="GET" action="{{ route('admin.index') }}" class="mb-5 bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
     <input type="hidden" name="tab" value="statistics">
-    <label class="text-xs font-semibold text-gray-600">Du
-        <input type="date" name="stats_from" value="{{ request('stats_from') }}" class="block mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">
-    </label>
-    <label class="text-xs font-semibold text-gray-600">Au
-        <input type="date" name="stats_to" value="{{ request('stats_to') }}" class="block mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">
-    </label>
-    <button type="submit" class="px-4 py-2 rounded-lg bg-[#2453d6] text-white text-sm font-semibold">Filtrer</button>
-    @if(request('stats_from') || request('stats_to'))
+    <h3 class="text-sm font-bold text-gray-800 mb-3"><i class="fas fa-magnifying-glass text-[#2453d6] mr-2"></i>Rechercher des statistiques</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        <label class="text-xs font-semibold text-gray-600">Administration émettrice
+            <select name="stats_admin" id="stats-admin" class="block w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                @if(count($statsOptions) !== 1)
+                    <option value="">Toutes les administrations</option>
+                @endif
+                @foreach($statsOptions as $option)
+                    <option value="{{ $option['id'] }}" @selected($statsAdmin === $option['id'])>{{ $option['name'] }}</option>
+                @endforeach
+            </select>
+        </label>
+        <label class="text-xs font-semibold text-gray-600">Entité sous tutelle
+            <select name="stats_entity" id="stats-entity" @disabled($statsAdmin === '')
+                    class="block w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400">
+                <option value="">Toutes les entités</option>
+                @foreach($statsEntities as $entity)
+                    <option value="{{ $entity['code'] }}" @selected($statsEntity === $entity['code'])>{{ $entity['name'] }} ({{ $entity['code'] }})</option>
+                @endforeach
+            </select>
+        </label>
+        <label class="text-xs font-semibold text-gray-600">Du
+            <input type="date" name="stats_from" value="{{ request()->query('stats_from') }}" class="block w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </label>
+        <label class="text-xs font-semibold text-gray-600">Au
+            <input type="date" name="stats_to" value="{{ request()->query('stats_to') }}" class="block w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </label>
+    </div>
+    <div class="flex flex-wrap justify-end gap-2 mt-4">
         <a href="{{ route('admin.index', ['tab' => 'statistics']) }}" class="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-600">Réinitialiser</a>
-    @endif
+        <button type="submit" class="px-5 py-2 rounded-lg bg-[#2453d6] text-white text-sm font-semibold"><i class="fas fa-search mr-1"></i> Rechercher</button>
+    </div>
 </form>
+
+<script>
+(function () {
+    const options = @json($statsOptions);
+    const admin = document.getElementById('stats-admin');
+    const entity = document.getElementById('stats-entity');
+    if (!admin || !entity) return;
+
+    // La liste des entités suit l'administration choisie.
+    admin.addEventListener('change', function () {
+        const selected = options.find(o => o.id === admin.value);
+        entity.innerHTML = '';
+        entity.add(new Option('Toutes les entités', ''));
+        (selected ? selected.entities : []).forEach(e => entity.add(new Option(e.name + ' (' + e.code + ')', e.code)));
+        entity.disabled = !selected;
+    });
+})();
+</script>
 
 {{-- Totaux --}}
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
