@@ -76,6 +76,7 @@ class UserPermissionsService
             'meetings.minutes'     => 'Rédiger les comptes rendus',
         ]],
         'administration'          => ['label' => 'Administration',          'children' => [
+            'administration.statistics'         => 'Statistiques',
             'administration.templates'          => 'Templates de documents',
             'administration.emitters'           => 'Administrations émettrices',
             'administration.recipients'         => 'Administrations destinataires',

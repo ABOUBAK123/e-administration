@@ -684,9 +684,22 @@ class AdminController extends Controller
             'careerEvents' => 0,
         ];
         $personnelDashboard = null;
+        $statistics = null;
 
         try {
             $settings = AppSetting::all()->keyBy('key');
+
+            // ── Statistiques (documents signés et courriers) ──────────────────
+            if ($tab === 'statistics' && app(\App\Services\UserPermissionsService::class)->can($connectedUser, 'administration.statistics')) {
+                $parseDate = fn ($value) => is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)
+                    ? Carbon::createFromFormat('Y-m-d', $value)
+                    : null;
+                $statistics = app(\App\Services\AdminStatisticsService::class)->build(
+                    $adminScope,
+                    $parseDate($request->query('stats_from')),
+                    $parseDate($request->query('stats_to'))
+                );
+            }
 
             // ── Journal antivirus ─────────────────────────────────────────────
             if ($tab === 'antivirus') {
@@ -1166,7 +1179,8 @@ class AdminController extends Controller
             'personnelEmployeeSkills', 'personnelGoals', 'personnelPerformanceReviews', 'personnelCareerEvents', 'personnelMutationRequests', 'personnelRecentActivity',
             'agentSpaceCanSearchAll',
             'scanLogs',
-            'civilStatusRecordTypes', 'civilStatusRecordTypeTemplates'
+            'civilStatusRecordTypes', 'civilStatusRecordTypeTemplates',
+            'statistics'
         ));
     }
 

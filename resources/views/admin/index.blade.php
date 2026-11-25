@@ -19,6 +19,7 @@ $tab = request('tab', 'overview');
 $personnelTab = request('personnel_tab', 'dashboard');
 $allTabs = [
   'overview'           => ['fas fa-th-large',          'Aperçu',                '#6366f1', null],
+  'statistics'         => ['fas fa-chart-column',      'Statistiques',          '#16a34a', 'administration.statistics'],
   'templates'          => ['fas fa-file-code',         'Templates',             '#0ea5e9', 'administration.templates'],
   'emitters'           => ['fas fa-building',          'Émetteurs',             '#8b5cf6', 'administration.emitters'],
   'recipients'         => ['fas fa-paper-plane',       'Destinataires',         '#ec4899', 'administration.recipients'],
@@ -238,6 +239,10 @@ $_oc = [
     </a>
     @endforeach
 </div>
+
+{{-- ══════════════════════ STATISTIQUES ══════════════════════ --}}
+@elseif($tab === 'statistics')
+@include('admin.partials.statistics')
 
 {{-- ══════════════════════ GESTION DU PERSONNEL ══════════════════════ --}}
 @elseif($tab === 'personnel')
@@ -11423,6 +11428,7 @@ $permissionTree = [
       'administration.instructions'        => 'Instructions',
         'administration.user-profiles'      => 'Profils & Rôles',
         'administration.antivirus'          => 'Journal Antivirus',
+        'administration.statistics'         => 'Statistiques',
         'administration.ai-integration'     => 'Intelligence Artificielle (IA)',
         'administration.civil-status-types' => 'Types de dossiers État civil',
     ]],
