@@ -38,6 +38,24 @@
     Vous pouvez les restaurer à tout moment.
 </div>
 
+{{-- Barre de sélection --}}
+@if($trashCount > 0)
+<div id="selectionBar" class="mb-3 bg-blue-50 border border-gray-200 rounded-2xl px-4 py-2.5 flex-wrap items-center justify-between gap-3" style="display:none">
+    <span id="selectionCount" class="text-xs font-semibold text-gray-700" aria-live="polite"></span>
+    <div class="flex flex-wrap items-center gap-2">
+        <button type="button" data-bulk-action onclick="bulkRestore()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-1.5">
+            <i class="fas fa-undo-alt"></i> Restaurer
+        </button>
+        <button type="button" data-bulk-action onclick="confirmBulkForceDelete()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 text-white hover:bg-red-700 flex items-center gap-1.5">
+            <i class="fas fa-trash-alt"></i> Supprimer définitivement
+        </button>
+        <button type="button" onclick="toggleSelectAll(false)" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50">
+            Tout désélectionner
+        </button>
+    </div>
+</div>
+@endif
+
 {{-- Contenu --}}
 <div class="bg-white rounded-2xl border border-gray-100 shadow-sm">
 
@@ -55,6 +73,11 @@
     <table class="w-full text-sm">
         <thead class="border-b bg-gray-50/80">
             <tr>
+                <th class="py-3 pl-4 text-left" style="width:2.5rem">
+                    <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this.checked)" autocomplete="off"
+                           title="Tout sélectionner" aria-label="Sélectionner tous les documents de la corbeille"
+                           class="h-4 w-4 cursor-pointer align-middle" style="accent-color:#2453d6">
+                </th>
                 <th class="text-left py-3 px-4 font-semibold text-gray-700">Nom</th>
                 <th class="text-left py-3 px-4 font-semibold text-gray-700">Type</th>
                 <th class="text-left py-3 px-4 font-semibold text-gray-700">Taille</th>
@@ -85,6 +108,11 @@
                     : '—';
             @endphp
             <tr class="border-b border-gray-50 hover:bg-gray-50/60 transition-colors" id="row-{{ $doc->id }}">
+                <td class="py-3 pl-4">
+                    <input type="checkbox" data-select-id="{{ $doc->id }}" onchange="updateSelectionUi()" autocomplete="off"
+                           aria-label="Sélectionner {{ $doc->title }}"
+                           class="h-4 w-4 cursor-pointer align-middle" style="accent-color:#2453d6">
+                </td>
                 <td class="py-3 px-4">
                     <div class="flex items-center gap-3">
                         <i class="{{ $icon }} {{ $color }} text-lg w-5 flex-shrink-0"></i>
@@ -117,7 +145,7 @@
         </tbody>
     </table>
 
-    <div class="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
+    <div data-trash-count class="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
         {{ $trashCount }} document{{ $trashCount > 1 ? 's' : '' }} dans la corbeille
     </div>
     @endif
@@ -137,7 +165,7 @@
         </div>
         <p class="text-sm text-gray-600 mb-5">
             Voulez-vous supprimer définitivement <strong id="forceDeleteDocName" class="text-gray-900"></strong> ?
-            Le fichier sera effacé et ne pourra plus être récupéré.
+            Le contenu sera effacé et ne pourra plus être récupéré.
         </p>
         <div class="flex gap-3 justify-end">
             <button onclick="closeForceDeleteModal()" class="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
@@ -182,6 +210,7 @@
 <script>
 const CSRF = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
 let pendingForceDeleteId = null;
+let pendingBulkIds = null;
 
 function restoreDocument(id, name) {
     const row = document.getElementById('row-' + id);
@@ -206,6 +235,7 @@ function restoreDocument(id, name) {
 }
 
 function confirmForceDelete(id, name) {
+    pendingBulkIds = null;
     pendingForceDeleteId = id;
     document.getElementById('forceDeleteDocName').textContent = name;
     document.getElementById('forceDeleteModal').classList.remove('hidden');
@@ -213,10 +243,12 @@ function confirmForceDelete(id, name) {
 
 function closeForceDeleteModal() {
     pendingForceDeleteId = null;
+    pendingBulkIds = null;
     document.getElementById('forceDeleteModal').classList.add('hidden');
 }
 
 function executeForceDelete() {
+    if (pendingBulkIds) { executeBulkForceDelete(); return; }
     if (!pendingForceDeleteId) return;
     const id = pendingForceDeleteId;
     const btn = document.getElementById('forceDeleteConfirmBtn');
@@ -277,6 +309,7 @@ function executeEmptyTrash() {
             }
         });
         updateCount(0, true);
+        updateSelectionUi();
         showFlash('success', 'Corbeille vidée avec succès.');
     }).finally(() => {
         btn.disabled = false;
@@ -288,6 +321,9 @@ function updateCount(delta, forceZero = false) {
     const footer = document.querySelector('[data-trash-count]');
     const rows = document.querySelectorAll('#trashTableBody tr[id^="row-"]');
     const count = forceZero ? 0 : rows.length;
+
+    if (footer) footer.textContent = `${count} document${count > 1 ? 's' : ''} dans la corbeille`;
+    updateSelectionUi();
 
     if (count === 0) {
         const table = document.querySelector('table');
@@ -304,6 +340,85 @@ function updateCount(delta, forceZero = false) {
         const emptyBtn = document.querySelector('button[onclick="confirmEmptyTrash()"]');
         if (emptyBtn) emptyBtn.remove();
     }
+}
+
+// ---- Sélection et actions groupées ----
+const selectionBoxes = () => [...document.querySelectorAll('input[data-select-id]')];
+const selectedIds = () => selectionBoxes().filter(b => b.checked).map(b => b.dataset.selectId);
+const plural = (n, word) => `${n} ${word}${n > 1 ? 's' : ''}`;
+
+function toggleSelectAll(checked) {
+    selectionBoxes().forEach(box => box.checked = checked);
+    updateSelectionUi();
+}
+
+function updateSelectionUi() {
+    const bar = document.getElementById('selectionBar');
+    if (!bar) return;
+    const boxes = selectionBoxes();
+    const count = selectedIds().length;
+    boxes.forEach(box => box.closest('tr').classList.toggle('bg-blue-50', box.checked));
+    bar.style.display = count ? 'flex' : 'none';
+    document.getElementById('selectionCount').textContent =
+        count > 1 ? `${count} documents sélectionnés` : `${count} document sélectionné`;
+    const all = document.getElementById('selectAll');
+    if (all) {
+        all.checked = count > 0 && count === boxes.length;
+        all.indeterminate = count > 0 && count < boxes.length;
+    }
+}
+
+let bulkBusy = false;
+async function runBulk(url, ids, done) {
+    if (bulkBusy || !ids.length) return;
+    bulkBusy = true;
+    const buttons = document.querySelectorAll('[data-bulk-action]');
+    buttons.forEach(b => b.disabled = true);
+    try {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF, 'Accept': 'application/json' },
+            body: JSON.stringify({ ids }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.ok) {
+            showFlash('error', resp.status === 419 ? 'La page a expiré. Rechargez-la puis réessayez.' : (data.message || 'Opération impossible.'));
+            return;
+        }
+        data.ids.forEach(id => document.getElementById('row-' + id)?.remove());
+        updateCount(0);
+        done(data);
+    } catch (e) {
+        showFlash('error', 'Opération impossible.');
+    } finally {
+        bulkBusy = false;
+        buttons.forEach(b => b.disabled = false);
+    }
+}
+
+function bulkRestore() {
+    runBulk(@json(route('documents.bulk.restore')), selectedIds(), data => {
+        showFlash('success', `${plural(data.ids.length, 'document')} restauré${data.ids.length > 1 ? 's' : ''}.`);
+    });
+}
+
+function confirmBulkForceDelete() {
+    const ids = selectedIds();
+    if (!ids.length || bulkBusy) return;
+    pendingForceDeleteId = null;
+    pendingBulkIds = ids;
+    document.getElementById('forceDeleteDocName').textContent = plural(ids.length, 'document');
+    document.getElementById('forceDeleteModal').classList.remove('hidden');
+}
+
+function executeBulkForceDelete() {
+    const ids = pendingBulkIds;
+    closeForceDeleteModal();
+    runBulk(@json(route('documents.bulk.forceDelete')), ids, data => {
+        const done = `${plural(data.ids.length, 'document')} supprimé${data.ids.length > 1 ? 's' : ''} définitivement.`;
+        if (data.failed) showFlash('error', `${done} ${plural(data.failed, 'document')} n'a pas pu être supprimé.`);
+        else showFlash('success', done);
+    });
 }
 
 let flashTimeout;

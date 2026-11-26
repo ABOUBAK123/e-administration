@@ -569,14 +569,7 @@ class DocumentController extends Controller
             ->where('owner_id', Auth::id())
             ->findOrFail($id);
 
-        foreach (['file_path', 'signed_file_path', 'final_file_path'] as $field) {
-            if (!empty($document->$field)) {
-                $rel = ltrim(str_replace('/storage/', '', (string) $document->$field), '/');
-                if (Storage::disk('public')->exists($rel)) {
-                    Storage::disk('public')->delete($rel);
-                }
-            }
-        }
+        $this->deleteDocumentFiles($document);
 
         $document->forceDelete();
 
@@ -585,6 +578,77 @@ class DocumentController extends Controller
         }
 
         return redirect()->route('documents.trash')->with('success', 'Document supprimé définitivement.');
+    }
+
+    private function deleteDocumentFiles(Document $document): void
+    {
+        foreach (['file_path', 'signed_file_path', 'final_file_path'] as $field) {
+            if (!empty($document->$field)) {
+                $rel = ltrim(str_replace('/storage/', '', (string) $document->$field), '/');
+                if (Storage::disk('public')->exists($rel)) {
+                    Storage::disk('public')->delete($rel);
+                }
+            }
+        }
+    }
+
+    /** Éléments cochés dans la corbeille : uniquement les siens. */
+    private function selectedTrashedDocuments(Request $request): \Illuminate\Support\Collection
+    {
+        $this->guardPermission('documents.delete');
+
+        $validated = $request->validate([
+            'ids'   => 'required|array|min:1|max:500',
+            'ids.*' => 'required|string|max:64',
+        ], [
+            'ids.max' => 'Sélectionnez au maximum 500 éléments à la fois.',
+        ]);
+
+        return Document::onlyTrashed()
+            ->where('owner_id', Auth::id())
+            ->whereIn('id', $validated['ids'])
+            ->get();
+    }
+
+    /** Restaurer les documents sélectionnés dans la corbeille. */
+    public function bulkRestore(Request $request)
+    {
+        $documents = $this->selectedTrashedDocuments($request);
+
+        if ($documents->isEmpty()) {
+            return response()->json(['ok' => false, 'message' => 'Aucun document à restaurer dans la sélection.'], 404);
+        }
+
+        DB::transaction(fn () => $documents->each->restore());
+
+        return response()->json(['ok' => true, 'ids' => $documents->pluck('id')]);
+    }
+
+    /** Supprimer définitivement les documents sélectionnés dans la corbeille. */
+    public function bulkForceDelete(Request $request)
+    {
+        $documents = $this->selectedTrashedDocuments($request);
+
+        if ($documents->isEmpty()) {
+            return response()->json(['ok' => false, 'message' => 'Aucun document à supprimer dans la sélection.'], 404);
+        }
+
+        $deleted = [];
+        $failed = 0;
+        foreach ($documents as $document) {
+            try {
+                // La ligne d'abord : si la base refuse, les fichiers sont conservés.
+                $document->forceDelete();
+                $deleted[] = $document->id;
+            } catch (\Throwable $e) {
+                $failed++;
+                Log::error('Suppression définitive impossible', ['document_id' => $document->id, 'error' => $e->getMessage()]);
+                continue;
+            }
+            $this->deleteDocumentFiles($document);
+        }
+
+        return response()->json(['ok' => true, 'ids' => $deleted, 'failed' => $failed]);
     }
 
     public function download(Request $request, Document $document)
