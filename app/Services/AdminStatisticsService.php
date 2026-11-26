@@ -7,6 +7,8 @@ use App\Models\Document;
 use App\Models\IssuingAdministration;
 use App\Models\RecipientAdministration;
 use App\Models\SubEntity;
+use App\Models\User;
+use App\Models\UserDirectionAssignment;
 use Carbon\Carbon;
 
 /**
@@ -70,17 +72,7 @@ class AdminStatisticsService
             $counts[$adminId][$code][$key] += $total;
         };
 
-        // Documents signés (date de référence : date de signature).
-        Document::query()
-            ->where(fn ($q) => $q->whereNotNull('signed_at')->orWhere('status', 'signed'))
-            ->when($scopeId, fn ($q) => $q->where('issuing_administration_id', $scopeId))
-            ->when($from, fn ($q) => $q->whereRaw('COALESCE(signed_at, updated_at) >= ?', [$from->copy()->startOfDay()]))
-            ->when($to, fn ($q) => $q->whereRaw('COALESCE(signed_at, updated_at) <= ?', [$to->copy()->endOfDay()]))
-            ->selectRaw('issuing_administration_id, sub_entity_code, COUNT(*) as total')
-            ->groupBy('issuing_administration_id', 'sub_entity_code')
-            ->toBase()
-            ->get()
-            ->each(fn ($r) => $add($r->issuing_administration_id, $r->sub_entity_code, 'signed', (int) $r->total));
+        $this->countSignedDocuments($scopeId, $from, $to, $add);
 
         // Courriers arrivés et départ (date de référence : date d'enregistrement).
         Courrier::query()
@@ -160,6 +152,72 @@ class AdminStatisticsService
         }
 
         return ['administrations' => $administrations, 'totals' => $totals];
+    }
+
+    /**
+     * Documents signés (date de référence : date de signature).
+     *
+     * Un document importé n'enregistre ni administration ni entité (seuls ceux générés depuis un
+     * modèle les portent) : les valeurs manquantes sont déduites de la personne qui l'a créé.
+     * Un document dont la signature est suivie d'autres étapes n'a que son fichier signé, sans
+     * statut « signé » : il compte aussi.
+     */
+    private function countSignedDocuments(?string $scopeId, ?Carbon $from, ?Carbon $to, callable $add): void
+    {
+        $rows = Document::query()
+            ->where(fn ($q) => $q->whereNotNull('signed_at')
+                ->orWhere('status', 'signed')
+                ->orWhere(fn ($file) => $file->whereNotNull('signed_file_path')->where('signed_file_path', '!=', '')))
+            // Les documents sans administration sont filtrés après déduction.
+            ->when($scopeId, fn ($q) => $q->where(fn ($a) => $a->where('issuing_administration_id', $scopeId)
+                ->orWhereNull('issuing_administration_id')
+                ->orWhere('issuing_administration_id', '')))
+            ->when($from, fn ($q) => $q->whereRaw('COALESCE(signed_at, updated_at) >= ?', [$from->copy()->startOfDay()]))
+            ->when($to, fn ($q) => $q->whereRaw('COALESCE(signed_at, updated_at) <= ?', [$to->copy()->endOfDay()]))
+            ->selectRaw('issuing_administration_id, sub_entity_code, COALESCE(created_by, owner_id) as author_id, COUNT(*) as total')
+            ->groupByRaw('issuing_administration_id, sub_entity_code, COALESCE(created_by, owner_id)')
+            ->toBase()
+            ->get();
+
+        // Auteurs des documents auxquels il manque l'administration ou l'entité.
+        $authorIds = $rows
+            ->filter(fn ($r) => trim((string) $r->issuing_administration_id) === '' || trim((string) $r->sub_entity_code) === '')
+            ->pluck('author_id')->filter()->unique()->values();
+
+        $administrationOf = [];
+        $assignmentsOf = collect();
+        foreach ($authorIds->chunk(500) as $ids) {
+            User::query()->with('profile')->whereIn('id', $ids->all())->get()
+                ->each(function (User $user) use (&$administrationOf) {
+                    $administrationOf[(string) $user->id] = (string) ($user->profile?->administration_id ?? '');
+                });
+            $assignmentsOf = $assignmentsOf->union(
+                UserDirectionAssignment::query()->whereIn('user_id', $ids->all())->orderBy('created_at')->get()->groupBy('user_id')
+            );
+        }
+
+        foreach ($rows as $r) {
+            $adminId = trim((string) $r->issuing_administration_id);
+            $code = trim((string) $r->sub_entity_code);
+            $assignments = $assignmentsOf->get((string) $r->author_id, collect());
+
+            if ($adminId === '') {
+                $adminId = $administrationOf[(string) $r->author_id] ?? '';
+                if ($adminId === '') {
+                    $adminId = (string) ($assignments->first(fn ($a) => trim((string) $a->direction_scope_id) !== '')?->direction_scope_id ?? '');
+                }
+            }
+            if ($scopeId && $adminId !== (string) $scopeId) {
+                continue;
+            }
+            if ($code === '') {
+                // L'entité doit appartenir à l'administration du document.
+                $code = (string) ($assignments->first(fn ($a) => trim((string) $a->sub_entity_code) !== ''
+                    && in_array(trim((string) $a->direction_scope_id), ['', $adminId], true))?->sub_entity_code ?? '');
+            }
+
+            $add($adminId, $code, 'signed', (int) $r->total);
+        }
     }
 
     /** @return array<string, string> [id => nom] */
