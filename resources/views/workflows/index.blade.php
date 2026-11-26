@@ -579,6 +579,16 @@ function getTracking(wf) {
     return { total, pending, inProg, completed, rejected, label, cls, pct, curStep, totalSteps };
 }
 
+// Plusieurs documents signés : le bouton télécharge une archive ZIP.
+function signedDownloadLabel(wf) {
+    const count = new Set((wf.executions || [])
+        .filter(e => String(e.status || '').toLowerCase() === 'completed' && e.signed_file_path)
+        .map(e => e.document_id || e.id)).size;
+    return count > 1
+        ? { text: `Tout télécharger (${count})`, icon: 'fa-file-zipper', title: 'Télécharger tous les documents signés (ZIP)' }
+        : { text: 'Voir signé', icon: 'fa-file-pdf', title: 'Télécharger le document signé' };
+}
+
 function getCompletedSignedDownloadUrl(wf) {
     const completedExecWithSigned = (wf.executions || []).find((e) => {
         const s = String(e.status || '').toLowerCase();
@@ -673,9 +683,9 @@ function renderTable() {
                     </button>
                     ${showSignedDownload
                         ? `<a href="${signedDownloadUrl}" target="_blank"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-300 text-green-700 bg-green-50 hover:bg-green-100 text-xs font-semibold transition" title="Télécharger le document signé">
-                            <i class="fa-solid fa-file-pdf text-sm"></i>
-                            Voir signé
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-300 text-green-700 bg-green-50 hover:bg-green-100 text-xs font-semibold transition" title="${signedDownloadLabel(wf).title}">
+                            <i class="fa-solid ${signedDownloadLabel(wf).icon} text-sm"></i>
+                            ${signedDownloadLabel(wf).text}
                         </a>`
                         : `<button onclick='openViewMode(${JSON.stringify(wf)})'
                             class="p-1.5 text-purple-500 hover:bg-purple-50 rounded-lg transition" title="Vue lecture">
@@ -2368,8 +2378,8 @@ function renderStepOperation() {
                 ${showSignedDownload
                     ? `<a href="${signedDownloadUrl}" target="_blank"
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-300 text-green-700 bg-green-50 hover:bg-green-100 text-xs font-semibold transition">
-                        <i class="fa-solid fa-file-pdf text-sm"></i>
-                        Voir signé
+                        <i class="fa-solid ${signedDownloadLabel(viewingWf).icon} text-sm"></i>
+                        ${signedDownloadLabel(viewingWf).text}
                     </a>`
                     : `<button type="button" onclick='duplicateWorkflow("${viewingWf.id}")'
                         class="px-4 py-2 bg-[#2453d6] hover:bg-[#1f47bb] text-white text-sm font-semibold rounded-lg flex items-center gap-2 transition">

@@ -919,6 +919,9 @@ class SignatureController extends Controller
                     'isMyTurn'           => count($actionableIds) > 0,
                     'actionableIds'      => $actionableIds,
                     'attachmentDocs'     => $attachmentDocs,
+                    'signedCount'        => collect($row['items'])
+                        ->filter(fn($i) => $i['status'] === 'completed' && !empty($i['signedFilePath']))
+                        ->count(),
                     // Titres utilisés par la recherche (la colonne n'affiche que leur nombre).
                     'documentTitles'     => array_column($row['items'], 'documentTitle'),
                     // Tous les documents à lire avant validation, suivis des pièces jointes.
@@ -2738,7 +2741,8 @@ class SignatureController extends Controller
     }
 
     /**
-     * Sert le document signé téléchargé depuis la plateforme.
+     * Sert le document signé téléchargé depuis la plateforme ; une archive ZIP de tous les
+     * documents signés quand le workflow en contient plusieurs.
      * GET /signatures/signed-document/{executionId}
      */
     public function serveSignedDocument(string $executionId): \Symfony\Component\HttpFoundation\Response
@@ -2747,23 +2751,80 @@ class SignatureController extends Controller
         if (!$execution) {
             abort(404, 'Exécution introuvable.');
         }
+        $workflow = $execution->workflow;
+        $this->abortUnlessWorkflowParticipant($workflow);
 
         $document = $execution->document_id ? Document::find($execution->document_id) : null;
-        $signedPath = $document ? (string) ($document->signed_file_path ?: $document->final_file_path ?: '') : '';
-        if (!$document || $signedPath === '') {
+        if (!$document || $this->signedFilePathOf($document) === null) {
             abort(404, 'Document signé non disponible.');
         }
 
-        $signedPath = ltrim(str_replace('/storage/', '', $signedPath), '/');
+        $documents = $this->signedDocumentsOfWorkflow($workflow);
+        if ($documents->count() > 1) {
+            $files = [];
+            foreach ($documents as $item) {
+                $base = $this->signedDownloadName($item);
+                $name = $base . '.pdf';
+                for ($i = 2; isset($files[$name]); $i++) {
+                    $name = $base . '-' . $i . '.pdf';
+                }
+                $files[$name] = (string) Storage::disk('public')->get($this->signedFilePathOf($item));
+            }
+            $zipName = 'documents-signes-' . (Str::slug((string) $workflow->name) ?: 'workflow') . '.zip';
 
-        if (!Storage::disk('public')->exists($signedPath)) {
-            abort(404, 'Fichier introuvable sur le serveur.');
+            return response()->streamDownload(
+                function () use ($files) { echo SignedDocumentArchive::create($files); },
+                $zipName,
+                ['Content-Type' => 'application/zip']
+            );
         }
 
-        $filename = 'signed_' . Str::slug($document->title ?? 'document') . '.pdf';
-        return Storage::disk('public')->download($signedPath, $filename, [
+        $signedPath = $this->signedFilePathOf($document);
+
+        return Storage::disk('public')->download($signedPath, $this->signedDownloadName($document) . '.pdf', [
             'Content-Type' => 'application/pdf',
         ]);
+    }
+
+    /** Documents signés réservés au créateur, aux intervenants et aux personnes notifiées du workflow. */
+    private function abortUnlessWorkflowParticipant(?Workflow $workflow): void
+    {
+        $userId = (string) Auth::id();
+        abort_unless($workflow && $userId !== '' && (
+            (string) $workflow->created_by === $userId
+            || $workflow->steps()->where('assignee_id', $userId)->exists()
+            || Notification::where('recipient_id', $userId)->where('workflow_id', $workflow->id)->exists()
+        ), 403, 'Accès refusé.');
+    }
+
+    /** Chemin du fichier signé sur le disque public, ou null s'il n'existe pas. */
+    private function signedFilePathOf(Document $document): ?string
+    {
+        $path = ltrim(str_replace('/storage/', '', (string) ($document->signed_file_path ?: $document->final_file_path ?: '')), '/');
+
+        return $path !== '' && Storage::disk('public')->exists($path) ? $path : null;
+    }
+
+    /** Documents des exécutions terminées du workflow dont le fichier signé est disponible. */
+    private function signedDocumentsOfWorkflow(Workflow $workflow): \Illuminate\Support\Collection
+    {
+        return WorkflowExecution::query()
+            ->where('workflow_id', $workflow->id)
+            ->where('status', 'completed')
+            ->whereNotNull('document_id')
+            ->with('document')
+            ->get()
+            ->map(fn ($e) => $e->document)
+            ->filter(fn ($d) => $d && !empty($d->signed_file_path) && $this->signedFilePathOf($d) !== null)
+            ->unique('id')
+            ->values();
+    }
+
+    private function signedDownloadName(Document $document): string
+    {
+        $title = preg_replace('/\.(docx?|pdf)$/i', '', (string) $document->title);
+
+        return 'signed_' . (Str::slug((string) $title) ?: 'document');
     }
 
     /**

@@ -118,9 +118,9 @@
                             <a href="{{ route('signatures.signed-document', $row['firstExecutionId']) }}"
                                target="_blank"
                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-300 text-green-700 bg-green-50 hover:bg-green-100 text-xs font-semibold transition"
-                               title="Télécharger le document signé">
-                                <i class="fa-solid fa-file-pdf text-sm"></i>
-                                Voir signé
+                               title="{{ $row['signedCount'] > 1 ? 'Télécharger tous les documents signés (ZIP)' : 'Télécharger le document signé' }}">
+                                <i class="fa-solid {{ $row['signedCount'] > 1 ? 'fa-file-zipper' : 'fa-file-pdf' }} text-sm"></i>
+                                {{ $row['signedCount'] > 1 ? 'Tout télécharger (' . $row['signedCount'] . ')' : 'Voir signé' }}
                             </a>
                         @elseif($row['status'] !== 'completed' && count($row['actionableIds']) > 0)
                             @php $firstExecId = $row['actionableIds'][0]; @endphp

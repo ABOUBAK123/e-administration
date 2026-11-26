@@ -23,6 +23,32 @@ class SignedDocumentArchive
     }
 
     /**
+     * Archive ZIP sans compression (les PDF sont déjà compressés), noms en UTF-8.
+     *
+     * @param array<string, string> $files [nom => contenu]
+     */
+    public static function create(array $files): string
+    {
+        $date = getdate();
+        $time = ($date['hours'] << 11) | ($date['minutes'] << 5) | ($date['seconds'] >> 1);
+        $day = (($date['year'] - 1980) << 9) | ($date['mon'] << 5) | $date['mday'];
+
+        $body = '';
+        $directory = '';
+        foreach ($files as $name => $content) {
+            $name = (string) $name;
+            // Commun à l'en-tête local et au répertoire central : version, drapeau UTF-8, méthode, date, CRC, tailles.
+            $common = pack('vvvvvVVVv', 20, 0x0800, 0, $time, $day, crc32($content), strlen($content), strlen($content), strlen($name))
+                . pack('v', 0);
+            $directory .= "PK\x01\x02" . pack('v', 20) . $common . pack('vvvVV', 0, 0, 0, 0, strlen($body)) . $name;
+            $body .= "PK\x03\x04" . $common . $name . $content;
+        }
+
+        return $body . $directory
+            . "PK\x05\x06" . pack('vvvvVVv', 0, 0, count($files), count($files), strlen($directory), strlen($body), 0);
+    }
+
+    /**
      * PDF contenus dans l'archive, dans l'ordre de l'archive : [nom => contenu].
      * Retourne un tableau vide si l'archive est illisible.
      *
