@@ -207,6 +207,95 @@ class SignatureController extends Controller
         return ['completed' => false, 'next_step' => $nextStep, 'actor' => $actorName];
     }
 
+    /**
+     * Refus de signature prononcé sur la plateforme : rejette les documents du même workflow Safy,
+     * conserve le motif et prévient une seule fois l'initiateur du workflow.
+     */
+    private function applyPlatformRefusal(WorkflowExecution $execution, ?Workflow $workflow, array $signer): void
+    {
+        $group = WorkflowExecution::query()
+            ->where('platform_workflow_id', $execution->platform_workflow_id)
+            ->where('status', 'in_progress')
+            ->get();
+
+        $currentStep = (int) ($execution->current_step ?? 1);
+        $step = $workflow?->steps?->firstWhere('order', $currentStep);
+        $actorName = (string) ($step?->assignee?->name
+            ?: trim(($signer['firstName'] ?? '') . ' ' . ($signer['lastName'] ?? ''))
+            ?: 'Le signataire');
+        $reason = mb_substr(trim((string) ($signer['reasonForRefusal'] ?? '')), 0, 2000)
+            ?: 'Aucun motif communiqué par le signataire.';
+        $rejectedAt = now();
+
+        $rejected = [];
+        foreach ($group as $item) {
+            // Mise à jour conditionnelle : deux synchronisations simultanées ne notifient qu'une fois.
+            $claimed = WorkflowExecution::query()
+                ->whereKey($item->id)
+                ->where('status', 'in_progress')
+                ->update(['status' => 'rejected', 'platform_status' => 'refused', 'completed_at' => $rejectedAt]);
+            if (!$claimed) {
+                continue;
+            }
+            $item->refresh();
+            $this->appendWorkflowRejectionHistory($item, [
+                'actor_id' => $step?->assignee_id,
+                'actor_name' => $actorName,
+                'actor_role' => 'signataire',
+                'reason' => $reason,
+                'step_order' => $currentStep,
+                'step_name' => $step?->name ?? 'Signature',
+                'action_type' => 'signature',
+                'rejected_at' => $rejectedAt->toIso8601String(),
+            ]);
+            if ($item->document_id && $step?->assignee_id) {
+                SignatureRequest::query()
+                    ->where('document_id', $item->document_id)
+                    ->where('requested_to', $step->assignee_id)
+                    ->where('status', 'pending')
+                    ->update(['status' => 'declined', 'responded_at' => $rejectedAt]);
+            }
+            $rejected[] = $item;
+        }
+
+        if (!$rejected || !$workflow) {
+            return;
+        }
+
+        Log::info('Safy: signature refusée, workflow rejeté', [
+            'workflow_id' => $workflow->id,
+            'platform_workflow_id' => $execution->platform_workflow_id,
+            'documents' => count($rejected),
+        ]);
+
+        if ($workflow->created_by) {
+            NotificationService::notify(
+                recipientId: (string) $workflow->created_by,
+                type: 'workflow',
+                title: 'Signature refusée',
+                message: sprintf(
+                    '%s a refusé de signer le workflow "%s" le %s. Motif : %s',
+                    $actorName, $workflow->name ?? 'Sans nom', $rejectedAt->format('d/m/Y à H:i'), $reason
+                ),
+                actionUrl: route('workflows.index') . '#rejete',
+                workflowId: (string) $workflow->id,
+                executionId: (string) $rejected[0]->id
+            );
+        }
+        NotificationService::workflowRejected($workflow, $actorName, $rejected[0], $reason, $step?->name);
+    }
+
+    /** Applique l'état connu de la plateforme (signature ou refus) avant de proposer un lien. */
+    private function refreshFromPlatform(WorkflowExecution $execution): WorkflowExecution
+    {
+        if ($execution->status === 'in_progress' && !empty($execution->platform_workflow_id)) {
+            $this->getPlatformWorkflowStatus((string) $execution->id, true);
+            $execution->refresh();
+        }
+
+        return $execution;
+    }
+
     private function getSignatureStepIndex(Workflow $workflow, WorkflowStep $step): ?int
     {
         if (!$step->requires_signature) {
@@ -268,7 +357,7 @@ class SignatureController extends Controller
             $created = SignatureRequest::create([
                 'id'           => Str::uuid(),
                 'document_id'  => $docId,
-                'requested_by' => Auth::id(),
+                'requested_by' => Auth::id() ?? $workflow->created_by,
                 'requested_to' => $step->assignee_id,
                 'message'      => "Workflow: {$workflow->name} — Étape {$step->order}: " . ($step->name ?? 'Action requise'),
                 'status'       => 'pending',
@@ -547,6 +636,10 @@ class SignatureController extends Controller
         $execution = WorkflowExecution::find($executionId);
         $signer = User::find($userId);
         abort_unless($execution && $signer, 404);
+
+        // Un workflow refusé ou terminé ne doit pas recréer de demande sur la plateforme.
+        $execution = $this->refreshFromPlatform($execution);
+        abort_if($execution->status !== 'in_progress', 410, 'Ce document n\'est plus en attente de signature.');
 
         $executions = $this->executionsAtSameStep($execution);
         if ($executions->isEmpty()) {
@@ -2171,6 +2264,11 @@ class SignatureController extends Controller
             return response()->json(['ok' => false, 'message' => 'Exécution introuvable.'], 404);
         }
 
+        $execution = $this->refreshFromPlatform($execution);
+        if (in_array($execution->status, ['rejected', 'completed'], true)) {
+            return response()->json(['ok' => false, 'message' => 'Ce document n\'est plus en attente de signature.'], 422);
+        }
+
         // Vérifier que c'est le tour de l'utilisateur
         $wf     = $execution->workflow()->with('steps')->first();
         $steps  = $wf?->steps?->sortBy('order') ?? collect();
@@ -2289,9 +2387,11 @@ class SignatureController extends Controller
             $wfStatus = strtolower((string) ($wfData['workflowStatus'] ?? ''));
             $signerStatus = strtolower((string) ($wfData['signers'][0]['signatureStatus'] ?? ''));
 
-            if ($wfStatus === 'finished') {
-                // finished + refused => refus ; finished + signed => terminé.
-                $platformStatus = $signerStatus === 'refused' ? 'refused' : 'finished';
+            $refusedSigner = collect($wfData['signers'] ?? [])
+                ->first(fn ($s) => strtolower((string) ($s['signatureStatus'] ?? '')) === 'refused');
+
+            if ($refusedSigner) {
+                $platformStatus = 'refused';
             } elseif ($wfStatus !== '') {
                 $platformStatus = $wfStatus;
             }
@@ -2303,7 +2403,13 @@ class SignatureController extends Controller
                 'signatureStatus' => $signerStatus,
             ]);
 
-            if (is_string($platformStatus) && $platformStatus !== '' && $platformStatus !== $execution->platform_status) {
+            if ($platformStatus === 'refused') {
+                // Traité même si « refused » était déjà enregistré sans que le workflow ait été rejeté.
+                if ($execution->status === 'in_progress') {
+                    $this->applyPlatformRefusal($execution, $wf, (array) $refusedSigner);
+                    $execution->refresh();
+                }
+            } elseif (is_string($platformStatus) && $platformStatus !== '' && $platformStatus !== $execution->platform_status) {
                 $platformPhase = self::mapExecutionPhase($execution->status, $platformStatus);
                 $updates = ['platform_status' => $platformStatus];
 
@@ -2406,7 +2512,7 @@ class SignatureController extends Controller
             // Re-lire : une exécution du même workflow Safy a pu être traitée juste avant.
             $fresh = WorkflowExecution::find($execution->id);
             if (!$fresh || $fresh->status !== 'in_progress' || empty($fresh->platform_workflow_id)
-                || in_array(strtolower((string) $fresh->platform_status), ['finished', 'refused'], true)) {
+                || strtolower((string) $fresh->platform_status) === 'finished') {
                 continue;
             }
             if (!\Illuminate\Support\Facades\Cache::add('safy-sync:' . $fresh->platform_workflow_id, 1, 8)) {
@@ -2686,25 +2792,9 @@ class SignatureController extends Controller
                 $updates['current_step'] = $execution->current_step;
             }
         } elseif (in_array($event, $refusedEvents, true)) {
-            $updates['status'] = 'rejected';
-            try {
-                $wf = $execution->workflow()->with('creator')->first();
-                if ($wf?->created_by) {
-                    Notification::create([
-                        'user_id' => $wf->created_by,
-                        'type'    => 'workflow_rejected',
-                        'title'   => 'Workflow de signature refusé',
-                        'message' => 'Un signataire a refusé de signer le workflow « ' . ($wf->name ?? 'Sans titre') . ' ».',
-                        'data'    => json_encode([
-                            'execution_id'         => $execution->id,
-                            'platform_workflow_id' => $platformWorkflowId,
-                            'event'                => $event,
-                        ]),
-                    ]);
-                }
-            } catch (\Throwable $e) {
-                Log::warning('SunnyStamp: webhook - notification refus échouée', ['error' => $e->getMessage()]);
-            }
+            // La requête n'est pas authentifiée : le refus et son motif sont lus sur la plateforme.
+            $this->getPlatformWorkflowStatus((string) $execution->id, true);
+            return response()->json(['ok' => true]);
         } elseif (in_array($event, $signingEvents, true)) {
             // Passage à la phase de signature : mettre à jour platform_status seulement.
             if ($platformStatus === '') {

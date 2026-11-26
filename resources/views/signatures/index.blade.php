@@ -88,8 +88,8 @@
                         @php
                             $sc = match($row['statusLabel']) {
                                 'En cours'  => 'bg-amber-100 text-amber-800',
-                                'Termine'   => 'bg-green-100 text-green-800',
-                                'Rejete'    => 'bg-red-100 text-red-700',
+                                'Terminé'   => 'bg-green-100 text-green-800',
+                                'Rejeté'    => 'bg-red-100 text-red-700',
                                 default     => 'bg-blue-100 text-blue-700',
                             };
                         @endphp

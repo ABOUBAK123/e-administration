@@ -246,7 +246,8 @@ Artisan::command('signatures:sync-platform {--limit=50 : Nombre max d\'exécutio
     $pending = WorkflowExecution::query()
         ->where('status', 'in_progress')
         ->whereNotNull('platform_workflow_id')
-        ->orderBy('started_at')
+        // Ordre aléatoire : d'anciennes demandes sans réponse ne bloquent pas les suivantes.
+        ->inRandomOrder()
         ->limit(max(1, (int) $this->option('limit')) * 3)
         ->get();
 
