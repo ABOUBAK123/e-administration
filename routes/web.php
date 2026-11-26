@@ -252,6 +252,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/documents/onlyoffice-config', [DocumentController::class, 'onlyofficeConfig'])->name('documents.onlyofficeConfig');
     Route::post('/documents/share/lookup-tracking', [DocumentController::class, 'lookupActRequestByTracking'])->name('documents.share.lookupTracking');
     Route::get('/documents/trash', [DocumentController::class, 'trash'])->name('documents.trash');
+    Route::get('/documents/storage-usage', [DocumentController::class, 'storageUsage'])->name('documents.storageUsage');
     // Avant « documents/{id}/restore », qui prendrait « bulk » pour un identifiant.
     Route::post('/documents/bulk/restore', [DocumentController::class, 'bulkRestore'])->name('documents.bulk.restore');
     Route::post('/documents/bulk/force-delete', [DocumentController::class, 'bulkForceDelete'])->name('documents.bulk.forceDelete');

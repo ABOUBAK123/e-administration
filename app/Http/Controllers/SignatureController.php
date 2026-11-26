@@ -1473,6 +1473,7 @@ class SignatureController extends Controller
 
         // Stocker le fichier
         $file      = $request->file('pdf_file');
+        app(\App\Services\StorageUsageService::class)->assertCanStore(Auth::user(), (int) $file->getSize(), 'pdf_file');
         ClamAvScanner::scan($file, 'signatures');
         $filePath  = $file->store('uploads/signatures', 'public');
         $title     = $request->doc_title ?: pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);

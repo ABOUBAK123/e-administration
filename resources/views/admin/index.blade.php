@@ -9656,9 +9656,12 @@ function toggleGeminiSecret() {
       <select id="e-quota" name="quota"
         class="border border-gray-200 rounded-lg px-3 py-2.5 text-sm w-full focus:ring-2 focus:ring-[#2453d6] outline-none">
         <option value="">Quota par défaut</option>
+        <option value="500 Mo" {{ old('quota', $editUser->quota ?? ($editUserData['quota'] ?? '')) === '500 Mo' ? 'selected' : '' }}>500 Mo</option>
         <option value="1 Go" {{ old('quota', $editUser->quota ?? ($editUserData['quota'] ?? '')) === '1 Go' ? 'selected' : '' }}>1 Go</option>
+        <option value="2 Go" {{ old('quota', $editUser->quota ?? ($editUserData['quota'] ?? '')) === '2 Go' ? 'selected' : '' }}>2 Go</option>
         <option value="5 Go" {{ old('quota', $editUser->quota ?? ($editUserData['quota'] ?? '')) === '5 Go' ? 'selected' : '' }}>5 Go</option>
         <option value="10 Go" {{ old('quota', $editUser->quota ?? ($editUserData['quota'] ?? '')) === '10 Go' ? 'selected' : '' }}>10 Go</option>
+        <option value="20 Go" {{ old('quota', $editUser->quota ?? ($editUserData['quota'] ?? '')) === '20 Go' ? 'selected' : '' }}>20 Go</option>
         <option value="Illimité" {{ old('quota', $editUser->quota ?? ($editUserData['quota'] ?? '')) === 'Illimité' ? 'selected' : '' }}>Illimité</option>
       </select>
 

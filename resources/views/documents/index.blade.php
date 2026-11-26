@@ -53,6 +53,19 @@
 
 
 
+<!-- Espace de stockage -->
+<div class="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 mb-4">
+    <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
+        <span class="text-xs font-semibold text-gray-700"><i class="fas fa-hdd text-gray-400 mr-1.5"></i>Espace de stockage</span>
+        <span id="storageText" class="text-xs text-gray-600"></span>
+    </div>
+    <div id="storageTrack" role="progressbar" aria-label="Espace de stockage utilisé" aria-valuemin="0" aria-valuemax="100"
+         class="w-full bg-gray-100 rounded-full overflow-hidden" style="height:8px">
+        <div id="storageBar" class="rounded-full transition-all duration-300" style="height:8px;width:0%"></div>
+    </div>
+    <p id="storageDetail" class="mt-1.5 text-xs text-gray-500"></p>
+</div>
+
 <!-- Inputs fichiers cachés -->
 <input type="file" id="fileInput" class="hidden" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.csv,.zip">
 <input type="file" id="folderInput" class="hidden" multiple webkitdirectory directory accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.csv,.zip">
@@ -504,6 +517,7 @@ const ROUTES = {
     bulkDownload:     `${_BASE}/bulk/download`,
     bulkMove:         `${_BASE}/bulk/move`,
     bulkDelete:       `${_BASE}/bulk/delete`,
+    storageUsage:     `${_BASE}/storage-usage`,
     validateActRequest: (id) => `${_BASE}/${id}/validate-act-request`,
     onlyofficeConfig: '{{ url("documents/onlyoffice-config") }}',
 };
@@ -975,6 +989,8 @@ function renderTable() {
     document.getElementById('subtab-favorites').innerHTML =
         `Favoris (<span id="favCount">${getFavoriteIds().length}</span>)`;
 
+    watchStorageUsage();
+
     const docs = getDisplayedDocs();
     const tbody = document.getElementById('docTableBody');
     const empty = document.getElementById('tableEmpty');
@@ -1099,6 +1115,52 @@ function renderTable() {
             </td>
         </tr>`;
     }).join('');
+}
+
+// ---- Espace de stockage ----
+function showStorageUsage(usage) {
+    const unlimited = usage.quota === null;
+    const percent = unlimited ? 0 : usage.percent;
+    const level = percent >= 90 ? '#dc2626' : percent >= 75 ? '#d97706' : '#2453d6';
+    const percentLabel = percent > 0 && percent < 1 ? 'moins de 1 %' : `${Math.round(percent)} %`;
+
+    document.getElementById('storageText').textContent = unlimited
+        ? `${usage.usedLabel} utilisés (quota illimité)`
+        : `${usage.usedLabel} utilisés sur ${usage.quotaLabel} (${percentLabel})`;
+
+    const track = document.getElementById('storageTrack');
+    track.style.display = unlimited ? 'none' : '';
+    track.setAttribute('aria-valuenow', Math.min(100, Math.round(percent)));
+    const bar = document.getElementById('storageBar');
+    // Largeur minimale pour qu'une petite utilisation reste visible.
+    bar.style.width = usage.used > 0 ? `${Math.max(1, Math.min(100, percent))}%` : '0%';
+    bar.style.backgroundColor = level;
+
+    const detail = document.getElementById('storageDetail');
+    const parts = [];
+    if (!unlimited) parts.push(percent >= 100 ? 'Quota atteint : les imports et les créations sont bloqués' : `${usage.freeLabel} disponibles`);
+    if (usage.trash > 0) parts.push(`dont ${usage.trashLabel} dans la corbeille`);
+    detail.textContent = parts.join(' • ');
+    detail.style.color = percent >= 90 ? level : '';
+}
+
+showStorageUsage(@json($storageUsage));
+
+// Actualise la barre quand la liste des fichiers change (import, suppression, conversion…).
+let _storageState = null;
+let _storageTimer = null;
+function watchStorageUsage() {
+    const state = `${allDocs.length}:${allDocs.reduce((total, d) => total + Number(d.file_size || 0), 0)}`;
+    if (_storageState !== null && state !== _storageState) {
+        clearTimeout(_storageTimer);
+        _storageTimer = setTimeout(async () => {
+            try {
+                const resp = await fetch(ROUTES.storageUsage, { headers: { Accept: 'application/json' } });
+                if (resp.ok) showStorageUsage(await resp.json());
+            } catch (e) { /* la barre sera à jour au prochain chargement */ }
+        }, 800);
+    }
+    _storageState = state;
 }
 
 // ---- Sélection des fichiers ----
@@ -1748,7 +1810,7 @@ document.getElementById('folderInput').addEventListener('change', async (e) => {
         try {
             const data = await uploadFile(file, top);
             if (data.id) allDocs.unshift(data);
-        } catch(err) { showToast(`${file.name} : ${err.message}`); }
+        } catch(err) { showToast(`${file.name} : ${err.message}`, 8000); }
         done++;
         progressBar.style.width = `${Math.round(done / total * 100)}%`;
         progressText.textContent = `${done} / ${total}`;
@@ -1775,7 +1837,7 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
         try {
             const data = await uploadFile(file);
             if (data.id) allDocs.unshift(data);
-        } catch(err) { showToast(`${file.name} : ${err.message}`); }
+        } catch(err) { showToast(`${file.name} : ${err.message}`, 8000); }
         done++;
         progressBar.style.width = `${Math.round(done / total * 100)}%`;
         progressText.textContent = `${done} / ${total}`;

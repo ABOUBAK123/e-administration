@@ -17,6 +17,7 @@ use App\Models\AdministrationProfile;
 use App\Models\AdministrationSmtpSetting;
 use App\Services\ClamAvScanner;
 use App\Services\NotificationService;
+use App\Services\StorageUsageService;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use Endroid\QrCode\Builder\Builder;
@@ -350,7 +351,10 @@ class DocumentController extends Controller
             }
         }
 
+        $storageUsage = app(StorageUsageService::class)->forUser($user);
+
         return view('documents.index', compact(
+            'storageUsage',
             'documents',
             'preferences',
             'sharesCount',
@@ -385,6 +389,14 @@ class DocumentController extends Controller
         return array_values(array_unique(array_map('strval', array_filter($raw, fn ($id) => trim((string) $id) !== ''))));
     }
 
+    /** Espace occupé, pour actualiser la barre après un import ou une suppression. */
+    public function storageUsage(StorageUsageService $storage)
+    {
+        $this->guardPermission('documents.view');
+
+        return response()->json($storage->forUser(Auth::user()));
+    }
+
     public function create()
     {
         $this->guardPermission('documents.upload');
@@ -406,6 +418,7 @@ class DocumentController extends Controller
         ]);
 
         $file   = $request->file('file');
+        app(StorageUsageService::class)->assertCanStore(Auth::user(), (int) $file->getSize());
         ClamAvScanner::scan($file, 'documents');
         $title  = $request->title ?: pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
         $path   = $file->store('documents', 'public');
@@ -467,6 +480,7 @@ class DocumentController extends Controller
         ]);
 
         $file     = $request->file('file');
+        app(StorageUsageService::class)->assertCanStore(Auth::user(), (int) $file->getSize());
         ClamAvScanner::scan($file, 'documents');
         $path     = $file->store('documents', 'public');
         $folder   = $request->input('folder');
@@ -2017,6 +2031,8 @@ class DocumentController extends Controller
         $mimeType = 'application/octet-stream';
 
         if ($type !== 'folder') {
+            app(StorageUsageService::class)->assertCanStore(Auth::user());
+
             // Déterminer l'extension et le mime type
             $ext = 'docx';
             if (str_ends_with(strtolower($title), '.xlsx') || $type === 'sheet') {
@@ -2218,6 +2234,7 @@ class DocumentController extends Controller
         if (($document->description ?? '') === '[folder]') {
             return response()->json(['ok' => false, 'message' => 'Un dossier ne peut pas être converti.'], 422);
         }
+        app(StorageUsageService::class)->assertCanStore(Auth::user());
 
         $sourcePath = (string) ($document->file_path ?: $document->final_file_path ?: '');
         $relative = ltrim(str_replace('/storage/', '', $sourcePath), '/');

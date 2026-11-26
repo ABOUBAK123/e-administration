@@ -1277,7 +1277,7 @@ async function uploadDocFile(input) {
     try {
         const resp = await fetch(UPLOAD_AJAX_URL, {
             method: 'POST',
-            headers: { 'X-CSRF-TOKEN': CSRF },
+            headers: { 'X-CSRF-TOKEN': CSRF, Accept: 'application/json' },
             body: fd,
         });
         const data = await resp.json();

@@ -107,6 +107,8 @@ class SharedTemplateController extends Controller
             'folder'   => 'nullable|string|max:255',
         ]);
 
+        app(\App\Services\StorageUsageService::class)->assertCanStore(Auth::user());
+
         $coreService = app(TemplateGenerationCoreService::class);
         $template->loadMissing('variables');
 
