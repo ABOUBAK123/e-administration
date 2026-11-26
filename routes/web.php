@@ -254,6 +254,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/documents/trash', [DocumentController::class, 'trash'])->name('documents.trash');
     Route::post('/documents/{id}/restore', [DocumentController::class, 'restore'])->name('documents.restore');
     Route::delete('/documents/{id}/force-delete', [DocumentController::class, 'forceDelete'])->name('documents.forceDelete');
+    Route::post('/documents/bulk/download', [DocumentController::class, 'bulkDownload'])->name('documents.bulk.download');
+    Route::post('/documents/bulk/move', [DocumentController::class, 'bulkMove'])->name('documents.bulk.move');
+    Route::post('/documents/bulk/delete', [DocumentController::class, 'bulkDelete'])->name('documents.bulk.delete');
     Route::resource('documents', DocumentController::class);
     Route::get('/documents/{document}/download', [DocumentController::class, 'download'])->name('documents.download');
     Route::get('/documents/{document}/download-folder', [DocumentController::class, 'downloadFolder'])->name('documents.downloadFolder');

@@ -125,15 +125,39 @@
     </div>
 </div>
 
+<!-- Barre de sélection -->
+<div id="selectionBar" class="mb-3 bg-blue-50 border border-gray-200 rounded-2xl px-4 py-2.5 flex-wrap items-center justify-between gap-3" style="display:none">
+    <span id="selectionCount" class="text-xs font-semibold text-gray-700" aria-live="polite"></span>
+    <div class="flex flex-wrap items-center gap-2">
+        <button type="button" data-bulk-action onclick="bulkDownload()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#2453d6] text-white hover:bg-[#1f47bb] flex items-center gap-1.5">
+            <i class="fas fa-file-archive"></i> Télécharger en ZIP
+        </button>
+        <button type="button" data-bulk-action onclick="bulkMove()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center gap-1.5">
+            <i class="fas fa-folder-open text-gray-400"></i> Déplacer
+        </button>
+        <button type="button" data-bulk-action onclick="bulkDelete()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 hover:bg-red-100 flex items-center gap-1.5">
+            <i class="fas fa-trash-alt"></i> Supprimer
+        </button>
+        <button type="button" onclick="clearSelection()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-gray-300 text-gray-700 hover:bg-gray-50">
+            Tout désélectionner
+        </button>
+    </div>
+</div>
+
 <!-- Table -->
 <div class="bg-white rounded-2xl border border-gray-100 shadow-sm">
-    <div id="tableEmpty" class="hidden p-10 text-center text-gray-400">
+    <div id="tableEmpty"class="hidden p-10 text-center text-gray-400">
         <i class="fas fa-folder-open text-4xl mb-3 block text-gray-200"></i>
         <span id="emptyMsg">Aucun document pour l'instant.</span>
     </div>
     <table id="docTable" class="w-full text-sm">
         <thead class="border-b bg-gray-50/80">
             <tr>
+            <th class="py-3 pl-4 text-left" style="width:2.5rem">
+                <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this.checked)"
+                       title="Tout sélectionner" aria-label="Sélectionner tous les fichiers affichés"
+                       class="h-4 w-4 cursor-pointer align-middle" style="accent-color:#2453d6">
+            </th>
             <th class="text-left py-3 px-4 font-semibold text-gray-700 cursor-pointer select-none hover:text-blue-600" onclick="sortBy('title')">
                 Nom <i id="sort-icon-title" class="fas fa-sort text-gray-300 ml-1 text-xs"></i>
             </th>
@@ -237,7 +261,7 @@
                 <i class="fas fa-trash-alt text-red-500 text-lg"></i>
             </div>
             <h3 class="text-sm font-semibold text-gray-800 mb-1">Supprimer le document</h3>
-            <p class="text-xs text-gray-500">« <span id="deleteDocTitle" class="font-semibold text-gray-700"></span> » sera supprimé définitivement. Cette action est irréversible.</p>
+            <p class="text-xs text-gray-500">« <span id="deleteDocTitle" class="font-semibold text-gray-700"></span> » sera déplacé vers la corbeille. Vous pourrez le restaurer depuis la corbeille.</p>
         </div>
         <div class="px-5 pb-5 flex justify-center gap-3">
             <button onclick="document.getElementById('deleteModal').classList.add('hidden')" class="px-4 py-2 text-xs font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">Annuler</button>
@@ -477,6 +501,9 @@ const ROUTES = {
     uploadAjax:       '{{ url("documents/upload-ajax") }}',
     shareLookupTracking: '{{ route("documents.share.lookupTracking") }}',
     download:         (id) => `${_BASE}/${id}/download`,
+    bulkDownload:     `${_BASE}/bulk/download`,
+    bulkMove:         `${_BASE}/bulk/move`,
+    bulkDelete:       `${_BASE}/bulk/delete`,
     validateActRequest: (id) => `${_BASE}/${id}/validate-act-request`,
     onlyofficeConfig: '{{ url("documents/onlyoffice-config") }}',
 };
@@ -497,7 +524,7 @@ let folderTabs      = [];
 let sortField       = null;
 let sortDir         = 'asc';
 let _renameDocId    = null;
-let _moveDocId      = null;
+let _moveIds        = [];
 let _labelsDocId    = null;
 let _deleteDocId    = null;
 let _detailsDocId   = null;
@@ -953,6 +980,11 @@ function renderTable() {
     const empty = document.getElementById('tableEmpty');
     const table = document.getElementById('docTable');
 
+    // Seuls les fichiers affichés restent sélectionnés : rien de masqué n'est coché à l'insu de l'utilisateur.
+    const visibleIds = new Set(docs.filter(d => !isFolder(d)).map(d => d.id));
+    selectedIds.forEach(id => { if (!visibleIds.has(id)) selectedIds.delete(id); });
+    updateSelectionUi(visibleIds.size);
+
     if (docs.length === 0) {
         empty.classList.remove('hidden');
         table.classList.add('hidden');
@@ -979,12 +1011,17 @@ function renderTable() {
             `<span class="inline-flex items-center rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-semibold">${c}</span>`
         ).join('') + (labels.length > 3 ? `<span class="inline-flex items-center rounded-md bg-gray-50 text-gray-600 border border-gray-200 px-1.5 py-0.5 text-[10px] font-semibold">+${labels.length - 3}</span>` : '');
 
-        return `<tr class="border-b hover:bg-gray-50 cursor-pointer" ondblclick="handleDblClick(event, '${doc.id}')"
+        return `<tr class="border-b hover:bg-gray-50 cursor-pointer ${selectedIds.has(doc.id) ? 'bg-blue-50' : ''}" ondblclick="handleDblClick(event, '${doc.id}')"
             data-doc-id="${doc.id}"
             data-draggable="${canManage && !isFolder(doc) ? 'true' : 'false'}"
             draggable="${canManage && !isFolder(doc) ? 'true' : 'false'}"
             ${isFolder(doc) ? `data-folder-target="true" data-folder-name="${escAttr(doc.title)}"` : ''}
         >
+            <td class="py-3 pl-4" data-select-cell="true">
+                ${isFolder(doc) ? '' : `<input type="checkbox" data-select-id="${doc.id}" ${selectedIds.has(doc.id) ? 'checked' : ''}
+                    onchange="toggleSelect('${doc.id}', this.checked)" aria-label="Sélectionner ${escAttr(doc.title)}"
+                    class="h-4 w-4 cursor-pointer align-middle" style="accent-color:#2453d6">`}
+            </td>
             <td class="py-3 px-4">
                 <div class="flex items-center gap-3">
                     <i class="${iconClass(doc)} text-lg"></i>
@@ -1064,9 +1101,124 @@ function renderTable() {
     }).join('');
 }
 
+// ---- Sélection des fichiers ----
+const selectedIds = new Set();
+
+function toggleSelect(id, checked) {
+    if (checked) selectedIds.add(id); else selectedIds.delete(id);
+    const box = document.querySelector(`input[data-select-id="${id}"]`);
+    if (box) box.closest('tr').classList.toggle('bg-blue-50', checked);
+    updateSelectionUi(document.querySelectorAll('input[data-select-id]').length);
+}
+
+function toggleSelectAll(checked) {
+    document.querySelectorAll('input[data-select-id]').forEach(box => {
+        box.checked = checked;
+        toggleSelect(box.dataset.selectId, checked);
+    });
+}
+
+function clearSelection() {
+    toggleSelectAll(false);
+}
+
+function updateSelectionUi(selectableCount) {
+    const count = selectedIds.size;
+    document.getElementById('selectionBar').style.display = count ? 'flex' : 'none';
+    document.getElementById('selectionCount').textContent =
+        count > 1 ? `${count} fichiers sélectionnés` : `${count} fichier sélectionné`;
+    const all = document.getElementById('selectAll');
+    all.disabled = selectableCount === 0;
+    all.checked = count > 0 && count === selectableCount;
+    all.indeterminate = count > 0 && count < selectableCount;
+}
+
+// ---- Actions sur la sélection ----
+let _bulkBusy = false;
+const plural = (n, word) => `${n} ${word}${n > 1 ? 's' : ''}`;
+
+async function bulkRequest(url, body) {
+    const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF, Accept: 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+        const error = await resp.json().catch(() => ({}));
+        throw new Error(resp.status === 419
+            ? 'La page a expiré. Rechargez-la puis réessayez.'
+            : (error.message || 'Opération impossible.'));
+    }
+    return resp;
+}
+
+// Empêche de lancer deux actions en même temps (double-clic).
+async function runBulk(action) {
+    if (_bulkBusy) return;
+    _bulkBusy = true;
+    const buttons = document.querySelectorAll('[data-bulk-action]');
+    buttons.forEach(b => b.disabled = true);
+    try {
+        await action();
+    } catch (e) {
+        showToast(e.message || 'Opération impossible.', 5000);
+    } finally {
+        _bulkBusy = false;
+        buttons.forEach(b => b.disabled = false);
+    }
+}
+
+// Déplacer et supprimer ne concernent que les fichiers dont on est propriétaire.
+const ownedSelection = () => allDocs.filter(d => selectedIds.has(d.id) && d.is_owner).map(d => d.id);
+
+function bulkDownload() {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    runBulk(async () => {
+        showToast('Préparation de l\'archive…');
+        const resp = await bulkRequest(ROUTES.bulkDownload, { ids });
+        const match = (resp.headers.get('Content-Disposition') || '').match(/filename="?([^";]+)"?/);
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(await resp.blob());
+        link.download = match ? match[1] : 'documents.zip';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+        const skipped = Number(resp.headers.get('X-Skipped-Files') || 0);
+        showToast(skipped
+            ? `Archive téléchargée. ${plural(skipped, 'fichier')} introuvable(s) sur le serveur.`
+            : 'Archive téléchargée', skipped ? 6000 : 3000);
+    });
+}
+
+function bulkMove() {
+    if (_bulkBusy || !selectedIds.size) return;
+    const ids = ownedSelection();
+    if (!ids.length) { showToast('Vous ne pouvez déplacer que vos propres documents.'); return; }
+    openMoveModal(ids);
+}
+
+function bulkDelete() {
+    if (_bulkBusy || !selectedIds.size) return;
+    const ids = ownedSelection();
+    if (!ids.length) { showToast('Vous ne pouvez supprimer que vos propres documents.'); return; }
+    const ignored = selectedIds.size - ids.length;
+    const message = `Mettre ${plural(ids.length, 'fichier')} à la corbeille ?`
+        + (ignored ? `\n${plural(ignored, 'fichier')} partagé(s) avec vous ne sera pas supprimé.` : '');
+    if (!window.confirm(message)) return;
+    runBulk(async () => {
+        const data = await (await bulkRequest(ROUTES.bulkDelete, { ids })).json();
+        const removed = new Set(data.ids);
+        allDocs = allDocs.filter(d => !removed.has(d.id));
+        renderTable();
+        showToast(`${plural(removed.size, 'fichier')} mis à la corbeille`);
+    });
+}
+
 // ---- Double-clic ----
 function handleDblClick(event, id) {
-    if (event.target.closest('[data-row-actions="true"]')) return;
+    if (event.target.closest('[data-row-actions="true"], [data-select-cell="true"]')) return;
     const doc = allDocs.find(d => d.id === id);
     if (!doc) return;
     if (isFolder(doc)) { openFolderInTab(doc.title); return; }
@@ -1233,31 +1385,38 @@ async function handleValidateActRequest(id) {
 // ---- Déplacer (modal) ----
 function handleMove(id) {
     toggleActions(id);
-    _moveDocId = id;
+    openMoveModal([id]);
+}
+function openMoveModal(ids) {
+    _moveIds = ids;
     const select = document.getElementById('moveSelect');
     // Remplir les dossiers existants
     const folders = allDocs.filter(d => isFolder(d)).map(d => d.title);
     select.innerHTML = '<option value="">Racine</option>' +
-        folders.map(f => `<option value="${f}">${f}</option>`).join('');
-    // Présélectionner le dossier courant
-    const doc = allDocs.find(d => d.id === id);
-    const cur = getFolder(doc);
-    if (cur) select.value = cur;
+        folders.map(f => `<option value="${escAttr(f)}">${escAttr(f).replace(/</g, '&lt;')}</option>`).join('');
+    // Présélectionner le dossier courant (s'il est commun à tous les fichiers)
+    const current = [...new Set(ids.map(id => getFolder(allDocs.find(d => d.id === id) || {}) || ''))];
+    if (current.length === 1 && current[0]) select.value = current[0];
     document.getElementById('moveNewFolder').value = '';
     document.getElementById('moveModal').classList.remove('hidden');
 }
-async function confirmMove() {
+function confirmMove() {
     const select = document.getElementById('moveSelect');
     const newFolder = document.getElementById('moveNewFolder').value.trim();
     const dest = newFolder || select.value;
-    await post(ROUTES.move(_moveDocId), { folder: dest });
-    const doc = allDocs.find(d => d.id === _moveDocId);
-    doc.description = dest ? `Dossier: ${dest}` : null;
-    document.getElementById('moveModal').classList.add('hidden');
-    renderTable();
-    showToast(dest ? `Déplacé vers « ${dest} »` : 'Déplacé à la racine');
+    const ids = _moveIds;
+    runBulk(async () => {
+        const data = await (await bulkRequest(ROUTES.bulkMove, { ids, folder: dest })).json();
+        const moved = new Set(data.ids);
+        allDocs.forEach(d => { if (moved.has(d.id)) d.description = data.folder ? `Dossier: ${data.folder}` : null; });
+        if (data.created_folder) allDocs.unshift(data.created_folder);
+        moved.forEach(id => selectedIds.delete(id));
+        document.getElementById('moveModal').classList.add('hidden');
+        renderTable();
+        const what = moved.size > 1 ? `${moved.size} fichiers déplacés` : 'Déplacé';
+        showToast(data.folder ? `${what} vers « ${data.folder} »` : `${what} à la racine`);
+    });
 }
-
 // ---- Renommer (modal) ----
 function handleRename(id) {
     toggleActions(id);
@@ -1357,7 +1516,7 @@ async function confirmDelete() {
             allDocs = allDocs.filter(d => d.id !== _deleteDocId);
             document.getElementById('deleteModal').classList.add('hidden');
             renderTable();
-            showToast(`« ${title} » supprimé définitivement`);
+            showToast(`« ${title} » déplacé vers la corbeille`);
         } else {
             const err = await resp.json().catch(() => ({}));
             showToast(err.message || 'Erreur lors de la suppression.');

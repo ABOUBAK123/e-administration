@@ -764,57 +764,207 @@ class DocumentController extends Controller
             return $fail(404, 'Ce dossier est vide : aucun fichier à télécharger.');
         }
 
-        $tmpDir = storage_path('app/tmp/folder-zip');
-        if (!is_dir($tmpDir)) {
-            @mkdir($tmpDir, 0755, true);
-        }
-
         $safeFolderName = preg_replace('/[\/\\\\\x00-\x1f]+/', '-', $folderName);
         $safeFolderName = trim((string) $safeFolderName, '-') ?: 'dossier';
-        $zipPath = $tmpDir . DIRECTORY_SEPARATOR . Str::uuid() . '.zip';
 
-        $zip = new \ZipArchive();
-        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+        [$zipPath, $addedCount] = $this->buildDocumentsZip($children);
+
+        if ($zipPath === null) {
             return $fail(500, "Impossible de créer l'archive ZIP.");
         }
-
-        $usedNames = [];
-        foreach ($children as $child) {
-            $childSourcePath = (string) ($child->final_file_path ?: $child->signed_file_path ?: $child->file_path ?: '');
-            $childRelPath = ltrim(str_replace('/storage/', '', $childSourcePath), '/');
-
-            if ($childRelPath === '' || !Storage::disk('public')->exists($childRelPath)) {
-                continue;
-            }
-
-            $childExt = pathinfo($childSourcePath, PATHINFO_EXTENSION) ?: 'bin';
-            $childSafeTitle = preg_replace('/[\/\\\\\x00-\x1f]+/', '-', $child->title);
-            $childSafeTitle = trim((string) $childSafeTitle, '-') ?: 'document';
-            $childName = pathinfo($childSafeTitle, PATHINFO_EXTENSION) === $childExt
-                ? $childSafeTitle
-                : $childSafeTitle . '.' . $childExt;
-
-            // Éviter les collisions de noms au sein du ZIP.
-            $finalName = $childName;
-            $suffix = 1;
-            while (in_array($finalName, $usedNames, true)) {
-                $finalName = pathinfo($childName, PATHINFO_FILENAME) . " ({$suffix})." . pathinfo($childName, PATHINFO_EXTENSION);
-                $suffix++;
-            }
-            $usedNames[] = $finalName;
-
-            $zip->addFile(Storage::disk('public')->path($childRelPath), $finalName);
-        }
-
-        $addedCount = $zip->numFiles;
-        $zip->close();
-
         if ($addedCount === 0) {
-            @unlink($zipPath);
             return $fail(404, 'Aucun fichier valide trouvé dans ce dossier (fichiers manquants sur le serveur).');
         }
 
         return response()->download($zipPath, $safeFolderName . '.zip')->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Archive ZIP temporaire des fichiers des documents ; les fichiers absents sont ignorés.
+     *
+     * @return array{0: string|null, 1: int} [chemin (null si aucun fichier ou échec), nombre ajouté (-1 si échec)]
+     */
+    private function buildDocumentsZip(iterable $documents): array
+    {
+        $tmpDir = storage_path('app/tmp/folder-zip');
+        if (!is_dir($tmpDir)) {
+            @mkdir($tmpDir, 0755, true);
+        }
+        $zipPath = $tmpDir . DIRECTORY_SEPARATOR . Str::uuid() . '.zip';
+
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            return [null, -1];
+        }
+
+        $usedNames = [];
+        foreach ($documents as $document) {
+            $sourcePath = (string) ($document->final_file_path ?: $document->signed_file_path ?: $document->file_path ?: '');
+            $relPath = ltrim(str_replace('/storage/', '', $sourcePath), '/');
+
+            if ($relPath === '' || !Storage::disk('public')->exists($relPath)) {
+                continue;
+            }
+
+            $ext = pathinfo($sourcePath, PATHINFO_EXTENSION) ?: 'bin';
+            $safeTitle = preg_replace('/[\/\\\\\x00-\x1f]+/', '-', (string) $document->title);
+            $safeTitle = trim((string) $safeTitle, '-') ?: 'document';
+            $name = pathinfo($safeTitle, PATHINFO_EXTENSION) === $ext ? $safeTitle : $safeTitle . '.' . $ext;
+
+            // Éviter les collisions de noms au sein du ZIP (sans tenir compte de la casse, comme Windows).
+            $finalName = $name;
+            $suffix = 1;
+            while (isset($usedNames[mb_strtolower($finalName)])) {
+                $finalName = pathinfo($name, PATHINFO_FILENAME) . " ({$suffix})." . pathinfo($name, PATHINFO_EXTENSION);
+                $suffix++;
+            }
+            $usedNames[mb_strtolower($finalName)] = true;
+
+            $zip->addFile(Storage::disk('public')->path($relPath), $finalName);
+        }
+
+        $addedCount = $zip->numFiles;
+        $closed = $zip->close();
+
+        if (!$closed || $addedCount === 0) {
+            @unlink($zipPath);
+            return [null, $closed ? 0 : -1];
+        }
+
+        return [$zipPath, $addedCount];
+    }
+
+    /** Fichiers cochés dans « Mes Documents » (les dossiers sont exclus). */
+    private function selectedDocuments(Request $request): \Illuminate\Support\Collection
+    {
+        $validated = $request->validate([
+            'ids'   => 'required|array|min:1|max:500',
+            'ids.*' => 'required|string|max:64',
+        ], [
+            'ids.max' => 'Sélectionnez au maximum 500 fichiers à la fois.',
+        ]);
+
+        return Document::query()
+            ->whereIn('id', $validated['ids'])
+            ->orderBy('title')
+            ->get()
+            ->reject(fn (Document $d) => $d->mime_type === 'application/x-folder' || ($d->description ?? '') === '[folder]')
+            ->values();
+    }
+
+    /** Télécharger les fichiers sélectionnés dans une archive ZIP. */
+    public function bulkDownload(Request $request)
+    {
+        $documents = $this->selectedDocuments($request)
+            ->filter(fn (Document $d) => $this->userCanAccessDocument($d));
+
+        if ($documents->isEmpty()) {
+            return response()->json(['ok' => false, 'message' => 'Aucun fichier accessible dans la sélection.'], 404);
+        }
+        if (!class_exists('ZipArchive')) {
+            return response()->json(['ok' => false, 'message' => "L'extension PHP ZipArchive est requise."], 500);
+        }
+
+        [$zipPath, $addedCount] = $this->buildDocumentsZip($documents);
+
+        if ($zipPath === null) {
+            return response()->json([
+                'ok' => false,
+                'message' => $addedCount === 0
+                    ? 'Les fichiers sélectionnés sont introuvables sur le serveur.'
+                    : "Impossible de créer l'archive ZIP.",
+            ], $addedCount === 0 ? 404 : 500);
+        }
+
+        return response()
+            ->download($zipPath, 'documents-' . now()->format('Ymd-His') . '.zip', [
+                'X-Skipped-Files' => (string) ($documents->count() - $addedCount),
+            ])
+            ->deleteFileAfterSend(true);
+    }
+
+    /** Déplacer les fichiers sélectionnés dans un dossier (créé au besoin) ou à la racine. */
+    public function bulkMove(Request $request)
+    {
+        $request->validate(['folder' => 'nullable|string|max:255']);
+        $folder = trim((string) $request->input('folder', ''));
+
+        // Comme pour le déplacement unitaire : uniquement ses propres fichiers.
+        $documents = $this->selectedDocuments($request)
+            ->filter(fn (Document $d) => (string) $d->owner_id === (string) Auth::id())
+            ->values();
+
+        if ($documents->isEmpty()) {
+            return response()->json(['ok' => false, 'message' => 'Vous ne pouvez déplacer que vos propres documents.'], 403);
+        }
+
+        $createdFolder = null;
+        DB::transaction(function () use ($documents, $folder, &$createdFolder): void {
+            // Sans ligne « dossier », les fichiers déplacés n'apparaîtraient plus nulle part.
+            if ($folder !== '' && !Document::query()
+                ->where('owner_id', Auth::id())
+                ->where('description', '[folder]')
+                ->where('title', $folder)
+                ->exists()) {
+                $createdFolder = Document::create([
+                    'id'          => (string) Str::uuid(),
+                    'title'       => $folder,
+                    'description' => '[folder]',
+                    'file_path'   => '',
+                    'final_file_path' => '',
+                    'mime_type'   => 'application/x-folder',
+                    'status'      => 'draft',
+                    'owner_id'    => Auth::id(),
+                    'created_by'  => Auth::id(),
+                ]);
+            }
+
+            foreach ($documents as $document) {
+                $document->update(['description' => $folder !== '' ? "Dossier: {$folder}" : null]);
+            }
+        });
+
+        return response()->json([
+            'ok'     => true,
+            'ids'    => $documents->pluck('id'),
+            'folder' => $folder,
+            'created_folder' => $createdFolder ? [
+                'id'          => $createdFolder->id,
+                'owner_id'    => $createdFolder->owner_id,
+                'is_owner'    => true,
+                'can_share'   => true,
+                'share_permission' => 'modification',
+                'can_edit_content' => true,
+                'title'       => $createdFolder->title,
+                'description' => $createdFolder->description,
+                'file_path'   => '',
+                'final_file_path' => '',
+                'file_size'   => null,
+                'mime_type'   => $createdFolder->mime_type,
+                'status'      => $createdFolder->status,
+                'shares_count' => 0,
+                'created_at'  => $createdFolder->created_at?->toISOString(),
+                'updated_at'  => $createdFolder->updated_at?->toISOString(),
+            ] : null,
+        ]);
+    }
+
+    /** Mettre à la corbeille les fichiers sélectionnés (les fichiers restent sur le serveur). */
+    public function bulkDelete(Request $request)
+    {
+        $this->guardPermission('documents.delete');
+
+        $documents = $this->selectedDocuments($request)
+            ->filter(fn (Document $d) => (string) $d->owner_id === (string) Auth::id())
+            ->values();
+
+        if ($documents->isEmpty()) {
+            return response()->json(['ok' => false, 'message' => 'Vous ne pouvez supprimer que vos propres documents.'], 403);
+        }
+
+        DB::transaction(fn () => $documents->each->delete());
+
+        return response()->json(['ok' => true, 'ids' => $documents->pluck('id')]);
     }
 
     /**
