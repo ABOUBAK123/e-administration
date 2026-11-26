@@ -162,6 +162,15 @@
 
         <div class="flex-1 min-h-0 bg-gray-100">
             <iframe id="workflow-validation-frame" class="w-full h-full bg-white" src="about:blank" title="Lecture du document"></iframe>
+            {{-- Format que le navigateur ne sait pas afficher (Word, Excel...) --}}
+            <div id="workflow-validation-download" class="h-full flex-col items-center justify-center gap-4 p-6 text-center" style="display:none">
+                <p class="text-sm text-gray-600">Ce format ne peut pas être affiché ici. Téléchargez le fichier pour le lire.</p>
+                <a id="workflow-validation-download-link" href="#" download
+                   class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#2453d6] hover:bg-[#1f47bb] text-white text-sm font-semibold transition">
+                    <i class="fa-solid fa-download"></i>
+                    Télécharger
+                </a>
+            </div>
         </div>
 
         <div class="px-6 py-4 border-t border-gray-100 bg-white flex items-center justify-between gap-3">
@@ -636,16 +645,19 @@ function renderWorkflowValidationTabs() {
     bar.replaceChildren(...documents.map((doc, index) => {
         const tab = document.createElement('button');
         tab.type = 'button';
-        tab.textContent = `${index + 1}. ${doc.title}`;
+        tab.textContent = doc.attachment ? `📎 Pièce jointe : ${doc.title}` : `${index + 1}. ${doc.title}`;
         tab.title = doc.title;
         tab.addEventListener('click', () => showWorkflowValidationDocument(index));
         return tab;
     }));
     bar.classList.toggle('hidden', documents.length < 2);
 
-    document.getElementById('workflow-validation-hint').textContent = documents.length < 2
+    const toValidate = documents.filter(d => !d.attachment).length;
+    const attachments = documents.length - toValidate;
+    document.getElementById('workflow-validation-hint').textContent = (toValidate < 2
         ? 'Lisez le document puis choisissez Valider ou Refuser.'
-        : `Lisez les ${documents.length} documents : Valider ou Refuser s'applique à l'ensemble.`;
+        : `Lisez les ${toValidate} documents : Valider ou Refuser s'applique à l'ensemble.`)
+        + (attachments ? ` Pièces jointes à consulter : ${attachments}.` : '');
 }
 
 function showWorkflowValidationDocument(index) {
@@ -653,10 +665,16 @@ function showWorkflowValidationDocument(index) {
     const doc = documents[index];
     if (!doc) return;
 
-    workflowValidationTitle.textContent = documents.length < 2
-        ? `${workflowName} - ${doc.title}`
-        : `${workflowName} - Document ${index + 1} sur ${documents.length} : ${doc.title}`;
-    workflowValidationFrame.src = doc.url;
+    const toValidate = documents.filter(d => !d.attachment).length;
+    let label = doc.title;
+    if (doc.attachment) label = `Pièce jointe : ${doc.title}`;
+    else if (toValidate > 1) label = `Document ${index + 1} sur ${toValidate} : ${doc.title}`;
+    workflowValidationTitle.textContent = `${workflowName} - ${label}`;
+
+    workflowValidationFrame.style.display = doc.viewable ? '' : 'none';
+    workflowValidationFrame.src = doc.viewable ? doc.url : 'about:blank';
+    document.getElementById('workflow-validation-download').style.display = doc.viewable ? 'none' : 'flex';
+    document.getElementById('workflow-validation-download-link').href = doc.url;
 
     [...document.getElementById('workflow-validation-docs').children].forEach((tab, n) => {
         tab.className = 'flex-shrink-0 max-w-xs truncate px-3 py-2 rounded-lg border text-xs font-semibold transition '

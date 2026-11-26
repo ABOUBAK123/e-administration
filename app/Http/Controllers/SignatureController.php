@@ -636,6 +636,14 @@ class SignatureController extends Controller
         ));
     }
 
+    /** Le navigateur sait-il afficher ce fichier dans la fenêtre de lecture ? */
+    private static function isViewableInBrowser(Document $document): bool
+    {
+        $extension = strtolower((string) pathinfo((string) $document->file_path, PATHINFO_EXTENSION));
+
+        return in_array($extension, ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'txt'], true);
+    }
+
     /**
      * Construire la boîte de réception des actions workflow pour l'utilisateur courant.
      */
@@ -700,6 +708,7 @@ class SignatureController extends Controller
                     'executionId'   => $exec->id,
                     'documentId'    => $exec->document_id,
                     'documentTitle' => $exec->document?->title ?? 'Document',
+                    'viewable'      => $exec->document ? self::isViewableInBrowser($exec->document) : false,
                     'signedFilePath'=> $exec->document?->signed_file_path ?? null,
                     'docStatus'     => $exec->document?->status ?? null,
                     'status'        => $status,
@@ -732,6 +741,22 @@ class SignatureController extends Controller
                     ->filter(fn($i) => $i['status'] === 'in_progress' && $i['isMyTurn'])
                     ->pluck('executionId')->all();
 
+                // Pièces jointes à consulter pendant la validation.
+                $attachmentDocs = [];
+                if ($row['actionType'] === 'validation' && $actionableIds) {
+                    $toProcessIds = array_column($row['items'], 'documentId');
+                    $attachmentDocs = $this->workflowAttachments($wf)
+                        ->reject(fn($d) => in_array((string) $d->id, $toProcessIds, true))
+                        ->map(fn($d) => [
+                            'title'      => (string) ($d->title ?: 'Pièce jointe'),
+                            'url'        => route('signatures.workflow-attachment', [
+                                'executionId' => $actionableIds[0], 'documentId' => $d->id,
+                            ]),
+                            'attachment' => true,
+                            'viewable'   => self::isViewableInBrowser($d),
+                        ])->values()->all();
+                }
+
                 $rows[] = [
                     'workflowId'         => $row['workflowId'],
                     'workflowName'       => $row['workflowName'],
@@ -747,13 +772,15 @@ class SignatureController extends Controller
                     'nextActorLabel'     => $rowStatus === 'completed' ? 'Workflow terminé' : ($representative['nextActorLabel'] ?? 'Fin de workflow'),
                     'isMyTurn'           => count($actionableIds) > 0,
                     'actionableIds'      => $actionableIds,
-                    // Tous les documents à lire avant validation.
+                    // Tous les documents à lire avant validation, suivis des pièces jointes.
                     'actionableDocs'     => collect($row['items'])
                         ->filter(fn($i) => in_array($i['executionId'], $actionableIds, true) && !empty($i['documentId']))
                         ->map(fn($i) => [
-                            'title' => $i['documentTitle'],
-                            'url'   => route('signatures.workflow-document', ['executionId' => $i['executionId']]),
-                        ])->values()->all(),
+                            'title'      => $i['documentTitle'],
+                            'url'        => route('signatures.workflow-document', ['executionId' => $i['executionId']]),
+                            'attachment' => false,
+                            'viewable'   => $i['viewable'],
+                        ])->values()->concat($attachmentDocs)->all(),
                 ];
             }
         }
@@ -933,6 +960,49 @@ class SignatureController extends Controller
 
     public function serveWorkflowDocument(string $executionId)
     {
+        $execution = $this->findReadableWorkflowExecution($executionId);
+        abort_unless($execution->document, 404);
+
+        return $this->streamWorkflowDocument($execution->document);
+    }
+
+    /** Pièce jointe d'un workflow, lisible par les mêmes personnes que les documents à traiter. */
+    public function serveWorkflowAttachment(string $executionId, string $documentId)
+    {
+        $execution = $this->findReadableWorkflowExecution($executionId);
+        $document = $execution->workflow
+            ? $this->workflowAttachments($execution->workflow)->firstWhere('id', $documentId)
+            : null;
+        abort_unless($document, 404);
+
+        return $this->streamWorkflowDocument($document);
+    }
+
+    /**
+     * Pièces jointes du workflow. Seuls les documents du créateur du workflow sont retenus :
+     * l'identifiant d'un document tiers placé dans la liste ne donne pas accès à celui-ci.
+     */
+    private function workflowAttachments(Workflow $workflow): \Illuminate\Support\Collection
+    {
+        $ids = array_values(array_filter((array) ($workflow->attached_docs ?? []), 'is_string'));
+        $creatorId = (string) ($workflow->created_by ?? '');
+        if ($ids === [] || $creatorId === '') {
+            return collect();
+        }
+
+        $documents = Document::query()
+            ->whereIn('id', $ids)
+            ->where(fn ($q) => $q->where('owner_id', $creatorId)->orWhere('created_by', $creatorId))
+            ->get()
+            ->keyBy(fn ($d) => (string) $d->id);
+
+        // Ordre choisi à la création du workflow.
+        return collect($ids)->map(fn ($id) => $documents->get($id))->filter()->values();
+    }
+
+    /** Exécution dont l'utilisateur connecté peut lire les documents : créateur ou intervenant de l'étape. */
+    private function findReadableWorkflowExecution(string $executionId): WorkflowExecution
+    {
         if (
             !$this->canPermission('workflows.view')
             && !$this->canPermission('signatures.view')
@@ -941,7 +1011,7 @@ class SignatureController extends Controller
             abort(403, 'Accès refusé.');
         }
         $execution = WorkflowExecution::with(['workflow.steps.assignee', 'document'])->find($executionId);
-        abort_unless($execution && $execution->document, 404);
+        abort_unless($execution, 404);
 
         $userId = (string) Auth::id();
         $workflow = $execution->workflow;
@@ -954,7 +1024,11 @@ class SignatureController extends Controller
 
         abort_unless($isCreator || $isCurrentActor, 403);
 
-        $document = $execution->document;
+        return $execution;
+    }
+
+    private function streamWorkflowDocument(Document $document)
+    {
         $path = ltrim(str_replace('/storage/', '', (string) $document->file_path), '/');
         abort_if($path === '' || !Storage::disk('public')->exists($path), 404, 'Fichier introuvable sur le serveur.');
 
