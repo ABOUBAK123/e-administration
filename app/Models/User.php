@@ -115,6 +115,27 @@ class User extends Authenticatable
         }
     }
 
+    /**
+     * Sépare le nom complet (« Prénoms Nom ») pour les formulaires : le dernier mot est le nom.
+     * Se rabat sur le nom à afficher si le nom complet est vide.
+     *
+     * @return array{nom: string, prenoms: string}
+     */
+    public function nameParts(): array
+    {
+        foreach ([$this->full_name, $this->name] as $source) {
+            // \p{Z} couvre aussi les espaces insécables, fréquentes dans les noms copiés-collés.
+            $words = preg_split('/[\s\p{Z}]+/u', mb_scrub((string) $source, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            if ($words) {
+                $nom = array_pop($words);
+
+                return ['nom' => $nom, 'prenoms' => implode(' ', $words)];
+            }
+        }
+
+        return ['nom' => '', 'prenoms' => ''];
+    }
+
     public function documents() { return $this->hasMany(Document::class, 'owner_id'); }
     public function workflows() { return $this->hasMany(Workflow::class, 'created_by'); }
     public function signatures() { return $this->hasMany(Signature::class, 'signer_id'); }

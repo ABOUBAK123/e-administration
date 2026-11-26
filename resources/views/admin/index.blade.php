@@ -9227,9 +9227,9 @@ function toggleGeminiSecret() {
     $editUser = \App\Models\User::query()->whereKey($editUserId)->first();
   }
   $editDir        = $editUser ? ($dirAssignments->get($editUser->id) ?: \App\Models\UserDirectionAssignment::query()->where('user_id', $editUser->id)->first()) : null;
-  $editParts      = preg_split('/\s+/', trim($editUser->full_name ?? $editUser->name ?? ''));
-  $editNom        = $editUser ? (count($editParts) > 1 ? end($editParts) : ($editUser->name ?? '')) : ($editUserData['nom'] ?? '');
-  $editPrenoms    = $editUser ? (count($editParts) > 1 ? implode(' ', array_slice($editParts, 0, -1)) : '') : ($editUserData['prenoms'] ?? '');
+  $editNames      = $editUser ? $editUser->nameParts() : $editUserData;
+  $editNom        = $editNames['nom'] ?? '';
+  $editPrenoms    = $editNames['prenoms'] ?? '';
   $editScopeType  = old('administration_type', $editDir?->direction_scope_type ?? ($editUserData['scope_type'] ?? ''));
   $editScopeId    = old('administration_id', $editDir?->direction_scope_id ?? ($editUserData['scope_id'] ?? ''));
   $editSubCode    = old('sub_entity_id', $editDir?->sub_entity_code ?? ($editUserData['sub_code'] ?? ''));
@@ -9296,9 +9296,7 @@ function toggleGeminiSecret() {
       <tbody class="divide-y divide-gray-50">
         @forelse($filteredUsers as $u)
         @php
-          $parts   = preg_split('/\s+/', trim($u->full_name ?? $u->name ?? ''));
-          $nom     = count($parts) > 1 ? end($parts) : ($u->name ?? '');
-          $prenoms = count($parts) > 1 ? implode(' ', array_slice($parts, 0, -1)) : '';
+          ['nom' => $nom, 'prenoms' => $prenoms] = $u->nameParts();
           $dir     = $dirAssignments->get($u->id);
         @endphp
         <tr class="hover:bg-gray-50 transition">
@@ -9715,9 +9713,7 @@ var __profiles   = @json($profilesJson);
   $editUserBootPayload = null;
   if ($editUser) {
     $editDir = $dirAssignments->get($editUser->id);
-    $editParts = preg_split('/\s+/', trim($editUser->full_name ?? $editUser->name ?? ''));
-    $editNom = count($editParts) > 1 ? end($editParts) : ($editUser->name ?? '');
-    $editPrenoms = count($editParts) > 1 ? implode(' ', array_slice($editParts, 0, -1)) : '';
+    ['nom' => $editNom, 'prenoms' => $editPrenoms] = $editUser->nameParts();
     $editUserBootJson = json_encode([
       'id' => $editUser->id,
       'nom' => $editNom,
@@ -9894,6 +9890,12 @@ function openUserEditModal(data) {
   openUserModal('edit');
 }
 
+// atob() seul abîme les accents : le contenu encodé est en UTF-8.
+function decodeUserPayload(encoded) {
+  var bytes = Uint8Array.from(atob(encoded), function(c) { return c.charCodeAt(0); });
+  return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+}
+
 function openUserEditModalFromButton(buttonEl) {
   try {
     var encoded = buttonEl ? buttonEl.getAttribute('data-user') : '';
@@ -9901,7 +9903,7 @@ function openUserEditModalFromButton(buttonEl) {
       alert('Données utilisateur introuvables pour la modification. Rechargez la page puis réessayez.');
       return false;
     }
-    var data = JSON.parse(atob(encoded));
+    var data = decodeUserPayload(encoded);
     openUserEditModal(data);
     return true;
   } catch (e) {
@@ -9946,7 +9948,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   if (__editUserBootPayload) {
     try {
-      var bootData = JSON.parse(atob(__editUserBootPayload));
+      var bootData = decodeUserPayload(__editUserBootPayload);
       openUserEditModal(bootData);
     } catch (e) {
       console.error('Impossible d\'ouvrir automatiquement le modal utilisateur:', e);
