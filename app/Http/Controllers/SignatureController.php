@@ -656,13 +656,19 @@ class SignatureController extends Controller
     }
 
     /**
-     * Page de retour après la signature sur la plateforme (redirectUrl Safy).
+     * Page de retour de la plateforme (redirectUrl Safy), après une signature OU un refus.
+     * Safy ajoute à l'adresse les paramètres « workflow » et « signer ».
      * Accessible à tout utilisateur connecté (le signataire n'a pas forcément la permission « signatures.view ») :
-     * synchronise ses signatures en attente puis l'envoie vers la première page qu'il peut consulter.
+     * synchronise les signatures concernées, annonce le résultat réel puis envoie vers la première page consultable.
      */
-    public function signatureReturn()
+    public function signatureReturn(Request $request)
     {
         $user = Auth::user();
+        $platformWorkflowId = (string) $request->query('workflow', '');
+        if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $platformWorkflowId)) {
+            $platformWorkflowId = '';
+        }
+        $outcome = null;
 
         try {
             $mine = WorkflowExecution::query()
@@ -674,8 +680,33 @@ class SignatureController extends Controller
                     $step = $e->workflow?->steps?->firstWhere('order', (int) ($e->current_step ?? 1));
                     return $step && (string) $step->assignee_id === (string) $user->id;
                 });
+
+            $returned = $platformWorkflowId !== ''
+                ? WorkflowExecution::where('platform_workflow_id', $platformWorkflowId)->get()
+                : collect();
+
+            // Résultat lu sur la plateforme avant la synchronisation, qui peut détacher l'exécution du workflow Safy.
+            if ($platformWorkflowId !== '') {
+                $outcome = $this->readSignerOutcome(
+                    $returned->first(), $platformWorkflowId, (string) $request->query('signer', ''), $user
+                );
+            }
+
+            // Le workflow du retour est traité sans attendre la temporisation de la synchronisation générale.
+            $pending = $returned->firstWhere('status', 'in_progress');
+            if ($pending && $outcome !== null) {
+                $this->getPlatformWorkflowStatus((string) $pending->id, true);
+            }
             if ($mine->isNotEmpty()) {
                 $this->syncPendingPlatformExecutions($mine);
+            }
+
+            if ($outcome === null) {
+                // Sans réponse de la plateforme : on s'en tient à ce que l'application a enregistré.
+                $ids = ($platformWorkflowId !== '' ? $returned : $mine)->pluck('id');
+                if ($ids->isNotEmpty() && WorkflowExecution::whereIn('id', $ids)->where('status', 'rejected')->exists()) {
+                    $outcome = 'refused';
+                }
             }
         } catch (\Throwable $e) {
             Log::warning('Safy: synchronisation au retour de signature impossible', ['error' => $e->getMessage()]);
@@ -687,7 +718,29 @@ class SignatureController extends Controller
             default                                 => route('dashboard'),
         };
 
-        return redirect($target)->with('success', 'Signature effectuée. Le statut du workflow est en cours de mise à jour.');
+        return match ($outcome) {
+            'refused' => redirect($target)->with('error', 'Vous avez refusé de signer. Le workflow est rejeté et son initiateur est informé du motif.'),
+            'signed'  => redirect($target)->with('success', 'Signature effectuée. Le statut du workflow est en cours de mise à jour.'),
+            default   => redirect($target)->with('success', 'Retour de la plateforme de signature. Le statut du workflow est en cours de mise à jour.'),
+        };
+    }
+
+    /** Décision du signataire sur la plateforme : « signed », « refused » ou null si elle n'est pas connue. */
+    private function readSignerOutcome(?WorkflowExecution $execution, string $platformWorkflowId, string $signerId, User $user): ?string
+    {
+        try {
+            $cfg = $execution ? $this->resolveSignatureConfigForExecution($execution) : $this->resolveSignatureConfig();
+            $signers = collect($this->makeSafyClient($cfg)->getWorkflow($platformWorkflowId)['signers'] ?? []);
+
+            $signer = $signers->first(fn ($s) => $signerId !== '' && (string) ($s['id'] ?? '') === $signerId)
+                ?? $signers->first(fn ($s) => strcasecmp((string) ($s['email'] ?? ''), (string) $user->email) === 0);
+            $status = strtolower((string) ($signer['signatureStatus'] ?? ''));
+
+            return in_array($status, ['signed', 'refused'], true) ? $status : null;
+        } catch (\Throwable $e) {
+            Log::warning('Safy: résultat du retour de signature illisible', ['platform_workflow_id' => $platformWorkflowId, 'error' => $e->getMessage()]);
+            return null;
+        }
     }
 
     public function index()
