@@ -593,6 +593,54 @@ class AdminController extends Controller
         ];
     }
 
+    /** Résultat de la recherche de statistiques, avec les choix du formulaire et les critères en clair. */
+    private function searchStatistics(Request $request, ?array $adminScope): array
+    {
+        $param = fn (string $key) => is_string($request->query($key)) ? trim($request->query($key)) : '';
+        $parseDate = fn (string $value) => preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)
+            ? Carbon::createFromFormat('Y-m-d', $value)
+            : null;
+
+        $service = app(\App\Services\AdminStatisticsService::class);
+        $adminId = $param('stats_admin') ?: ($adminScope['id'] ?? '');
+        $from = $parseDate($param('stats_from'));
+        $to = $parseDate($param('stats_to'));
+
+        $statistics = $service->build($adminScope, $from, $to, $adminId ?: null, $param('stats_entity'));
+        $statistics['options'] = $service->options($adminScope);
+
+        $selected = collect($statistics['options'])->firstWhere('id', $adminScope['id'] ?? $adminId);
+        $entity = collect($selected['entities'] ?? [])->firstWhere('code', $param('stats_entity'));
+        $statistics['criteria'] = [
+            'Administration' => $selected['name'] ?? 'Toutes les administrations',
+            'Entité sous tutelle' => $entity ? $entity['name'] . ' (' . $entity['code'] . ')' : 'Toutes les entités',
+            'Période' => $from || $to
+                ? trim(($from ? 'du ' . $from->format('d/m/Y') : '') . ($to ? ' au ' . $to->format('d/m/Y') : ''))
+                : 'Toute la période',
+            'Édité le' => now()->format('d/m/Y à H:i'),
+        ];
+
+        return $statistics;
+    }
+
+    /** Export des statistiques recherchées (Word, Excel, PDF ou CSV). */
+    public function exportStatistics(Request $request, string $format)
+    {
+        abort_unless(
+            app(\App\Services\UserPermissionsService::class)->can(auth()->user(), 'administration.statistics'),
+            403,
+            'Accès refusé.'
+        );
+
+        $statistics = $this->searchStatistics($request, $this->resolveAdminScope());
+        $file = app(\App\Services\StatisticsExportService::class)->export($format, $statistics, $statistics['criteria']);
+
+        return response($file['content'], 200, [
+            'Content-Type' => $file['mime'],
+            'Content-Disposition' => 'attachment; filename="' . $file['filename'] . '"',
+        ]);
+    }
+
     public function index(Request $request)
     {
         $tab = $request->get('tab', 'overview');
@@ -691,19 +739,7 @@ class AdminController extends Controller
 
             // ── Statistiques (documents signés et courriers) ──────────────────
             if ($tab === 'statistics' && app(\App\Services\UserPermissionsService::class)->can($connectedUser, 'administration.statistics')) {
-                $parseDate = fn ($value) => is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)
-                    ? Carbon::createFromFormat('Y-m-d', $value)
-                    : null;
-                $statisticsService = app(\App\Services\AdminStatisticsService::class);
-                $statisticsParam = fn (string $key) => is_string($request->query($key)) ? trim($request->query($key)) : null;
-                $statistics = $statisticsService->build(
-                    $adminScope,
-                    $parseDate($request->query('stats_from')),
-                    $parseDate($request->query('stats_to')),
-                    $statisticsParam('stats_admin') ?: ($adminScope['id'] ?? null),
-                    $statisticsParam('stats_entity')
-                );
-                $statistics['options'] = $statisticsService->options($adminScope);
+                $statistics = $this->searchStatistics($request, $adminScope);
             }
 
             // ── Journal antivirus ─────────────────────────────────────────────

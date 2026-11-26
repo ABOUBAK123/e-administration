@@ -62,6 +62,23 @@
 })();
 </script>
 
+{{-- Export des résultats affichés (mêmes critères que la recherche) --}}
+@php $statsQuery = array_filter(request()->only(['stats_admin', 'stats_entity', 'stats_from', 'stats_to']), 'is_string'); @endphp
+<div class="flex flex-wrap items-center justify-end gap-2 mb-5">
+    <span class="text-sm font-semibold text-gray-600 mr-1"><i class="fas fa-download mr-1"></i> Exporter :</span>
+    @foreach([
+        ['docx', 'fas fa-file-word',  'Word',  '#2563eb'],
+        ['xlsx', 'fas fa-file-excel', 'Excel', '#16a34a'],
+        ['pdf',  'fas fa-file-pdf',   'PDF',   '#dc2626'],
+        ['csv',  'fas fa-file-csv',   'CSV',   '#475569'],
+    ] as [$format, $icon, $label, $color])
+        <a href="{{ route('admin.statistics.export', ['format' => $format] + $statsQuery) }}" data-no-ajax download
+           class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50">
+            <i class="{{ $icon }}" style="color:{{ $color }}"></i> {{ $label }}
+        </a>
+    @endforeach
+</div>
+
 {{-- Totaux --}}
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
     @foreach([

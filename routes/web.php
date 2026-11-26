@@ -373,6 +373,9 @@ Route::middleware('auth')->group(function () {
     Route::prefix('admin')->name('admin.')->middleware('admin')->group(function () {
         Route::get('/',          [AdminController::class, 'index'])->name('index');
         Route::get('/emitters',  [AdminController::class, 'index'])->name('emitters.index');
+        Route::get('/statistics/export/{format}', [AdminController::class, 'exportStatistics'])
+            ->whereIn('format', \App\Services\StatisticsExportService::FORMATS)
+            ->name('statistics.export');
         Route::get('/recipients', [AdminController::class, 'recipientsIndex'])->name('recipients.index');
         Route::get('/settings',  [AppSettingController::class, 'index'])->name('settings');
         Route::post('/settings', [AppSettingController::class, 'update'])->name('settings.update');
