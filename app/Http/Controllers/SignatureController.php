@@ -919,6 +919,8 @@ class SignatureController extends Controller
                     'isMyTurn'           => count($actionableIds) > 0,
                     'actionableIds'      => $actionableIds,
                     'attachmentDocs'     => $attachmentDocs,
+                    // Titres utilisés par la recherche (la colonne n'affiche que leur nombre).
+                    'documentTitles'     => array_column($row['items'], 'documentTitle'),
                     // Tous les documents à lire avant validation, suivis des pièces jointes.
                     'actionableDocs'     => collect($row['items'])
                         ->filter(fn($i) => in_array($i['executionId'], $actionableIds, true) && !empty($i['documentId']))

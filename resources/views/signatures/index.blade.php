@@ -49,8 +49,16 @@
             <i class="fa-solid fa-inbox text-[#2453d6]"></i>
             Boite de reception des actions (signature / validation)
         </h2>
-        <span class="text-xs text-gray-400 bg-gray-100 px-3 py-1 rounded-full">{{ count($workflowInbox) }} ligne(s)</span>
+        <span id="wf-inbox-count" class="text-xs text-gray-400 bg-gray-100 px-3 py-1 rounded-full">{{ count($workflowInbox) }} ligne(s)</span>
     </div>
+    @if(count($workflowInbox) > 0)
+    <div class="relative mb-4 max-w-xl">
+        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+        <input type="search" id="wf-inbox-search" autocomplete="off" aria-label="Rechercher un workflow"
+            placeholder="Rechercher par workflow, créateur, document, statut ou intervenant..."
+            class="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#2453d6]/30">
+    </div>
+    @endif
     @if(count($workflowInbox) === 0)
         <p class="text-sm text-gray-400 py-6 text-center">
             <i class="fa-regular fa-folder-open text-3xl mb-2 block text-gray-200"></i>
@@ -72,7 +80,11 @@
             </thead>
             <tbody class="divide-y divide-gray-100">
                 @foreach($workflowInbox as $row)
-                <tr class="{{ $row['isMyTurn'] ? 'bg-white' : 'bg-gray-50' }} hover:bg-blue-50/30 transition-colors">
+                <tr class="{{ $row['isMyTurn'] ? 'bg-white' : 'bg-gray-50' }} hover:bg-blue-50/30 transition-colors"
+                    data-wf-search="{{ implode(' ', array_merge(
+                        [$row['workflowName'], $row['creatorLabel'], $row['documentTitle'], $row['statusLabel'], $row['nextActorLabel'], $row['actionType']],
+                        $row['documentTitles']
+                    )) }}">
                     <td class="px-4 py-3 font-medium text-gray-800">{{ $row['workflowName'] }}</td>
                     <td class="px-4 py-3 text-gray-600 text-xs">{{ $row['creatorLabel'] }}</td>
                     <td class="px-4 py-3 text-gray-600 text-xs">{{ $row['documentTitle'] }}</td>
@@ -150,6 +162,9 @@
                     </td>
                 </tr>
                 @endforeach
+                <tr id="wf-inbox-no-result" style="display:none">
+                    <td colspan="7" class="px-4 py-6 text-center text-sm text-gray-400">Aucun workflow ne correspond à votre recherche.</td>
+                </tr>
             </tbody>
         </table>
     </div>
@@ -849,6 +864,40 @@ window.addEventListener('message', function (event) {
         return;
     }
 });
+
+// ── Recherche dans la boîte de réception ──────────────────────────────
+(function () {
+    const field = document.getElementById('wf-inbox-search');
+    if (!field) return;
+
+    const storageKey = 'signatures.inbox.search';
+    const rows = [...document.querySelectorAll('tr[data-wf-search]')];
+    const counter = document.getElementById('wf-inbox-count');
+    const noResult = document.getElementById('wf-inbox-no-result');
+    // Comparaison sans accents ni majuscules.
+    const normalize = text => String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const haystacks = rows.map(row => normalize(row.dataset.wfSearch));
+
+    function filter() {
+        // Chaque mot saisi doit figurer dans la ligne, dans n'importe quel ordre.
+        const words = normalize(field.value).split(/\s+/).filter(Boolean);
+        let shown = 0;
+        rows.forEach((row, index) => {
+            const match = words.every(word => haystacks[index].includes(word));
+            row.style.display = match ? '' : 'none';
+            if (match) shown++;
+        });
+        noResult.style.display = shown ? 'none' : '';
+        counter.textContent = words.length ? `${shown} / ${rows.length} ligne(s)` : `${rows.length} ligne(s)`;
+        // La recherche survit à l'actualisation automatique de la page.
+        try { sessionStorage.setItem(storageKey, field.value); } catch (e) {}
+    }
+
+    try { field.value = sessionStorage.getItem(storageKey) || ''; } catch (e) {}
+    field.addEventListener('input', filter);
+    field.addEventListener('search', filter);
+    filter();
+})();
 
 document.addEventListener('click', function (event) {
     const attachmentsButton = event.target.closest('[data-wf-attachments="1"]');
