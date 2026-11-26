@@ -115,6 +115,8 @@ $currentUserId = Auth::id();
     }
 /* Curseur latéral visible dans la fenêtre « Nouveau workflow » */
 .wf-modal-scroll { scrollbar-width: auto; scrollbar-color: #6b7280 #e5e7eb; overscroll-behavior: contain; }
+/* Hauteur limitée écrite ici : la classe Tailwind peut manquer dans une feuille de style compilée plus ancienne. */
+#modal-panel.wf-modal-scroll { max-height: calc(100vh - 3rem); overflow-y: scroll; }
 .wf-modal-scroll::-webkit-scrollbar { width: 14px; }
 .wf-modal-scroll::-webkit-scrollbar-track { background: #e5e7eb; border-radius: 9999px; }
 .wf-modal-scroll::-webkit-scrollbar-thumb { background: #6b7280; border-radius: 9999px; border: 3px solid #e5e7eb; min-height: 48px; }
@@ -318,8 +320,13 @@ $currentUserId = Auth::id();
         </div>
     </div>
 
+    {{-- Barre de défilement de remplacement (affichée par script quand le navigateur masque la sienne) --}}
+    <div id="wf-scrollbar" class="hidden fixed rounded-full cursor-pointer" style="z-index:60;width:12px;background:#e5e7eb">
+        <div class="absolute left-0 w-full rounded-full cursor-grab" style="background:#6b7280;border:2px solid #e5e7eb;touch-action:none"></div>
+    </div>
+
     {{-- Navigation haut/bas toujours visible (utile quand la barre de défilement du navigateur se masque) --}}
-    <div id="wf-scroll-nav" class="fixed right-4 bottom-6 flex flex-col gap-2" style="z-index:60">
+    <div id="wf-scroll-nav" class="fixed right-4 flex flex-col gap-2" style="z-index:60;bottom:6.5rem">
         <button type="button" onclick="wfScrollModal(-1)" title="Monter"
             class="h-10 w-10 rounded-full bg-[#2453d6] text-white shadow-lg hover:bg-[#1f47bb] flex items-center justify-center">
             <i class="fas fa-chevron-up"></i>
@@ -2802,6 +2809,71 @@ function wfScrollModal(direction) {
     scroller.scrollBy({ top: direction * Math.round(scroller.clientHeight * 0.8), behavior: 'smooth' });
 }
 
+// Firefox (et les systèmes à barres masquées automatiquement) n'affiche pas la barre de défilement,
+// et aucun style CSS ne permet de l'imposer : on en dessine une quand celle du navigateur n'occupe aucune place.
+function wfInitScrollbar() {
+    const modal = document.getElementById('modal-main');
+    const scroller = IS_EMBEDDED ? modal : document.getElementById('modal-panel');
+    const track = document.getElementById('wf-scrollbar');
+    if (!modal || !scroller || !track) return;
+    const thumb = track.firstElementChild;
+
+    function update() {
+        // Largeur prise par la barre du navigateur (les 2 px de bordure du panneau sont tolérés).
+        const nativeWidth = scroller.offsetWidth - scroller.clientWidth;
+        const hidden = scroller.clientHeight === 0
+            || scroller.scrollHeight - scroller.clientHeight <= 1
+            || nativeWidth > 4;
+        track.classList.toggle('hidden', hidden);
+        if (hidden) return;
+
+        const rect = scroller.getBoundingClientRect();
+        const top = Math.max(rect.top, 8);
+        const height = Math.max(0, Math.min(rect.bottom, window.innerHeight - 8) - top);
+        // À droite du panneau s'il reste de la place, sinon à l'intérieur de son bord.
+        const left = rect.right + 24 <= window.innerWidth ? rect.right + 6 : rect.right - 16;
+        track.style.top = top + 'px';
+        track.style.left = left + 'px';
+        track.style.height = height + 'px';
+
+        const thumbHeight = Math.min(height, Math.max(48, height * scroller.clientHeight / scroller.scrollHeight));
+        const progress = scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight);
+        thumb.style.height = thumbHeight + 'px';
+        thumb.style.top = (height - thumbHeight) * Math.min(1, Math.max(0, progress)) + 'px';
+    }
+
+    // Glisser le curseur.
+    let drag = null;
+    thumb.addEventListener('pointerdown', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        drag = { y: event.clientY, scrollTop: scroller.scrollTop };
+        thumb.setPointerCapture(event.pointerId);
+    });
+    thumb.addEventListener('pointermove', function (event) {
+        if (!drag) return;
+        const free = track.clientHeight - thumb.offsetHeight;
+        if (free > 0) {
+            scroller.scrollTop = drag.scrollTop + (event.clientY - drag.y) * (scroller.scrollHeight - scroller.clientHeight) / free;
+        }
+    });
+    ['pointerup', 'pointercancel'].forEach(type => thumb.addEventListener(type, () => { drag = null; }));
+
+    // Cliquer dans le rail : une page vers le haut ou le bas.
+    track.addEventListener('pointerdown', function (event) {
+        wfScrollModal(event.clientY < thumb.getBoundingClientRect().top ? -1 : 1);
+    });
+
+    // La barre suit le défilement, la taille de la fenêtre et le contenu de chaque étape.
+    document.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    if (window.ResizeObserver) {
+        const observer = new ResizeObserver(update);
+        [scroller, ...scroller.children].forEach(element => observer.observe(element));
+    }
+    update();
+}
+
 async function refreshWorkflows({silent = true} = {}) {
     try {
         const resp = await fetch(WORKFLOWS_BASE, { headers: {'Accept':'application/json'} });
@@ -2865,6 +2937,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
     }
+
+    wfInitScrollbar();
 
     // Charger les modèles via AJAX
     try {
