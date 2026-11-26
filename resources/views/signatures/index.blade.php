@@ -125,6 +125,17 @@
                                 <i class="fa-solid {{ $row['actionType'] === 'signature' ? 'fa-pen-to-square' : 'fa-circle-check' }} text-base wf-btn-icon"></i>
                                 <span>{{ $row['actionType'] === 'signature' ? 'Signer' : 'Valider' }}</span>
                             </button>
+                            @if($row['actionType'] === 'signature' && !empty($row['attachmentDocs']))
+                            <button type="button"
+                                data-wf-attachments="1"
+                                data-documents='@json($row['attachmentDocs'])'
+                                data-workflow-name="{{ $row['workflowName'] }}"
+                                class="inline-flex items-center gap-2 mt-1 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 text-xs font-semibold transition"
+                                title="Consulter les pièces jointes">
+                                <i class="fa-solid fa-paperclip"></i>
+                                <span>Pièces jointes ({{ count($row['attachmentDocs']) }})</span>
+                            </button>
+                            @endif
                             {{-- Formulaire de repli (local) si API non configurée --}}
                             <form id="wf-local-{{ $firstExecId }}" method="POST" action="{{ route('signatures.workflow-action') }}" class="hidden">
                                 @csrf
@@ -149,7 +160,7 @@
     <div class="w-full max-w-6xl h-[92vh] bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col">
         <div class="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
             <div class="min-w-0">
-                <h3 class="text-lg font-bold text-gray-800">Lecture du document avant validation</h3>
+                <h3 id="workflow-validation-heading" class="text-lg font-bold text-gray-800">Lecture du document avant validation</h3>
                 <p id="workflow-validation-title" class="text-sm text-gray-500 truncate mt-1"></p>
             </div>
             <button type="button" onclick="closeWorkflowValidationModal()" class="h-9 w-9 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500 transition">
@@ -175,7 +186,7 @@
 
         <div class="px-6 py-4 border-t border-gray-100 bg-white flex items-center justify-between gap-3">
             <p id="workflow-validation-hint" class="text-xs text-gray-500">Lisez le document puis choisissez Valider ou Refuser.</p>
-            <div class="flex items-center gap-3">
+            <div id="workflow-validation-actions" class="flex items-center gap-3">
                 <button type="button" onclick="openWorkflowRejectReasonModal()" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition">
                     <i class="fa-solid fa-ban"></i>
                     Refuser
@@ -618,7 +629,11 @@ function closeWorkflowCreateModal() {
     document.body.style.overflow = '';
 }
 
-function openWorkflowValidationModal(button) {
+// readOnly : consultation des pièces jointes avant signature, sans décision à prendre.
+function openWorkflowValidationModal(button, readOnly = false) {
+    document.getElementById('workflow-validation-heading').textContent = readOnly
+        ? 'Pièces jointes' : 'Lecture du document avant validation';
+    document.getElementById('workflow-validation-actions').style.display = readOnly ? 'none' : '';
     const executionIds = JSON.parse(button.dataset.executionIds || '[]');
     const documents = JSON.parse(button.dataset.documents || '[]');
 
@@ -654,7 +669,9 @@ function renderWorkflowValidationTabs() {
 
     const toValidate = documents.filter(d => !d.attachment).length;
     const attachments = documents.length - toValidate;
-    document.getElementById('workflow-validation-hint').textContent = (toValidate < 2
+    document.getElementById('workflow-validation-hint').textContent = toValidate === 0
+        ? 'Ces pièces sont à consulter : elles ne sont pas à signer.'
+        : (toValidate < 2
         ? 'Lisez le document puis choisissez Valider ou Refuser.'
         : `Lisez les ${toValidate} documents : Valider ou Refuser s'applique à l'ensemble.`)
         + (attachments ? ` Pièces jointes à consulter : ${attachments}.` : '');
@@ -834,6 +851,11 @@ window.addEventListener('message', function (event) {
 });
 
 document.addEventListener('click', function (event) {
+    const attachmentsButton = event.target.closest('[data-wf-attachments="1"]');
+    if (attachmentsButton) {
+        openWorkflowValidationModal(attachmentsButton, true);
+        return;
+    }
     const button = event.target.closest('[data-wf-inbox-action="1"]');
     if (!button) {
         return;

@@ -741,9 +741,9 @@ class SignatureController extends Controller
                     ->filter(fn($i) => $i['status'] === 'in_progress' && $i['isMyTurn'])
                     ->pluck('executionId')->all();
 
-                // Pièces jointes à consulter pendant la validation.
+                // Pièces jointes à consulter avant de valider ou de signer.
                 $attachmentDocs = [];
-                if ($row['actionType'] === 'validation' && $actionableIds) {
+                if ($actionableIds) {
                     $toProcessIds = array_column($row['items'], 'documentId');
                     $attachmentDocs = $this->workflowAttachments($wf)
                         ->reject(fn($d) => in_array((string) $d->id, $toProcessIds, true))
@@ -772,6 +772,7 @@ class SignatureController extends Controller
                     'nextActorLabel'     => $rowStatus === 'completed' ? 'Workflow terminé' : ($representative['nextActorLabel'] ?? 'Fin de workflow'),
                     'isMyTurn'           => count($actionableIds) > 0,
                     'actionableIds'      => $actionableIds,
+                    'attachmentDocs'     => $attachmentDocs,
                     // Tous les documents à lire avant validation, suivis des pièces jointes.
                     'actionableDocs'     => collect($row['items'])
                         ->filter(fn($i) => in_array($i['executionId'], $actionableIds, true) && !empty($i['documentId']))
@@ -1880,12 +1881,14 @@ class SignatureController extends Controller
      */
     /**
      * Un seul workflow Safy (donc un seul lien de signature) pour un ou plusieurs documents.
-     * Chaque PDF est déposé sous un nom contenant un repère unique de 8 caractères de l'ID du document,
+     * Chaque PDF est déposé sous un nom contenant l'ID complet du document,
      * pour retrouver le bon fichier dans l'archive des documents signés.
+     * Les pièces jointes au format PDF sont déposées pour consultation, sans signature.
      *
      * @param Document|array<int, Document> $documents
+     * @param iterable<Document> $attachments
      */
-    private function buildSafyInviteUrl(?SignatureProviderConfig $cfg, Document|array $documents, User $signer, ?string $shortName = null): ?string
+    private function buildSafyInviteUrl(?SignatureProviderConfig $cfg, Document|array $documents, User $signer, ?string $shortName = null, iterable $attachments = []): ?string
     {
         $this->lastPlatformError = null;
         $this->lastPlatformWorkflowId = null;
@@ -1913,7 +1916,7 @@ class SignatureController extends Controller
                 $payloads[] = [
                     'doc'   => $doc,
                     'bytes' => $pdf[0],
-                    'name'  => $base . '-' . substr(str_replace('-', '', (string) $doc->id), 0, 8) . '.pdf',
+                    'name'  => $base . '-' . str_replace('-', '', (string) $doc->id) . '.pdf',
                 ];
             }
 
@@ -1954,6 +1957,12 @@ class SignatureController extends Controller
                 $this->lastPlatformDocOrder[] = (string) $p['doc']->id;
             }
 
+            // Après les documents à signer, pour conserver leur ordre de dépôt.
+            foreach ($attachments as $attachment) {
+                $step = 'upload_attachment';
+                $this->uploadSafyAttachment($safy, $workflowId, $attachment);
+            }
+
             $step = 'start_workflow';
             $started = $safy->start($workflowId);
 
@@ -1972,6 +1981,42 @@ class SignatureController extends Controller
             Log::error('Safy: échec ' . $step, ['error' => $e->getMessage(), 'document_id' => $document->id]);
             return null;
         }
+    }
+
+    /**
+     * Dépose une pièce jointe dans le workflow Safy. La plateforme n'accepte que les PDF : les autres
+     * formats restent consultables dans l'application. Un échec de dépôt ne bloque pas la signature,
+     * mais un fichier déposé qui ne peut pas être marqué « pièce jointe » interrompt la création du lien.
+     */
+    private function uploadSafyAttachment(SafyClient $safy, string $workflowId, Document $attachment): void
+    {
+        $file = $this->loadDocumentPdfBytes($attachment);
+        if (!$file || !SignedDocumentArchive::isPdf($file[0])) {
+            Log::warning('Safy: pièce jointe non envoyée (fichier absent ou non PDF)', ['document_id' => $attachment->id]);
+            return;
+        }
+
+        $base = Str::slug(pathinfo((string) ($attachment->title ?: 'document'), PATHINFO_FILENAME)) ?: 'document';
+        try {
+            $documentId = $safy->uploadDocument($workflowId, $file[0], 'piece-jointe-' . $base . '.pdf');
+        } catch (\Throwable $e) {
+            Log::warning('Safy: dépôt de la pièce jointe impossible', ['document_id' => $attachment->id, 'error' => $e->getMessage()]);
+            return;
+        }
+        $safy->markAsAttachment($documentId);
+    }
+
+    /** Pièces jointes d'un workflow, hors documents déjà présents parmi ceux à signer. */
+    private function attachmentsToSend(?Workflow $workflow, array $documentIds): array
+    {
+        if (!$workflow) {
+            return [];
+        }
+        $documentIds = array_map('strval', $documentIds);
+
+        return $this->workflowAttachments($workflow)
+            ->reject(fn ($d) => in_array((string) $d->id, $documentIds, true))
+            ->values()->all();
     }
 
     /**
@@ -2033,7 +2078,10 @@ class SignatureController extends Controller
 
         if (!$url) {
             $docs = $executions->map(fn ($e) => $e->document)->filter()->values()->all();
-            $url = $this->buildSafyInviteUrl($cfg, $docs, $signer, $workflowName ? ('e-Parapheur — ' . $workflowName) : null);
+            $url = $this->buildSafyInviteUrl(
+                $cfg, $docs, $signer, $workflowName ? ('e-Parapheur — ' . $workflowName) : null,
+                $this->attachmentsToSend($executions->first()->workflow, $executions->pluck('document_id')->all())
+            );
         }
 
         if ($url && $this->lastPlatformWorkflowId) {
@@ -2149,7 +2197,7 @@ class SignatureController extends Controller
             $inviteUrl = $this->prepareWorkflowSignatureLink($siblings, $currentUser, (string) ($wf?->name ?? ''));
         } else {
             $inviteUrl = $this->reuseSafyInviteUrl($cfg, $execution, $currentUser)
-                ?? $this->buildSafyInviteUrl($cfg, $document, $currentUser);
+                ?? $this->buildSafyInviteUrl($cfg, $document, $currentUser, null, $this->attachmentsToSend($wf, [$document->id]));
         }
 
         if (!$inviteUrl) {
@@ -2424,7 +2472,7 @@ class SignatureController extends Controller
             if (SignedDocumentArchive::isZip($pdfContent)) {
                 $entries = SignedDocumentArchive::pdfEntries($pdfContent);
                 $pdfContent = (string) SignedDocumentArchive::pdfForDocument(
-                    $entries, (string) $document->id, $execution->step_data['platform_doc_index'] ?? null
+                    $entries, (string) $document->id, $execution->step_data['platform_doc_index'] ?? null, (string) $document->title
                 );
                 if ($pdfContent === '') {
                     Log::error('Safy: PDF du document introuvable dans l\'archive signée', [

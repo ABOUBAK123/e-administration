@@ -14,7 +14,9 @@ use Illuminate\Support\Facades\Storage;
  */
 class RepairSignedDocuments extends Command
 {
-    protected $signature = 'signatures:repair {--dry-run : Affiche ce qui serait fait sans rien modifier}';
+    protected $signature = 'signatures:repair
+        {--dry-run : Affiche ce qui serait fait sans rien modifier}
+        {--from-archives : Refait l\'extraction à partir des archives conservées par une réparation précédente}';
 
     protected $description = 'Répare les documents signés illisibles (archive ZIP enregistrée en .pdf)';
 
@@ -35,6 +37,12 @@ class RepairSignedDocuments extends Command
             }
 
             $content = (string) $disk->get($path);
+            $backup = 'signed_archives/' . basename($path) . '.zip';
+            $current = null;
+            if ($this->option('from-archives') && Storage::disk('local')->exists($backup)) {
+                $current = $content;
+                $content = (string) Storage::disk('local')->get($backup);
+            }
             if (SignedDocumentArchive::isPdf($content) && !SignedDocumentArchive::isZip($content)) {
                 $counts['sains']++;
                 continue;
@@ -49,7 +57,7 @@ class RepairSignedDocuments extends Command
                 ->map(fn ($e) => $e->step_data['platform_doc_index'] ?? null)
                 ->first(fn ($i) => is_int($i));
             $entries = SignedDocumentArchive::pdfEntries($content);
-            $pdf = SignedDocumentArchive::pdfForDocument($entries, (string) $document->id, $index);
+            $pdf = SignedDocumentArchive::pdfForDocument($entries, (string) $document->id, $index, (string) $document->title);
 
             if ($pdf === null || !SignedDocumentArchive::isPdf($pdf)) {
                 $this->warn("PDF introuvable dans l'archive : {$label}, contenu : " . implode(', ', array_keys($entries)));
@@ -57,9 +65,14 @@ class RepairSignedDocuments extends Command
                 continue;
             }
 
+            if ($current !== null && $current === $pdf) {
+                $counts['sains']++;
+                continue;
+            }
+
             if (!$dryRun) {
                 // L'archive d'origine est conservée hors du dossier public.
-                Storage::disk('local')->put('signed_archives/' . basename($path) . '.zip', $content);
+                Storage::disk('local')->put($backup, $content);
                 $disk->put($path, $pdf);
 
                 $mainPath = ltrim(str_replace('/storage/', '', (string) $document->file_path), '/');

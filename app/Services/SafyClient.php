@@ -205,6 +205,12 @@ class SafyClient
         return $this->json($this->trusted()->patch("api/documents/{$documentId}", $payload), 'add_annotation');
     }
 
+    /** Marque un document comme pièce jointe : le signataire le consulte sans le signer. */
+    public function markAsAttachment(string $documentId): array
+    {
+        return $this->json($this->trusted()->patch("api/documents/{$documentId}", ['attachment' => true]), 'mark_attachment');
+    }
+
     /**
      * Convertit une zone en pourcentages (origine en haut à gauche, comme l'UI de l'app)
      * en coordonnées Safy (points PDF, même origine en haut à gauche). Page A4 par défaut.

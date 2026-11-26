@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Str;
+
 /**
  * Réponse « documents signés » de la plateforme de signature : un PDF pour un seul document,
  * une archive ZIP quand le workflow en contient plusieurs.
@@ -67,18 +69,38 @@ class SignedDocumentArchive
     }
 
     /**
-     * PDF correspondant à un document : repère de 8 caractères de son ID dans le nom du fichier,
-     * sinon position de dépôt. Jamais le PDF d'un autre document par défaut.
+     * PDF correspondant à un document, reconnu à son ID dans le nom du fichier, sinon à sa position
+     * de dépôt. Jamais le PDF d'un autre document par défaut.
+     *
+     * Les anciens dépôts n'utilisaient que les 8 premiers caractères de l'ID, communs à des documents
+     * créés à quelques secondes d'intervalle : le titre ou la position les départagent alors.
      *
      * @param array<string, string> $entries
      */
-    public static function pdfForDocument(array $entries, string $documentId, mixed $depositIndex = null): ?string
+    public static function pdfForDocument(array $entries, string $documentId, mixed $depositIndex = null, string $title = ''): ?string
     {
-        $tag = substr(str_replace('-', '', $documentId), 0, 8);
-        foreach ($entries as $name => $content) {
-            if ($tag !== '' && stripos((string) $name, $tag) !== false) {
-                return $content;
-            }
+        $id = str_replace('-', '', $documentId);
+        if ($id === '') {
+            return null;
+        }
+        $matching = fn (string $needle) => array_filter(
+            $entries, fn ($name) => stripos((string) $name, $needle) !== false, ARRAY_FILTER_USE_KEY
+        );
+
+        $found = $matching($id);
+        if (count($found) !== 1) {
+            $found = $matching(substr($id, 0, 8));
+        }
+        if (count($found) > 1) {
+            $slug = Str::slug(pathinfo($title, PATHINFO_FILENAME));
+            $found = $slug === '' ? [] : array_filter(
+                $found,
+                fn ($name) => strcasecmp(basename((string) $name, '.pdf'), $slug . '-' . substr($id, 0, 8)) === 0,
+                ARRAY_FILTER_USE_KEY
+            );
+        }
+        if (count($found) === 1) {
+            return reset($found);
         }
 
         if (count($entries) === 1) {
