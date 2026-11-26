@@ -118,9 +118,8 @@
                                 data-action="{{ $row['actionType'] }}"
                                 data-exec="{{ $firstExecId }}"
                                 data-execution-ids='@json($row['actionableIds'])'
-                                data-document-url="{{ !empty($row['firstExecutionId']) ? route('signatures.workflow-document', ['executionId' => $row['firstExecutionId']]) : '' }}"
+                                data-documents='@json($row['actionableDocs'])'
                                 data-workflow-name="{{ $row['workflowName'] }}"
-                                data-document-title="{{ $row['documentTitle'] }}"
                                 class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 {{ $row['actionType'] === 'signature' ? 'bg-blue-50 border border-blue-200 text-blue-600 hover:bg-blue-100 hover:border-blue-300 hover:shadow-md active:bg-blue-200' : 'bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-300 hover:shadow-md active:bg-emerald-200' }}"
                                 title="{{ $row['actionType'] === 'signature' ? 'Signer sur la plateforme' : 'Lire et valider le document' }}">
                                 <i class="fa-solid {{ $row['actionType'] === 'signature' ? 'fa-pen-to-square' : 'fa-circle-check' }} text-base wf-btn-icon"></i>
@@ -158,12 +157,15 @@
             </button>
         </div>
 
-        <div class="flex-1 bg-gray-100">
+        {{-- Un onglet par document quand le workflow en contient plusieurs --}}
+        <div id="workflow-validation-docs" class="hidden px-6 py-3 border-b border-gray-100 flex gap-2 overflow-x-auto"></div>
+
+        <div class="flex-1 min-h-0 bg-gray-100">
             <iframe id="workflow-validation-frame" class="w-full h-full bg-white" src="about:blank" title="Lecture du document"></iframe>
         </div>
 
         <div class="px-6 py-4 border-t border-gray-100 bg-white flex items-center justify-between gap-3">
-            <p class="text-xs text-gray-500">Lisez le document puis choisissez Valider ou Refuser.</p>
+            <p id="workflow-validation-hint" class="text-xs text-gray-500">Lisez le document puis choisissez Valider ou Refuser.</p>
             <div class="flex items-center gap-3">
                 <button type="button" onclick="openWorkflowRejectReasonModal()" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition">
                     <i class="fa-solid fa-ban"></i>
@@ -588,9 +590,8 @@ const workflowRejectionHistoryBody = document.getElementById('workflow-rejection
 
 const workflowValidationState = {
     executionIds: [],
-    documentUrl: '',
+    documents: [],
     workflowName: '',
-    documentTitle: '',
 };
 
 function openWorkflowCreateModal() {
@@ -610,23 +611,57 @@ function closeWorkflowCreateModal() {
 
 function openWorkflowValidationModal(button) {
     const executionIds = JSON.parse(button.dataset.executionIds || '[]');
-    const documentUrl = button.dataset.documentUrl || '';
+    const documents = JSON.parse(button.dataset.documents || '[]');
 
-    if (!documentUrl) {
+    if (!Array.isArray(documents) || documents.length === 0) {
         showNotification('Document indisponible', 'Impossible d\'ouvrir le lecteur PDF pour cette étape.', 'error');
         return false;
     }
 
     workflowValidationState.executionIds = Array.isArray(executionIds) ? executionIds : [];
-    workflowValidationState.documentUrl = documentUrl;
+    workflowValidationState.documents = documents;
     workflowValidationState.workflowName = button.dataset.workflowName || 'Workflow';
-    workflowValidationState.documentTitle = button.dataset.documentTitle || 'Document';
 
-    workflowValidationTitle.textContent = `${workflowValidationState.workflowName} - ${workflowValidationState.documentTitle}`;
-    workflowValidationFrame.src = documentUrl;
+    renderWorkflowValidationTabs();
+    showWorkflowValidationDocument(0);
     workflowValidationModal.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
     return true;
+}
+
+function renderWorkflowValidationTabs() {
+    const { documents } = workflowValidationState;
+    const bar = document.getElementById('workflow-validation-docs');
+
+    bar.replaceChildren(...documents.map((doc, index) => {
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.textContent = `${index + 1}. ${doc.title}`;
+        tab.title = doc.title;
+        tab.addEventListener('click', () => showWorkflowValidationDocument(index));
+        return tab;
+    }));
+    bar.classList.toggle('hidden', documents.length < 2);
+
+    document.getElementById('workflow-validation-hint').textContent = documents.length < 2
+        ? 'Lisez le document puis choisissez Valider ou Refuser.'
+        : `Lisez les ${documents.length} documents : Valider ou Refuser s'applique à l'ensemble.`;
+}
+
+function showWorkflowValidationDocument(index) {
+    const { documents, workflowName } = workflowValidationState;
+    const doc = documents[index];
+    if (!doc) return;
+
+    workflowValidationTitle.textContent = documents.length < 2
+        ? `${workflowName} - ${doc.title}`
+        : `${workflowName} - Document ${index + 1} sur ${documents.length} : ${doc.title}`;
+    workflowValidationFrame.src = doc.url;
+
+    [...document.getElementById('workflow-validation-docs').children].forEach((tab, n) => {
+        tab.className = 'flex-shrink-0 max-w-xs truncate px-3 py-2 rounded-lg border text-xs font-semibold transition '
+            + (n === index ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50');
+    });
 }
 
 function closeWorkflowValidationModal() {

@@ -746,6 +746,13 @@ class SignatureController extends Controller
                     'nextActorLabel'     => $rowStatus === 'completed' ? 'Workflow terminé' : ($representative['nextActorLabel'] ?? 'Fin de workflow'),
                     'isMyTurn'           => count($actionableIds) > 0,
                     'actionableIds'      => $actionableIds,
+                    // Tous les documents à lire avant validation.
+                    'actionableDocs'     => collect($row['items'])
+                        ->filter(fn($i) => in_array($i['executionId'], $actionableIds, true) && !empty($i['documentId']))
+                        ->map(fn($i) => [
+                            'title' => $i['documentTitle'],
+                            'url'   => route('signatures.workflow-document', ['executionId' => $i['executionId']]),
+                        ])->values()->all(),
                 ];
             }
         }
@@ -982,6 +989,8 @@ class SignatureController extends Controller
         $decision = $request->input('action_decision', 'approve');
         $rejectReason = trim((string) $request->input('reject_reason', ''));
         $successCount = 0;
+        // Étapes atteintes pendant ce traitement : une seule notification par workflow et par étape.
+        $stepsToNotify = [];
 
         foreach ($request->execution_ids as $executionId) {
             $execution = WorkflowExecution::find($executionId);
@@ -1102,11 +1111,17 @@ class SignatureController extends Controller
                 }
 
                 if ($wf) {
-                    NotificationService::workflowStepAdvanced($wf, $nextStep, Auth::user()->name);
+                    $stepsToNotify[$wf->id . ':' . $nextStep] = [$wf, $nextStep];
                 }
             }
 
             $successCount++;
+        }
+
+        // Après la boucle : tous les documents ont atteint l'étape suivante, l'invitation
+        // (et le lien de signature) les contient donc tous.
+        foreach ($stepsToNotify as [$notifyWorkflow, $notifyStep]) {
+            NotificationService::workflowStepAdvanced($notifyWorkflow, $notifyStep, Auth::user()->name);
         }
 
         $msg = $successCount > 0
@@ -1936,7 +1951,10 @@ class SignatureController extends Controller
         }
 
         $cfg = $this->resolveSignatureConfigForExecution($executions->first());
-        $url = $this->reuseSafyInviteUrl($cfg, $executions->first(), $signer);
+        // Ne réutiliser le workflow Safy existant que s'il contient tous les documents demandés.
+        $url = $this->safyWorkflowCoversAll($executions)
+            ? $this->reuseSafyInviteUrl($cfg, $executions->first(), $signer)
+            : null;
 
         if (!$url) {
             $docs = $executions->map(fn ($e) => $e->document)->filter()->values()->all();
@@ -1949,6 +1967,8 @@ class SignatureController extends Controller
                 $idx = array_search((string) $e->document_id, $this->lastPlatformDocOrder, true);
                 if ($idx !== false) {
                     $data['platform_doc_index'] = $idx;
+                    // Atteste que ce document a bien été déposé dans ce workflow Safy.
+                    $data['platform_doc_workflow'] = $this->lastPlatformWorkflowId;
                 }
                 $e->update([
                     'platform_workflow_id' => $this->lastPlatformWorkflowId,
@@ -1961,6 +1981,24 @@ class SignatureController extends Controller
             Log::warning('Safy: lien direct indisponible', ['executions' => $executions->pluck('id')->all(), 'error' => $this->lastPlatformError]);
         }
         return $url ?: null;
+    }
+
+    /**
+     * Vrai si le workflow Safy lié à ces exécutions contient le document de chacune d'elles.
+     * Une exécution seule est toujours considérée comme couverte par son propre workflow.
+     */
+    private function safyWorkflowCoversAll(\Illuminate\Support\Collection $executions): bool
+    {
+        if ($executions->count() <= 1) {
+            return true;
+        }
+
+        $workflowId = (string) ($executions->first()->platform_workflow_id ?? '');
+
+        return $workflowId !== '' && $executions->every(
+            fn ($e) => (string) $e->platform_workflow_id === $workflowId
+                && ($e->step_data['platform_doc_workflow'] ?? null) === $workflowId
+        );
     }
 
     /** Exécutions du même workflow, en cours, à la même étape que celle donnée (elle incluse). */

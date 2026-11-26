@@ -534,21 +534,36 @@ class WorkflowController extends Controller
         $totalSteps = $workflow->steps()->count();
         $next = $execution->current_step + 1;
 
+        // Tous les documents en attente à la même étape avancent ensemble.
+        $executions = $workflow->executions()
+            ->where('status', 'in_progress')
+            ->where('current_step', $execution->current_step)
+            ->get();
+
         if ($next > $totalSteps) {
-            $execution->update(['status' => 'completed', 'current_step' => $totalSteps]);
+            foreach ($executions as $item) {
+                $item->update(['status' => 'completed', 'current_step' => $totalSteps]);
+            }
             NotificationService::workflowCompleted($workflow, Auth::user()->name ?? 'Système');
         } else {
-            $execution->update(['current_step' => $next]);
+            foreach ($executions as $item) {
+                $item->update(['current_step' => $next]);
+            }
             $nextStep = $workflow->steps()->where('order', $next)->first();
             if ($nextStep && $nextStep->requires_signature) {
                 $docZones = $execution->step_data['doc_zones'] ?? [];
                 $this->createSignatureRequestsForStep($workflow, $nextStep, is_array($docZones) ? $docZones : []);
             }
-            // Notifier l'assigné de la prochaine étape
+            // Notifier l'assigné de la prochaine étape (une seule fois, avec tous les documents)
             NotificationService::workflowStepAdvanced($workflow, $next, Auth::user()->name);
         }
 
-        return response()->json(['execution' => $this->formatExecution($execution->fresh()->load('document'))]);
+        $format = fn ($item) => $this->formatExecution($item->fresh()->load('document'));
+
+        return response()->json([
+            'execution'  => $format($execution),
+            'executions' => $executions->map($format)->values(),
+        ]);
     }
 
     /**

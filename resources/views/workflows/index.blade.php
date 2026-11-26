@@ -2698,7 +2698,8 @@ async function advanceWorkflow() {
         if (!resp.ok) throw new Error(data.error||'Erreur');
         const wf = workflows.find(w => w.id === id);
         if (wf && data.execution) {
-            wf.executions = wf.executions.map(e => e.id===data.execution.id ? data.execution : e);
+            const updated = data.executions || [data.execution];
+            wf.executions = wf.executions.map(e => updated.find(u => u.id === e.id) || e);
             detailWf = wf;
             openDetail(wf);
         }
