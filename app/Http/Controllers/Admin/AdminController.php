@@ -593,6 +593,26 @@ class AdminController extends Controller
         ];
     }
 
+    /**
+     * Recherche d'utilisateurs par nom, prénoms, e-mail ou rôle.
+     * Chaque mot saisi doit être trouvé, dans n'importe quel ordre (« Nom Prénoms » ou « Prénoms Nom »).
+     */
+    private function applyUserSearch(\Illuminate\Database\Eloquent\Builder $query, string $search): void
+    {
+        $words = preg_split('/\s+/u', trim($search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        foreach (array_slice($words, 0, 10) as $word) {
+            // « % » et « _ » saisis par l'utilisateur sont cherchés tels quels.
+            $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $word) . '%';
+
+            $query->where(function ($q) use ($like) {
+                foreach (['name', 'full_name', 'email', 'role'] as $column) {
+                    $q->orWhereRaw("{$column} LIKE ? ESCAPE '!'", [$like]);
+                }
+            });
+        }
+    }
+
     /** Résultat de la recherche de statistiques, avec les choix du formulaire et les critères en clair. */
     private function searchStatistics(Request $request, ?array $adminScope): array
     {
@@ -769,6 +789,11 @@ class AdminController extends Controller
                     ->where('direction_scope_id', $adminScope['id'])
                     ->pluck('user_id');
                 $usersQuery->whereIn('id', $scopedUserIds);
+            }
+            // La recherche s'applique à tous les utilisateurs, avant la pagination.
+            if ($tab === 'users') {
+                $search = $request->query('u_search');
+                $this->applyUserSearch($usersQuery, is_string($search) ? $search : '');
             }
             $users = $usersQuery->paginate(20, ['*'], 'users_page');
 

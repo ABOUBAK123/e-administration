@@ -9239,13 +9239,9 @@ function toggleGeminiSecret() {
     $recipientsJson = $recipients->map(fn($r) => ['id'=>$r->id,'name'=>$r->name])->values();
     $subEntJson     = $subEntities->map(fn($s) => ['id'=>$s->id,'name'=>$s->name,'code'=>$s->code,'scope_id'=>$s->scope_id,'scope_type'=>$s->scope_type])->values();
     $profilesJson   = $profilesList->map(fn($p) => ['id'=>$p->id,'name'=>$p->name,'administration_id'=>$p->administration_id,'administration_type'=>$p->administration_type])->values();
-    $filteredUsers  = $usersSearch
-        ? $users->getCollection()->filter(fn($u) => str_contains(strtolower($u->name ?? ''), strtolower($usersSearch))
-            || str_contains(strtolower($u->full_name ?? ''), strtolower($usersSearch))
-            || str_contains(strtolower($u->email ?? ''), strtolower($usersSearch))
-            || str_contains(strtolower($u->role ?? ''), strtolower($usersSearch))
-          )
-        : $users->getCollection();
+    // La recherche est déjà appliquée en base par le contrôleur (tous les utilisateurs, pas seulement la page affichée).
+    $filteredUsers  = $users->getCollection();
+    $usersTotal     = method_exists($users, 'total') ? $users->total() : $users->count();
 @endphp
 
 <div class="space-y-4">
@@ -9254,7 +9250,7 @@ function toggleGeminiSecret() {
   <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center justify-between">
     <div>
       <h2 class="text-base font-semibold text-gray-800">Utilisateurs de l'application</h2>
-      <p class="text-xs text-gray-500 mt-0.5">{{ $filteredUsers->count() }} utilisateur{{ $filteredUsers->count() !== 1 ? 's' : '' }}</p>
+      <p class="text-xs text-gray-500 mt-0.5">{{ $usersTotal }} utilisateur{{ $usersTotal > 1 ? 's' : '' }}{{ $usersSearch ? ' trouvé' . ($usersTotal > 1 ? 's' : '') : '' }}</p>
     </div>
     <button type="button" onclick="openUserModal('create')"
       class="px-4 py-2 bg-[#2453d6] hover:bg-[#1f47bb] text-white text-xs font-semibold rounded-lg transition">
@@ -9274,7 +9270,7 @@ function toggleGeminiSecret() {
       <form method="GET" action="{{ route('admin.index') }}" class="flex items-center gap-2">
         <input type="hidden" name="tab" value="users">
         <input type="text" name="u_search" value="{{ $usersSearch }}"
-          placeholder="Rechercher un utilisateur (nom, email, rôle)..."
+          placeholder="Rechercher par nom, prénoms, e-mail ou rôle..."
           class="w-full md:w-[420px] border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2453d6]">
         @if($usersSearch)
         <a href="{{ route('admin.index', ['tab'=>'users']) }}" class="text-xs text-gray-400 hover:text-gray-600 whitespace-nowrap">✕ Effacer</a>
@@ -9353,7 +9349,7 @@ function toggleGeminiSecret() {
                 ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
                 $editUserPayload = base64_encode($editUserJson !== false ? $editUserJson : '{}');
               @endphp
-              <a href="{{ route('admin.index', ['tab' => 'users', 'u_search' => $usersSearch, 'u_edit' => $u->id, 'u_data' => $editUserPayload, 'page' => request('page')]) }}"
+              <a href="{{ route('admin.index', ['tab' => 'users', 'u_search' => $usersSearch, 'u_edit' => $u->id, 'u_data' => $editUserPayload, 'users_page' => request('users_page')]) }}"
                 data-user="{{ $editUserPayload }}"
                 class="js-user-edit-link text-blue-600 hover:bg-blue-50 rounded p-1.5 transition" title="Modifier">
                 <i class="fas fa-pen text-xs"></i>
