@@ -997,11 +997,7 @@ function renderValidationBlock() {
     const rows = form.validationSteps.map((s,i) => `
         <div class="flex items-center gap-3 bg-white p-3 rounded-xl border border-green-200/60 shadow-sm">
             <span class="h-9 w-9 rounded-full bg-green-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">${i+1}</span>
-            <select ${ro?'disabled':''} data-val-step="${i}" onchange="setValidationAssignee(${i}, this.value)" oninput="setValidationAssignee(${i}, this.value)"
-                class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-400 ${ro?'bg-gray-50':''}">
-                <option value="">— Choisir un validateur —</option>
-                ${USERS.map(u=>`<option value="${u.id}" ${String(getValidationAssignee(s))===String(u.id)?'selected':''}>${esc(u.name)} · ${esc(u.email)}</option>`).join('')}
-            </select>
+            ${renderUserPicker('val', i, getValidationAssignee(s), ro)}
             ${!ro && form.validationSteps.length > 1
                 ? `<button type="button" onclick="removeValStep(${i})" class="p-2 text-red-400 hover:bg-red-50 rounded-lg transition" title="Retirer"><i class="fas fa-times text-sm"></i></button>`
                 : ''}
@@ -1032,11 +1028,7 @@ function renderSignatureBlock() {
     const rows = form.signatureSteps.map((s,i) => `
         <div class="flex items-center gap-3 bg-white p-3 rounded-xl border border-blue-200/60 shadow-sm">
             <span class="h-9 w-9 rounded-full bg-[#2453d6] text-white text-xs font-bold flex items-center justify-center flex-shrink-0">${i+1}</span>
-            <select ${ro?'disabled':''} data-sig-step="${i}" onchange="setSignatureAssignee(${i}, this.value)" oninput="setSignatureAssignee(${i}, this.value)"
-                class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400 ${ro?'bg-gray-50':''}">
-                <option value="">— Choisir un signataire —</option>
-                ${USERS.map(u=>`<option value="${u.id}" ${String(getSignatureAssignee(s))===String(u.id)?'selected':''}>${esc(u.name)} · ${esc(u.email)}</option>`).join('')}
-            </select>
+            ${renderUserPicker('sig', i, getSignatureAssignee(s), ro)}
             ${!ro && form.signatureSteps.length > 1
                 ? `<button type="button" onclick="removeSigStep(${i})" class="p-2 text-red-400 hover:bg-red-50 rounded-lg transition" title="Retirer"><i class="fas fa-times text-sm"></i></button>`
                 : ''}
@@ -1087,15 +1079,150 @@ function setSignatureAssignee(index, value) {
     form.signatureSteps[index].signer_id = value || '';
 }
 
+// ── Choix d'un validateur / signataire par saisie (nom, prénoms ou e-mail) ──
+function userPickerLabel(u) { return u.name + ' · ' + u.email; }
+
+// Comparaison sans accents ni majuscules.
+function userPickerNormalize(text) {
+    return String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+// Chaque mot saisi doit figurer dans le nom ou l'e-mail, dans n'importe quel ordre.
+function userPickerSearch(query) {
+    const words = userPickerNormalize(query).split(/\s+/).filter(Boolean);
+    return USERS.filter(u => {
+        const haystack = userPickerNormalize(u.name + ' ' + u.email);
+        return words.every(w => haystack.includes(w));
+    });
+}
+
+function renderUserPicker(kind, index, selectedId, ro) {
+    const selected = USERS.find(u => String(u.id) === String(selectedId));
+    const text = selected ? userPickerLabel(selected) : (selectedId ? getUserName(selectedId) : '');
+    const role = kind === 'val' ? 'validateur' : 'signataire';
+    const color = kind === 'val' ? 'focus:ring-green-400' : 'focus:ring-blue-400';
+
+    return `<div class="user-picker flex-1 min-w-0">
+        <input type="hidden" data-${kind}-step="${index}" value="${esc(selectedId)}">
+        <input type="text" class="user-picker-input w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 ${color} ${ro?'bg-gray-50':''}"
+            ${ro?'disabled':''} value="${esc(text)}" autocomplete="off" role="combobox" aria-label="Choisir un ${role}"
+            placeholder="Saisir le nom, les prénoms ou l'e-mail du ${role}"
+            oninput="userPickerInput(this)" onfocus="userPickerFocus(this)" onblur="userPickerBlur(this)" onkeydown="userPickerKey(event, this)">
+        <div class="user-picker-list hidden mt-1 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg"></div>
+        <p class="user-picker-hint hidden mt-1 text-xs text-red-500">Sélectionnez une personne dans la liste.</p>
+    </div>`;
+}
+
+function userPickerParts(input) {
+    const box = input.closest('.user-picker');
+    return {
+        hidden: box.querySelector('input[type=hidden]'),
+        list: box.querySelector('.user-picker-list'),
+        hint: box.querySelector('.user-picker-hint'),
+    };
+}
+
+function userPickerSet(input, id) {
+    const { hidden } = userPickerParts(input);
+    hidden.value = id || '';
+    if (hidden.hasAttribute('data-val-step')) setValidationAssignee(Number(hidden.getAttribute('data-val-step')), hidden.value);
+    else setSignatureAssignee(Number(hidden.getAttribute('data-sig-step')), hidden.value);
+}
+
+function userPickerShow(input, query) {
+    const { list } = userPickerParts(input);
+    const found = userPickerSearch(query);
+    list.innerHTML = found.slice(0, 50).map((u, n) => `
+        <button type="button" tabindex="-1" data-id="${esc(u.id)}" onmousedown="event.preventDefault()" onclick="userPickerChoose(this)"
+            class="user-picker-option block w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${n===0?'bg-blue-50':''}">
+            <span class="font-medium text-gray-800">${esc(u.name)}</span>
+            <span class="block text-xs text-gray-500">${esc(u.email)}</span>
+        </button>`).join('')
+        || '<p class="px-3 py-2 text-sm text-gray-400">Aucune personne trouvée.</p>';
+    if (found.length > 50) {
+        list.innerHTML += `<p class="px-3 py-2 text-xs text-gray-400">${found.length - 50} autre(s) : précisez la recherche.</p>`;
+    }
+    list.onmousedown = event => event.preventDefault(); // garde la liste ouverte quand on la fait défiler
+    list.classList.remove('hidden');
+}
+
+function userPickerFocus(input) {
+    const selected = !!userPickerParts(input).hidden.value;
+    if (selected) input.select();
+    userPickerShow(input, selected ? '' : input.value);
+}
+
+function userPickerInput(input) {
+    // Le texte a changé : l'ancienne sélection n'est plus valable.
+    userPickerSet(input, '');
+    userPickerParts(input).hint.classList.add('hidden');
+    userPickerShow(input, input.value);
+}
+
+function userPickerChoose(button) {
+    const input = button.closest('.user-picker').querySelector('.user-picker-input');
+    const user = USERS.find(u => String(u.id) === button.dataset.id);
+    if (!user) return;
+    userPickerSet(input, user.id);
+    input.value = userPickerLabel(user);
+    const { list, hint } = userPickerParts(input);
+    list.classList.add('hidden');
+    hint.classList.add('hidden');
+}
+
+function userPickerBlur(input) {
+    const { hidden, list, hint } = userPickerParts(input);
+    list.classList.add('hidden');
+    const typed = userPickerNormalize(input.value);
+    if (!hidden.value && typed) {
+        // E-mail ou nom complet saisi en entier : sélection automatique s'il n'y a pas d'ambiguïté.
+        const exact = USERS.filter(u => userPickerNormalize(u.email) === typed || userPickerNormalize(u.name) === typed);
+        if (exact.length === 1) {
+            userPickerSet(input, exact[0].id);
+            input.value = userPickerLabel(exact[0]);
+        }
+    }
+    hint.classList.toggle('hidden', !!hidden.value || !typed);
+}
+
+function userPickerKey(event, input) {
+    const { list } = userPickerParts(input);
+    const options = [...list.querySelectorAll('.user-picker-option')];
+    const current = options.findIndex(o => o.classList.contains('bg-blue-50'));
+    const open = !list.classList.contains('hidden');
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (!open) { userPickerShow(input, input.value); return; }
+        if (!options.length) return;
+        const next = (current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+        options.forEach((o, n) => o.classList.toggle('bg-blue-50', n === next));
+        options[next].scrollIntoView({ block: 'nearest' });
+    } else if (event.key === 'Enter') {
+        event.preventDefault();
+        if (open && input.value.trim() && options[current]) userPickerChoose(options[current]);
+    } else if (event.key === 'Escape' && open) {
+        event.preventDefault();
+        event.stopPropagation();
+        list.classList.add('hidden');
+    }
+}
+
+// Un nom saisi sans être choisi dans la liste ne doit pas être ignoré en silence.
+function hasUnmatchedUserPicker() {
+    return [...document.querySelectorAll('.user-picker')].some(box =>
+        box.querySelector('.user-picker-input').value.trim() && !box.querySelector('input[type=hidden]').value);
+}
+
 function syncAttributionFromDom() {
-    document.querySelectorAll('select[data-val-step]').forEach((el) => {
+    document.querySelectorAll('input[data-val-step]').forEach((el) => {
         const i = Number(el.getAttribute('data-val-step'));
         if (Number.isInteger(i) && form.validationSteps[i]) {
             setValidationAssignee(i, el.value || '');
         }
     });
 
-    document.querySelectorAll('select[data-sig-step]').forEach((el) => {
+    document.querySelectorAll('input[data-sig-step]').forEach((el) => {
         const i = Number(el.getAttribute('data-sig-step'));
         if (Number.isInteger(i) && form.signatureSteps[i]) {
             setSignatureAssignee(i, el.value || '');
@@ -2267,6 +2394,9 @@ function nextStep() {
 
     // Étape 2 : avertissement non bloquant (on peut continuer sans sélection)
     if (currentStep === 2) {
+        if (!isViewMode && hasUnmatchedUserPicker()) {
+            showModalError('Sélectionnez chaque validateur ou signataire dans la liste proposée.'); return;
+        }
         syncAttributionFromDom();
         const valOk = form.validationSteps.filter(s => getValidationAssignee(s)).length;
         const sigOk = form.signatureSteps.filter(s => getSignatureAssignee(s)).length;
