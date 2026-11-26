@@ -9824,7 +9824,7 @@ function openUserEditModal(data) {
   // Construire l'URL correcte pour la route PUT
   var userUpdateUrl = _adminBase + '/users-tab/' + data.id;
   document.getElementById('form-user-edit').action = userUpdateUrl;
-  document.getElementById('form-user-edit').method = 'POST'; // Laravel utilise POST avec @method('PUT')
+  document.getElementById('form-user-edit').method = 'POST'; // Laravel simule PUT avec le champ caché _method
   document.getElementById('e-nom').value     = data.nom || '';
   document.getElementById('e-prenoms').value = data.prenoms || '';
   document.getElementById('e-name').value    = data.name || '';
@@ -12388,7 +12388,7 @@ function openProfileEditModal(data) {
         adminTypeEl.value = data.administration_type || '';
         profileAdministrationTypeChange('edit', data.administration_id || '');
     }
-    // set form action (without query params - use method spoofing with @method('PUT'))
+    // set form action (without query params - PUT is spoofed by the hidden _method field)
     document.getElementById('form-profile-edit').action = _adminBase + '/profiles/' + data.id;
     // reset all checkboxes then check the active ones
     document.querySelectorAll('#modal-profile-edit input[type=checkbox]').forEach(cb => cb.checked = false);
