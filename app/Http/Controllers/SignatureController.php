@@ -18,6 +18,7 @@ use App\Models\Notification;
 use App\Services\ClamAvScanner;
 use App\Services\NotificationService;
 use App\Services\SafyClient;
+use App\Services\SignedDocumentArchive;
 use App\Services\Templates\TemplateGenerationCoreService;
 use App\Traits\GuardsPermissions;
 use Illuminate\Http\JsonResponse;
@@ -2345,59 +2346,39 @@ class SignatureController extends Controller
             $dl = $safy->downloadSignedDocuments((string) $platformWorkflowId);
             $pdfContent = $dl['body'];
 
-            // Plusieurs documents => ZIP : on retrouve le PDF de CE document (repère de 8 caractères dans le nom,
-            // sinon position de dépôt), à défaut le premier PDF.
-            if (!empty($dl['is_zip']) && class_exists(ZipArchive::class)) {
-                $tmp = tempnam(sys_get_temp_dir(), 'safy');
-                file_put_contents($tmp, $pdfContent);
-                $zip = new ZipArchive();
-                $pdfContent = '';
-                if ($zip->open($tmp) === true) {
-                    $pdfEntries = [];
-                    for ($i = 0; $i < $zip->numFiles; $i++) {
-                        $entry = (string) $zip->getNameIndex($i);
-                        if (str_ends_with(strtolower($entry), '.pdf')) {
-                            $pdfEntries[] = $entry;
-                        }
-                    }
-                    sort($pdfEntries);
-
-                    $tag = substr(str_replace('-', '', (string) $document->id), 0, 8);
-                    $chosen = null;
-                    foreach ($pdfEntries as $entry) {
-                        if ($tag !== '' && stripos($entry, $tag) !== false) {
-                            $chosen = $entry;
-                            break;
-                        }
-                    }
-                    if ($chosen === null) {
-                        $idx = $execution->step_data['platform_doc_index'] ?? null;
-                        $chosen = (is_int($idx) && isset($pdfEntries[$idx]) && count($pdfEntries) > 1) ? $pdfEntries[$idx] : ($pdfEntries[0] ?? null);
-                        Log::warning('Safy: PDF non retrouvé par nom dans l\'archive', ['execution_id' => $execution->id, 'entries' => $pdfEntries, 'chosen' => $chosen]);
-                    }
-                    if ($chosen !== null) {
-                        $pdfContent = (string) $zip->getFromName($chosen);
-                    }
-                    $zip->close();
+            // Plusieurs documents => archive ZIP (reconnue à son contenu) : on en extrait le PDF de CE document.
+            if (SignedDocumentArchive::isZip($pdfContent)) {
+                $entries = SignedDocumentArchive::pdfEntries($pdfContent);
+                $pdfContent = (string) SignedDocumentArchive::pdfForDocument(
+                    $entries, (string) $document->id, $execution->step_data['platform_doc_index'] ?? null
+                );
+                if ($pdfContent === '') {
+                    Log::error('Safy: PDF du document introuvable dans l\'archive signée', [
+                        'execution_id' => $execution->id, 'document_id' => $document->id, 'entries' => array_keys($entries),
+                    ]);
+                    return;
                 }
-                @unlink($tmp);
             }
             Log::info('Safy: téléchargement document signé', [
                 'execution_id' => $execution->id,
                 'platform_workflow_id' => $platformWorkflowId,
                 'content_type' => $dl['content_type'],
             ]);
-            if (empty($pdfContent) || strlen($pdfContent) < 100) {
-                Log::warning('SunnyStamp: document signé vide ou trop petit', [
+            // Ne jamais enregistrer sous un nom .pdf un contenu qui n'en est pas un.
+            if (!SignedDocumentArchive::isPdf($pdfContent)) {
+                Log::error('Safy: la réponse n\'est pas un PDF, document signé non enregistré', [
                     'execution_id' => $execution->id,
+                    'content_type' => $dl['content_type'],
                     'size' => strlen($pdfContent),
+                    'debut' => bin2hex(substr($pdfContent, 0, 16)),
                 ]);
                 return;
             }
 
             // Sauvegarder dans storage/app/public/signed_documents/
             $originalName = pathinfo($document->file_path ?? 'document.pdf', PATHINFO_FILENAME);
-            $filename     = 'signed_' . $originalName . '_' . now()->format('Ymd_His') . '.pdf';
+            // Le repère du document évite que deux fichiers signés à la même seconde s'écrasent.
+            $filename     = 'signed_' . $originalName . '_' . now()->format('Ymd_His') . '_' . substr(str_replace('-', '', (string) $document->id), -6) . '.pdf';
             $storagePath  = 'signed_documents/' . $filename;
 
             Storage::disk('public')->makeDirectory('signed_documents');
