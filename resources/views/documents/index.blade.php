@@ -1121,7 +1121,8 @@ function renderTable() {
 function showStorageUsage(usage) {
     const unlimited = usage.quota === null;
     const percent = unlimited ? 0 : usage.percent;
-    const level = percent >= 90 ? '#dc2626' : percent >= 75 ? '#d97706' : '#2453d6';
+    // Vert, puis orange à partir de 75 %, puis rouge à partir de 90 % (espace presque plein).
+    const level = percent >= 90 ? '#dc2626' : percent >= 75 ? '#f97316' : '#16a34a';
     const percentLabel = percent > 0 && percent < 1 ? 'moins de 1 %' : `${Math.round(percent)} %`;
 
     document.getElementById('storageText').textContent = unlimited
