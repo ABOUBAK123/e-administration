@@ -116,7 +116,7 @@ class WorkflowController extends Controller
                 'requested_to' => $step->assignee_id,
                 'message'      => "Workflow: {$workflow->name} — Étape {$step->order}: " . ($step->name ?? 'Action requise'),
                 'status'       => 'pending',
-                'zone_page'    => $zone['page']   ?? null,
+                'zone_page'    => $zone['page']   ?? 1,
                 'zone_x'       => $zone['x']      ?? null,
                 'zone_y'       => $zone['y']      ?? null,
                 'zone_width'   => $zone['width']  ?? $zone['w'] ?? null,

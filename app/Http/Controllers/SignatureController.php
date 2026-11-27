@@ -361,7 +361,7 @@ class SignatureController extends Controller
                 'requested_to' => $step->assignee_id,
                 'message'      => "Workflow: {$workflow->name} — Étape {$step->order}: " . ($step->name ?? 'Action requise'),
                 'status'       => 'pending',
-                'zone_page'    => $zone['page']   ?? null,
+                'zone_page'    => $zone['page']   ?? 1,
                 'zone_x'       => $zone['x']      ?? null,
                 'zone_y'       => $zone['y']      ?? null,
                 'zone_width'   => $zone['width']  ?? $zone['w'] ?? null,
@@ -1291,6 +1291,14 @@ class SignatureController extends Controller
 
             $totalSteps = $steps->count();
             $nextStep   = $currentStep + 1;
+
+            if ($isSignatureStep && $execution->document_id) {
+                SignatureRequest::query()
+                    ->where('document_id', $execution->document_id)
+                    ->where('requested_to', $userId)
+                    ->where('status', 'pending')
+                    ->update(['status' => 'signed', 'responded_at' => now()]);
+            }
 
             if ($nextStep > $totalSteps) {
                 // Dernière étape : terminer le workflow

@@ -113,7 +113,7 @@ async function verifyToken() {
                 doc.administration  ? `<tr><th class="text-left py-1 pr-4 text-gray-500 font-medium">Administration</th><td class="py-1">${esc(doc.administration)}</td></tr>` : '',
                 doc.owner           ? `<tr><th class="text-left py-1 pr-4 text-gray-500 font-medium">Généré par</th><td class="py-1">${esc(doc.owner)}</td></tr>` : '',
                 doc.created_at      ? `<tr><th class="text-left py-1 pr-4 text-gray-500 font-medium">Date de génération</th><td class="py-1">${esc(doc.created_at)}</td></tr>` : '',
-                data.signer         ? `<tr><th class="text-left py-1 pr-4 text-gray-500 font-medium">Signataire</th><td class="py-1 font-semibold text-emerald-700">${esc(data.signer.name)}</td></tr>` : '',
+                signersRow(data.signers),
                 (data.signed_at || doc.signed_at) ? `<tr><th class="text-left py-1 pr-4 text-gray-500 font-medium">Signé le</th><td class="py-1 font-semibold text-emerald-700">${esc(data.signed_at || doc.signed_at)}</td></tr>` : '',
             ].filter(Boolean).join('');
 
@@ -175,6 +175,14 @@ async function verifyToken() {
     }
 }
 
+// Ligne du tableau listant tous les signataires, avec la date de chacun s'ils sont plusieurs.
+function signersRow(signers) {
+    if (!signers || !signers.length) return '';
+    const several = signers.length > 1;
+    const items = signers.map(s => `<div>${esc(s.name)}${several && s.signed_at ? ` <span class="text-xs font-normal text-gray-500">— le ${esc(s.signed_at)}</span>` : ''}</div>`).join('');
+    return `<tr><th class="text-left align-top py-1 pr-4 text-gray-500 font-medium">${several ? `Signataires (${signers.length})` : 'Signataire'}</th><td class="py-1 font-semibold text-emerald-700">${items}</td></tr>`;
+}
+
 async function verifyDocumentNumber() {
     const numberInput = document.getElementById('verify-number');
     const documentNumber = numberInput.value.trim();
@@ -220,7 +228,7 @@ async function verifyDocumentNumber() {
                 doc.administration  ? `<tr><th class="text-left py-1 pr-4 text-gray-500 font-medium">Administration</th><td class="py-1">${esc(doc.administration)}</td></tr>` : '',
                 doc.owner           ? `<tr><th class="text-left py-1 pr-4 text-gray-500 font-medium">Généré par</th><td class="py-1">${esc(doc.owner)}</td></tr>` : '',
                 doc.created_at      ? `<tr><th class="text-left py-1 pr-4 text-gray-500 font-medium">Date de génération</th><td class="py-1">${esc(doc.created_at)}</td></tr>` : '',
-                data.signer         ? `<tr><th class="text-left py-1 pr-4 text-gray-500 font-medium">Signataire</th><td class="py-1 font-semibold text-emerald-700">${esc(data.signer.name)}</td></tr>` : '',
+                signersRow(data.signers),
                 (data.signed_at || doc.signed_at) ? `<tr><th class="text-left py-1 pr-4 text-gray-500 font-medium">Signé le</th><td class="py-1 font-semibold text-emerald-700">${esc(data.signed_at || doc.signed_at)}</td></tr>` : '',
             ].filter(Boolean).join('');
 

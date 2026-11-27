@@ -118,13 +118,21 @@
 
                 {{-- Signature info --}}
                 <div class="bg-emerald-50 border-t border-emerald-200 divide-y divide-emerald-100">
-                    @if($lastSignature?->signer || $document->signed_at)
-                    @if($lastSignature?->signer)
-                    <div class="flex items-center gap-3 px-5 py-3">
+                    @if(count($signers))
+                    <div class="flex gap-3 px-5 py-3">
                         <div class="w-8 flex-shrink-0 text-center"><i class="fas fa-pen-nib text-emerald-500 text-xs"></i></div>
-                        <div class="min-w-0">
-                            <div class="text-xs text-emerald-600 font-semibold">Signataire</div>
-                            <div class="text-sm font-bold text-emerald-800">{{ $lastSignature->signer->name }}</div>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-xs text-emerald-600 font-semibold">{{ count($signers) > 1 ? 'Signataires (' . count($signers) . ')' : 'Signataire' }}</div>
+                            <ul class="space-y-2 mt-1">
+                                @foreach($signers as $signer)
+                                <li>
+                                    <div class="text-sm font-bold text-emerald-800">{{ $signer['name'] }}</div>
+                                    @if($signer['signed_at'] && count($signers) > 1)
+                                    <div class="text-xs text-gray-500">Signé le {{ $signer['signed_at']->format('d/m/Y à H:i') }}</div>
+                                    @endif
+                                </li>
+                                @endforeach
+                            </ul>
                         </div>
                     </div>
                     @endif
@@ -136,7 +144,6 @@
                             <div class="text-sm font-bold text-emerald-800">{{ $document->signed_at instanceof \Carbon\Carbon ? $document->signed_at->format('d/m/Y à H:i') : \Carbon\Carbon::parse($document->signed_at)->format('d/m/Y à H:i') }}</div>
                         </div>
                     </div>
-                    @endif
                     @endif
                 </div>
             </div>

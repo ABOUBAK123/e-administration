@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Document;
 use App\Models\DocumentVersion;
 use App\Models\Signature;
+use App\Services\DocumentSignerList;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -306,6 +307,24 @@ class QrVerificationController extends Controller
         return $this->buildDownloadResponse($document);
     }
 
+    private function isSigned(Document $document): bool
+    {
+        return !empty($document->signed_file_path)
+            || $document->status === 'signed'
+            || (!empty($document->final_file_path)
+                && strtolower((string) pathinfo((string) $document->final_file_path, PATHINFO_EXTENSION)) === 'pdf'
+                && $document->signed_at !== null);
+    }
+
+    /** @return list<array{name: string, signed_at: string|null}> */
+    private function signersForJson(Document $document): array
+    {
+        return array_map(fn (array $signer) => [
+            'name'      => $signer['name'],
+            'signed_at' => $signer['signed_at']?->format('d/m/Y à H:i'),
+        ], app(DocumentSignerList::class)->for($document));
+    }
+
     public function index()
     {
         // Pré-remplir le token depuis l'URL ?token=...
@@ -326,9 +345,8 @@ class QrVerificationController extends Controller
             ->where('qr_token', $token)
             ->first();
 
-        $signatureModel = null;
         if (!$document) {
-            $signatureModel = Signature::with(['document' => fn($q) => $q->withTrashed()->with(['owner', 'issuingAdministration']), 'signer'])
+            $signatureModel = Signature::with(['document' => fn($q) => $q->withTrashed()->with(['owner', 'issuingAdministration'])])
                 ->where('qr_code_token', $token)
                 ->first();
             $document = $signatureModel?->document;
@@ -337,27 +355,15 @@ class QrVerificationController extends Controller
         abort_if(!$document, 404, 'Document introuvable');
 
         // Statut de signature
-        $isSigned = !empty($document->signed_file_path)
-            || $document->status === 'signed'
-            || (!empty($document->final_file_path)
-                && strtolower((string) pathinfo((string) $document->final_file_path, PATHINFO_EXTENSION)) === 'pdf'
-                && $document->signed_at !== null);
+        $isSigned = $this->isSigned($document);
 
-        // Dernière signature valide
-        $lastSignature = $signatureModel;
-        if (!$lastSignature && $isSigned) {
-            $lastSignature = Signature::with('signer')
-                ->where('document_id', $document->id)
-                ->where('status', 'valid')
-                ->orderByDesc('signed_at')
-                ->first();
-        }
+        $signers = $isSigned ? app(DocumentSignerList::class)->for($document) : [];
 
         $ext         = $isSigned ? 'pdf' : (pathinfo((string) ($document->file_path ?? ''), PATHINFO_EXTENSION) ?: 'pdf');
         $filename    = $this->getSafeDownloadFilename($document, $ext);
         $downloadUrl = route('qr.download', ['token' => $token, 'filename' => $filename]);
 
-        return view('qr-verification.public', compact('document', 'isSigned', 'lastSignature', 'downloadUrl', 'token'));
+        return view('qr-verification.public', compact('document', 'isSigned', 'signers', 'downloadUrl', 'token'));
     }
 
     /**
@@ -377,15 +383,8 @@ class QrVerificationController extends Controller
             ->first();
 
         if ($document) {
-            $isSigned = !empty($document->signed_file_path) || (!empty($document->final_file_path) && strtolower((string) pathinfo((string) $document->final_file_path, PATHINFO_EXTENSION)) === 'pdf');
-            $lastSignature = null;
-            if ($isSigned) {
-                $lastSignature = \App\Models\Signature::with('signer')
-                    ->where('document_id', $document->id)
-                    ->where('status', 'valid')
-                    ->orderByDesc('signed_at')
-                    ->first();
-            }
+            $isSigned = $this->isSigned($document);
+
             $currentUserId = (string) (auth()->id() ?? '');
             $isOwner = $currentUserId !== '' && (
                 (string) $document->owner_id === $currentUserId ||
@@ -410,7 +409,7 @@ class QrVerificationController extends Controller
                     'administration'  => $document->issuingAdministration?->name,
                     'signed_at'       => $document->signed_at?->format('d/m/Y à H:i'),
                 ],
-                'signer'          => $lastSignature ? ['name' => $lastSignature->signer?->name ?? 'Signataire'] : null,
+                'signers'         => $isSigned ? $this->signersForJson($document) : [],
                 'signed_at'       => $document->signed_at?->format('d/m/Y à H:i'),
                 'download_url'    => $downloadUrl,
                 'message'         => $isSigned
@@ -420,7 +419,7 @@ class QrVerificationController extends Controller
         }
 
         // 2) Fallback : chercher une signature QR
-        $signature = Signature::with(['document' => fn ($query) => $query->withTrashed(), 'signer'])
+        $signature = Signature::with(['document' => fn ($query) => $query->withTrashed()])
             ->where('qr_code_token', $token)
             ->first();
 
@@ -446,7 +445,7 @@ class QrVerificationController extends Controller
                     'document_number' => $sigDoc->document_number,
                     'created_at'      => $sigDoc->created_at?->format('d/m/Y à H:i'),
                 ],
-                'signer'       => ['name' => $signature->signer?->name],
+                'signers'      => $this->signersForJson($sigDoc),
                 'signed_at'    => $signature->signed_at?->format('d/m/Y à H:i'),
                 'status'       => $signature->status,
                 'download_url' => $downloadUrl,
@@ -484,20 +483,7 @@ class QrVerificationController extends Controller
             ], 404);
         }
 
-        $isSigned = !empty($document->signed_file_path)
-            || $document->status === 'signed'
-            || (!empty($document->final_file_path)
-                && strtolower((string) pathinfo((string) $document->final_file_path, PATHINFO_EXTENSION)) === 'pdf'
-                && $document->signed_at !== null);
-
-        $lastSignature = null;
-        if ($isSigned) {
-            $lastSignature = Signature::with('signer')
-                ->where('document_id', $document->id)
-                ->where('status', 'valid')
-                ->orderByDesc('signed_at')
-                ->first();
-        }
+        $isSigned = $this->isSigned($document);
 
         $ext = $isSigned ? 'pdf' : (pathinfo((string) $document->file_path, PATHINFO_EXTENSION) ?: 'pdf');
         $filename = $this->getSafeDownloadFilename($document, $ext);
@@ -530,7 +516,7 @@ class QrVerificationController extends Controller
                 'owner' => $document->owner?->name,
                 'administration' => $document->issuingAdministration?->name,
             ],
-            'signer' => $lastSignature ? ['name' => $lastSignature->signer?->name ?? 'Signataire'] : null,
+            'signers' => $isSigned ? $this->signersForJson($document) : [],
             'signed_at' => $document->signed_at?->format('d/m/Y à H:i'),
             'download_url' => $downloadUrl,
             'preview_url' => $isOwner ? $downloadUrl : null,
