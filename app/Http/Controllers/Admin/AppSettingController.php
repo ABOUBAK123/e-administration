@@ -77,6 +77,11 @@ class AppSettingController extends Controller
             ARRAY_FILTER_USE_KEY
         );
 
+        // Le serveur OnlyOffice global n'est pas modifiable par un admin rattaché à un profil.
+        if (auth()->user()->profile_id) {
+            unset($filtered['app_public_url'], $filtered['onlyoffice_server_url'], $filtered['onlyoffice_secret'], $filtered['onlyoffice_doc_viewer']);
+        }
+
         foreach (array_keys($validated) as $k) {
             if (array_key_exists($k, $filtered) && ($filtered[$k] === null || $filtered[$k] === '')) {
                 unset($filtered[$k]);

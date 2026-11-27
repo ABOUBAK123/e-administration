@@ -6049,6 +6049,7 @@ document.getElementById('motif-popup').addEventListener('click', function(e) {
         }
 
         if (oldScript) oldScript.remove();
+        window.DocsAPI = undefined; // le serveur peut changer d'un modèle à l'autre
 
         var script = document.createElement('script');
         script.id  = 'oo-api-script';
@@ -8713,6 +8714,9 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
   </div>
 
+  @include('admin.partials.onlyoffice-server')
+
+  @if(!$adminScope)
   {{-- Choix du lecteur de documents --}}
   <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
     <h3 class="text-lg font-bold text-gray-900 mb-1">Lecteur de documents</h3>
@@ -8750,16 +8754,20 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
   </div>
 
+  @endif
+
   {{-- Formulaire paramètres serveur --}}
   <form method="POST" action="{{ route('admin.settings.save') }}" class="space-y-6">
     @csrf @method('PUT')
     <input type="hidden" name="tab" value="onlyoffice">
+    @if(!$adminScope)
     <input type="hidden" name="onlyoffice_doc_viewer" id="oo-viewer-input" value="{{ old('onlyoffice_doc_viewer', $ooViewer) }}">
 
     {{-- Paramètres serveur --}}
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-5">
       <div>
-        <h3 class="text-lg font-bold text-gray-900 mb-1">Paramètres du serveur</h3>
+        <h3 class="text-lg font-bold text-gray-900 mb-1">Serveur global (par défaut)</h3>
+        <p class="text-sm text-gray-500 mb-1">Utilisé par les administrations qui n'ont pas leur propre serveur.</p>
         <p class="text-sm text-gray-500">
           L'emplacement du ONLYOFFICE Docs désigne l'adresse du serveur sur lequel est installé
           le service de document. Veuillez remplacer <code class="text-xs bg-gray-100 px-1 rounded">&lt;documentserver&gt;</code>
@@ -8843,6 +8851,8 @@ document.addEventListener('DOMContentLoaded', function () {
         </div>
       </div>
     </div>
+
+    @endif
 
     {{-- Position du QR code --}}
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">

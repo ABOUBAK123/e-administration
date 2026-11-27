@@ -602,16 +602,12 @@ class CourrierController extends Controller
      */
     private function viewerConfig(): array
     {
-        $settings = AppSetting::whereIn('key', [
-            'onlyoffice_doc_viewer',
-            'onlyoffice_server_url',
-            'onlyoffice_secret',
-        ])->pluck('value', 'key');
+        $server = app(\App\Services\OnlyOfficeServerResolver::class)->forUser(Auth::user());
 
         return [
-            'viewer'    => $settings['onlyoffice_doc_viewer'] ?? 'native',
-            'oo_url'    => rtrim($settings['onlyoffice_server_url'] ?? '', '/'),
-            'oo_secret' => $settings['onlyoffice_secret'] ?? '',
+            'viewer'    => AppSetting::where('key', 'onlyoffice_doc_viewer')->value('value') ?? 'native',
+            'oo_url'    => $server->url,
+            'oo_secret' => $server->secret,
         ];
     }
 

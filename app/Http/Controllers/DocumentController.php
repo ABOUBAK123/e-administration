@@ -17,6 +17,8 @@ use App\Models\AdministrationProfile;
 use App\Models\AdministrationSmtpSetting;
 use App\Services\ClamAvScanner;
 use App\Services\NotificationService;
+use App\Services\OnlyOfficeServer;
+use App\Services\OnlyOfficeServerResolver;
 use App\Services\StorageUsageService;
 use Dompdf\Dompdf;
 use Dompdf\Options;
@@ -317,8 +319,6 @@ class DocumentController extends Controller
             })
             ->values();
 
-        $onlyofficeUrl = AppSetting::where('key', 'onlyoffice_server_url')->value('value') ?: '';
-
         $actValidationByDocument = [];
         $documentIds = $documents->pluck('id')->map(fn ($id) => (string) $id)->values();
         if ($documentIds->isNotEmpty()) {
@@ -361,7 +361,6 @@ class DocumentController extends Controller
             'recipientAdministrations',
             'internalUsers',
             'internalSubEntities',
-            'onlyofficeUrl',
             'documentAccessPermissions',
             'nextCourrierDepart',
             'actValidationByDocument',
@@ -1179,39 +1178,20 @@ class DocumentController extends Controller
         // 2 = must save, 6 = must force save (OnlyOffice callbacks)
         if (in_array($status, [2, 6], true) && $fileUrl !== '') {
             // ── Validation SSRF : l'URL doit provenir du serveur OO configuré ──
-            $ooServerUrl = (string) AppSetting::where('key', 'onlyoffice_server_url')->value('value');
-            if ($ooServerUrl !== '') {
-                $ooHost   = parse_url(rtrim($ooServerUrl, '/'), PHP_URL_HOST);
-                $fileHost = parse_url($fileUrl, PHP_URL_HOST);
-                if (!$ooHost || !$fileHost || strtolower((string) $ooHost) !== strtolower((string) $fileHost)) {
-                    Log::warning('OnlyOffice callback: URL rejetée (hôte non autorisé)', [
-                        'document_id'  => (string) $document->id,
-                        'allowed_host' => $ooHost,
-                        'received_host'=> $fileHost,
-                    ]);
-                    return response()->json(['error' => 0]);
-                }
-            }
-
             try {
-                $response = Http::timeout(60)->get($fileUrl);
-                if ($response->successful()) {
-                    $path = ltrim(str_replace('/storage/', '', (string) $document->file_path), '/');
-                    Storage::disk('public')->put($path, $response->body());
-                    $document->touch();
-                } else {
-                    Log::warning('OnlyOffice callback download failed', [
-                        'document_id' => (string) $document->id,
-                        'status' => $status,
-                        'http_status' => $response->status(),
-                    ]);
-                }
+                $resolver = app(OnlyOfficeServerResolver::class);
+                $content = $resolver->download($resolver->forDocument($document), $fileUrl);
+                $path = ltrim(str_replace('/storage/', '', (string) $document->file_path), '/');
+                Storage::disk('public')->put($path, $content);
+                $document->touch();
             } catch (\Throwable $e) {
-                Log::error('OnlyOffice callback exception', [
+                Log::warning('OnlyOffice callback : document non enregistré', [
                     'document_id' => (string) $document->id,
                     'status' => $status,
                     'message' => $e->getMessage(),
                 ]);
+                // Signale l'échec à OnlyOffice au lieu de laisser croire que le document est enregistré.
+                return response()->json(['error' => 1]);
             }
         }
 
@@ -2125,8 +2105,9 @@ class DocumentController extends Controller
         }
         $canEdit = $canManageDocument || $sharePermission === 'modification';
 
-        $onlyofficeUrl    = AppSetting::where('key', 'onlyoffice_server_url')->value('value') ?: '';
-        $onlyofficeSecret = AppSetting::where('key', 'onlyoffice_secret')->value('value') ?: '';
+        $server           = app(OnlyOfficeServerResolver::class)->forDocument($doc);
+        $onlyofficeUrl    = $server->url;
+        $onlyofficeSecret = $server->secret;
         $appPublicUrl     = AppSetting::where('key', 'app_public_url')->value('value') ?: '';
 
         if (!$onlyofficeUrl) {
@@ -2335,7 +2316,7 @@ class DocumentController extends Controller
             }
         }
 
-        $pdfAbsPath = $this->convertOfficeToPdf($absOfficePath);
+        $pdfAbsPath = $this->convertOfficeToPdf($absOfficePath, app(OnlyOfficeServerResolver::class)->forDocument($document));
         if (!$pdfAbsPath || !file_exists($pdfAbsPath) || $this->isSuspiciousPdf($pdfAbsPath)) {
             if ($pdfAbsPath && file_exists($pdfAbsPath)) {
                 @unlink($pdfAbsPath);
@@ -2619,7 +2600,7 @@ class DocumentController extends Controller
         }
     }
 
-    private function convertOfficeToPdf(string $absOfficePath): ?string
+    private function convertOfficeToPdf(string $absOfficePath, OnlyOfficeServer $server): ?string
     {
         $tmpOutDir = storage_path('app/tmp/pdf-convert');
         if (!is_dir($tmpOutDir)) {
@@ -2687,143 +2668,46 @@ class DocumentController extends Controller
             ]);
         }
 
+        $tmpPath = null;
         try {
-            $ooUrl    = rtrim((string) AppSetting::where('key', 'onlyoffice_server_url')->value('value'), '/');
-            $ooSecret = (string) AppSetting::where('key', 'onlyoffice_secret')->value('value');
-            $appUrl   = rtrim((string) AppSetting::where('key', 'app_public_url')->value('value'), '/');
+            $appUrl = rtrim((string) AppSetting::where('key', 'app_public_url')->value('value'), '/');
 
-            if (empty($ooUrl) || empty($appUrl)) {
+            if ($server->url === '' || $appUrl === '') {
                 Log::warning('OnlyOffice not configured', [
-                    'ooUrl' => empty($ooUrl) ? 'EMPTY' : 'SET',
-                    'appUrl' => empty($appUrl) ? 'EMPTY' : 'SET',
+                    'ooUrl' => $server->url === '' ? 'EMPTY' : 'SET',
+                    'appUrl' => $appUrl === '' ? 'EMPTY' : 'SET',
                 ]);
                 return null;
             }
 
-            $ext      = strtolower(pathinfo($absOfficePath, PATHINFO_EXTENSION));
-            $convKey  = md5(pathinfo($absOfficePath, PATHINFO_FILENAME) . time());
+            $ext = strtolower(pathinfo($absOfficePath, PATHINFO_EXTENSION));
 
-            // Essayer la conversion avec URL API (évite problèmes d'accès /storage/)
-            $tmpDir  = 'tmp-convert';
-            $tmpName = uniqid('conv_', true) . '.' . $ext;
-            $fileContent = file_get_contents($absOfficePath);
-            Storage::disk('public')->put($tmpDir . '/' . $tmpName, $fileContent);
-            $fileUrl = $appUrl . '/api/tmp-convert/' . $tmpName;
+            // Publier le fichier source le temps de la conversion pour qu'OnlyOffice puisse le lire.
+            $tmpPath = 'tmp-convert/' . uniqid('conv_', true) . '.' . $ext;
+            Storage::disk('public')->put($tmpPath, file_get_contents($absOfficePath));
 
-            $payload = [
+            $pdfContent = app(OnlyOfficeServerResolver::class)->convertToPdf($server, [
                 'async' => false,
                 'embeddedfonts' => true,
                 'filetype' => $ext,
-                'key' => $convKey,
+                'key' => md5($tmpPath . time()),
                 'outputtype' => 'pdf',
                 'title' => pathinfo($absOfficePath, PATHINFO_FILENAME) . '.pdf',
-                'url' => $fileUrl,
-            ];
-
-            Log::info('OnlyOffice conversion request', [
-                'fileUrl' => $fileUrl,
-                'filetype' => $ext,
-                'ooUrl' => $ooUrl,
+                'url' => $appUrl . '/storage/' . $tmpPath,
             ]);
-
-            $headers = ['Authorization: Bearer '];
-            if (!empty($ooSecret)) {
-                $jwtHeader  = rtrim(strtr(base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT'])), '+/', '-_'), '=');
-                $jwtBody    = rtrim(strtr(base64_encode(json_encode(['payload' => $payload])), '+/', '-_'), '=');
-                $jwtSig     = rtrim(strtr(base64_encode(hash_hmac('sha256', "$jwtHeader.$jwtBody", $ooSecret, true)), '+/', '-_'), '=');
-                $jwt        = "$jwtHeader.$jwtBody.$jwtSig";
-                $headers    = ['Authorization: Bearer ' . $jwt, 'Accept: application/json'];
-            }
-
-            $ch = curl_init($ooUrl . '/ConvertService.ashx');
-            curl_setopt_array($ch, [
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => json_encode($payload),
-                CURLOPT_HTTPHEADER => array_merge(['Content-Type: application/json'], $headers),
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 120,
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => 0,
-                CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_MAXREDIRS => 5,
-            ]);
-            $body = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-
-            if (!$body) {
-                Log::warning('OnlyOffice conversion response empty', ['filetype' => $ext, 'httpCode' => $httpCode]);
-                return null;
-            }
-
-            $pdfUrl = null;
-
-            // Essayer JSON d'abord (format moderne d'OnlyOffice)
-            $jsonData = @json_decode($body, true);
-            if ($jsonData && isset($jsonData['fileUrl'])) {
-                $pdfUrl = (string)$jsonData['fileUrl'];
-                Log::info('OnlyOffice conversion response JSON', ['fileUrl' => $pdfUrl, 'filetype' => $ext]);
-            } else {
-                // Essayer XML (ancien format)
-                $xml = @simplexml_load_string($body);
-                if ($xml) {
-                    $error = $xml->Error ?? null;
-                    if ($error && (int)$error !== 0) {
-                        Log::warning('OnlyOffice conversion error', [
-                            'filetype' => $ext,
-                            'error' => (string)$error,
-                            'response' => $body,
-                        ]);
-                        return null;
-                    }
-                    $pdfUrl = (string)($xml->FileUrl ?? null);
-                    if ($pdfUrl) {
-                        Log::info('OnlyOffice conversion response XML', ['fileUrl' => $pdfUrl, 'filetype' => $ext]);
-                    }
-                } else {
-                    Log::warning('OnlyOffice conversion response invalid', ['filetype' => $ext, 'body' => substr($body, 0, 500)]);
-                }
-            }
-
-            if (!$pdfUrl) {
-                Log::warning('OnlyOffice conversion failed - no fileUrl', [
-                    'response' => $body,
-                    'filetype' => $ext,
-                ]);
-                return null;
-            }
-
-            $pdfContent = @file_get_contents($pdfUrl);
-            if (!$pdfContent) {
-                $ch2 = curl_init($pdfUrl);
-                curl_setopt_array($ch2, [
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT => 60,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                    CURLOPT_SSL_VERIFYHOST => 0,
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_MAXREDIRS => 5,
-                ]);
-                $pdfContent = curl_exec($ch2);
-                curl_close($ch2);
-            }
-
-            if (!$pdfContent) {
-                Log::warning('OnlyOffice PDF download failed', ['pdfUrl' => $pdfUrl]);
-                Storage::disk('public')->delete($tmpDir . '/' . $tmpName);
-                return null;
-            }
 
             $localPdf = storage_path('app/tmp/pdf-convert/' . pathinfo($absOfficePath, PATHINFO_FILENAME) . '_oo.pdf');
             @mkdir(dirname($localPdf), 0755, true);
             file_put_contents($localPdf, $pdfContent);
 
-            Storage::disk('public')->delete($tmpDir . '/' . $tmpName);
-
             return $localPdf;
         } catch (\Throwable $e) {
             Log::warning('Document convertOfficeToPdf failed', ['error' => $e->getMessage()]);
             return null;
+        } finally {
+            if ($tmpPath !== null) {
+                Storage::disk('public')->delete($tmpPath);
+            }
         }
     }
 

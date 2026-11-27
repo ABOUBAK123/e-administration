@@ -395,6 +395,9 @@ Route::middleware('auth')->group(function () {
         Route::post('/signature-provider', [AdminController::class, 'saveSignatureProvider'])->name('signature-provider.save');
         Route::post('/signature-provider/test', [AdminController::class, 'testSignatureConnection'])->name('signature-provider.test');
         Route::post('/onlyoffice-token', [AdminController::class, 'onlyofficeToken'])->name('onlyoffice.token');
+        Route::post('/onlyoffice-server', [AdminController::class, 'saveOnlyofficeServer'])->name('onlyoffice-server.save');
+        Route::post('/onlyoffice-server/test', [AdminController::class, 'testOnlyofficeServer'])->name('onlyoffice-server.test');
+        Route::delete('/onlyoffice-server', [AdminController::class, 'deleteOnlyofficeServer'])->name('onlyoffice-server.delete');
         Route::middleware('admin:personnel.employees')->group(function () {
             Route::post('/personnel/employees', [AdminController::class, 'storePersonnelEmployee'])->name('personnel.employees.store');
             Route::get('/personnel/employees/template', [AdminController::class, 'downloadPersonnelEmployeesTemplate'])->name('personnel.employees.template');

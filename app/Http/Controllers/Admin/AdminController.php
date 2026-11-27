@@ -35,6 +35,8 @@ use App\Models\UserDirectionAssignment;
 use App\Models\SignatureProviderConfig;
 use App\Models\MobileMoneyProviderConfig;
 use App\Models\AdministrationSmtpSetting;
+use App\Models\OnlyOfficeServerConfig;
+use App\Services\OnlyOfficeServerResolver;
 use App\Models\PersonnelEmployee;
 use App\Models\PersonnelEmployeeDocument;
 use App\Models\ClamAvScanLog;
@@ -714,6 +716,7 @@ class AdminController extends Controller
         $shareMap       = [];
         $onlyofficeUrl  = '';
         $onlyofficeSecret = '';
+        $ooServerConfigs = collect();
         $dirAssignments = collect();
         $sigProviders   = collect();
         $courrierArchivalDays = 0;
@@ -944,8 +947,14 @@ class AdminController extends Controller
             $allUsers       = User::select('id','name','email')->latest()->get();
             $shareMapRaw    = AppSetting::where('key', 'template_share_map')->value('value');
             $shareMap       = json_decode($shareMapRaw ?: '{}', true) ?: [];
-            $onlyofficeUrl  = AppSetting::where('key', 'onlyoffice_server_url')->value('value') ?: '';
-            $onlyofficeSecret = AppSetting::where('key', 'onlyoffice_secret')->value('value') ?: '';
+            $ooServer = app(OnlyOfficeServerResolver::class)->forAdministration($adminScope['id'] ?? null, $adminScope['type'] ?? null);
+            $onlyofficeUrl    = $ooServer->url;
+            $onlyofficeSecret = $ooServer->secret;
+            if ($tab === 'onlyoffice' && Schema::hasTable('onlyoffice_server_configs')) {
+                $ooServerConfigs = OnlyOfficeServerConfig::query()
+                    ->when($adminScope, fn ($q) => $q->where('administration_id', $adminScope['id'])->where('administration_type', $adminScope['type']))
+                    ->get();
+            }
 
             // ── Assignments de direction ──────────────────────────────────────
             $dirAssignQuery = UserDirectionAssignment::query();
@@ -1237,7 +1246,7 @@ class AdminController extends Controller
             'templates', 'emitters', 'recipients',
             'directionTypes', 'subEntities', 'requestedActs', 'requestedActTemplates', 'routingRules', 'profiles', 'profilesList',
             'instructions',
-            'allUsers', 'shareMap', 'onlyofficeUrl', 'onlyofficeJwt', 'appPublicUrl', 'dirAssignments',
+            'allUsers', 'shareMap', 'onlyofficeUrl', 'onlyofficeJwt', 'appPublicUrl', 'ooServerConfigs', 'dirAssignments',
             'sameAdminRoutingUsers',
             'sigProviders', 'mobileMoneyConfigs', 'courrierArchivalDays', 'receptionArchivalDays', 'adminScope',
             'personnelEmployees', 'personnelEmployeeDirectory', 'selectedPersonnelEmployee', 'personnelStats', 'personnelDashboard',
@@ -3405,13 +3414,14 @@ class AdminController extends Controller
     // ── Token OnlyOffice (API, génère un JWT frais pour un document) ──────────
     public function onlyofficeToken(Request $request)
     {
-        $onlyofficeSecret = AppSetting::where('key', 'onlyoffice_secret')->value('value') ?: '';
+        $server = app(OnlyOfficeServerResolver::class)->forUser(auth()->user());
+        $onlyofficeSecret = $server->secret;
         if (!$onlyofficeSecret) {
             return response()->json(['token' => '', 'docUrl' => ''], 200);
         }
 
         $appPublicUrl = AppSetting::where('key', 'app_public_url')->value('value') ?: '';
-        $onlyofficeUrl = AppSetting::where('key', 'onlyoffice_server_url')->value('value') ?: '';
+        $onlyofficeUrl = $server->url;
         $docKey       = $request->input('key', 'doc-' . time());
         $docUrl       = $request->input('url', '');
         $docType      = $request->input('fileType', 'docx');
@@ -3557,8 +3567,9 @@ class AdminController extends Controller
             ->toArray();
 
         // Générer la config OnlyOffice pour ce fichier
-        $onlyofficeSecret = AppSetting::where('key', 'onlyoffice_secret')->value('value') ?: '';
-        $onlyofficeUrl    = preg_replace('/\s+/', '', (string) (AppSetting::where('key', 'onlyoffice_server_url')->value('value') ?: ''));
+        $server           = app(OnlyOfficeServerResolver::class)->forTemplate($template);
+        $onlyofficeSecret = $server->secret;
+        $onlyofficeUrl    = $server->url;
         $appPublicUrl     = preg_replace('/\s+/', '', (string) (AppSetting::where('key', 'app_public_url')->value('value') ?: ''));
 
         $docKey   = 'tpl-up-' . $template->id . '-' . time();
@@ -3713,7 +3724,7 @@ class AdminController extends Controller
     /** Liste blanche des clés de paramètre autorisées via le formulaire. */
     private const ALLOWED_SETTING_KEYS = [
         'app_name', 'app_public_url', 'app_logo',
-        'onlyoffice_server_url', 'onlyoffice_secret', 'onlyoffice_doc_viewer',
+        'onlyoffice_server_url', 'onlyoffice_secret', 'onlyoffice_doc_viewer', 'onlyoffice_disable_cert',
         'mail_host', 'mail_port', 'mail_username', 'mail_password', 'mail_encryption',
         'mail_from_address', 'mail_from_name',
         'qr_image_page', 'qr_image_x', 'qr_image_y', 'qr_image_width', 'qr_image_height',
@@ -3738,6 +3749,12 @@ class AdminController extends Controller
             fn($key) => in_array($key, self::ALLOWED_SETTING_KEYS, true),
             ARRAY_FILTER_USE_KEY
         );
+
+        // Le serveur global est commun à toutes les administrations : un admin d'administration
+        // ne règle que le serveur de la sienne.
+        if ($this->resolveAdminScope()) {
+            unset($data['app_public_url'], $data['onlyoffice_server_url'], $data['onlyoffice_secret'], $data['onlyoffice_disable_cert'], $data['onlyoffice_doc_viewer']);
+        }
 
         foreach (['app_public_url', 'onlyoffice_server_url'] as $urlKey) {
             if (array_key_exists($urlKey, $data) && is_string($data[$urlKey])) {
@@ -4033,6 +4050,122 @@ class AdminController extends Controller
     }
 
     // ── API Signature ─────────────────────────────────────────────────────────
+    public function saveOnlyofficeServer(Request $request)
+    {
+        $this->guardPermission('administration.onlyoffice');
+        [$administrationId, $type] = $this->onlyofficeTargetAdministration($request);
+
+        $config = OnlyOfficeServerConfig::firstOrNew(['administration_id' => $administrationId, 'administration_type' => $type]);
+        $request->merge(['server_url' => preg_replace('/\s+/', '', (string) $request->input('server_url'))]);
+        $needsSecret = !$config->exists || (string) $config->secret === '';
+
+        $data = $request->validate([
+            'server_url' => ['required', 'string', 'max:500', 'url:http,https'],
+            'secret'     => [$needsSecret ? 'required' : 'nullable', 'string', 'max:500'],
+        ], [
+            'server_url.required' => 'Saisissez l\'adresse du serveur OnlyOffice.',
+            'server_url.url'      => 'L\'adresse doit commencer par http:// ou https://.',
+            'secret.required'     => 'Saisissez la clé secrète (JWT) de ce serveur.',
+        ]);
+
+        $config->server_url = rtrim($data['server_url'], '/');
+        $config->is_active = $request->boolean('is_active');
+        $config->disable_cert = $request->boolean('disable_cert');
+        // Champ laissé vide : la clé enregistrée est conservée.
+        if (trim((string) ($data['secret'] ?? '')) !== '') {
+            $config->secret = trim($data['secret']);
+        }
+        $config->save();
+
+        return redirect()->route('admin.index', ['tab' => 'onlyoffice', 'oo_admin_type' => $type, 'oo_admin_id' => $administrationId])
+            ->with('oo_success', 'Serveur OnlyOffice de l\'administration enregistré.');
+    }
+
+    public function deleteOnlyofficeServer(Request $request)
+    {
+        $this->guardPermission('administration.onlyoffice');
+        [$administrationId, $type] = $this->onlyofficeTargetAdministration($request);
+
+        OnlyOfficeServerConfig::where('administration_id', $administrationId)->where('administration_type', $type)->delete();
+
+        return redirect()->route('admin.index', ['tab' => 'onlyoffice', 'oo_admin_type' => $type, 'oo_admin_id' => $administrationId])
+            ->with('oo_success', 'Configuration supprimée : cette administration utilise de nouveau le serveur global.');
+    }
+
+    /** Vérifie que le serveur répond et qu'il accepte la clé secrète, sans rien enregistrer. */
+    public function testOnlyofficeServer(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $this->guardPermission('administration.onlyoffice');
+        [$administrationId, $type] = $this->onlyofficeTargetAdministration($request);
+
+        $url = rtrim((string) preg_replace('/\s+/', '', (string) $request->input('server_url')), '/');
+        if (!preg_match('#^https?://#i', $url)) {
+            return response()->json(['ok' => false, 'message' => 'L\'adresse doit commencer par http:// ou https://.'], 422);
+        }
+        $secret = trim((string) $request->input('secret'));
+        if ($secret === '') {
+            $secret = (string) OnlyOfficeServerConfig::where('administration_id', $administrationId)
+                ->where('administration_type', $type)->first()?->secret;
+        }
+
+        $client = function () use ($request) {
+            $http = Http::timeout(10)->acceptJson();
+
+            return $request->boolean('disable_cert') ? $http->withoutVerifying() : $http;
+        };
+
+        try {
+            $health = $client()->get($url . '/healthcheck');
+            if (!$health->successful() || trim($health->body()) !== 'true') {
+                return response()->json(['ok' => false, 'message' => 'Aucun serveur OnlyOffice opérationnel à cette adresse (HTTP ' . $health->status() . ').']);
+            }
+
+            $command = ['c' => 'version'];
+            $http = $client();
+            if ($secret !== '') {
+                $encode = fn (array $data) => rtrim(strtr(base64_encode(json_encode($data)), '+/', '-_'), '=');
+                $sign = function (array $data) use ($encode, $secret) {
+                    $unsigned = $encode(['alg' => 'HS256', 'typ' => 'JWT']) . '.' . $encode($data);
+
+                    return $unsigned . '.' . rtrim(strtr(base64_encode(hash_hmac('sha256', $unsigned, $secret, true)), '+/', '-_'), '=');
+                };
+                $http = $http->withToken($sign(['payload' => $command]));
+                $command['token'] = $sign($command);
+            }
+            $response = $http->post($url . '/coauthoring/CommandService.ashx', $command);
+            $error = $response->json('error');
+
+            if ($response->successful() && $error === 0) {
+                $version = (string) $response->json('version');
+
+                return response()->json(['ok' => true, 'message' => 'Serveur joignable' . ($secret !== '' ? ', clé secrète acceptée' : '') . ($version !== '' ? ' (version ' . $version . ')' : '') . '.']);
+            }
+            if ($error === 6 || in_array($response->status(), [401, 403], true)) {
+                return response()->json(['ok' => false, 'message' => 'Serveur joignable, mais il refuse la clé secrète.']);
+            }
+
+            return response()->json(['ok' => false, 'message' => 'Serveur joignable, mais la vérification de la clé a échoué (HTTP ' . $response->status() . ').']);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'message' => 'Serveur injoignable : ' . Str::limit($e->getMessage(), 200)]);
+        }
+    }
+
+    /** @return array{0: string, 1: string} administration visée, contrôlée contre le périmètre de l'utilisateur */
+    private function onlyofficeTargetAdministration(Request $request): array
+    {
+        $id = trim((string) $request->input('oo_admin_id'));
+        $type = $request->input('oo_admin_type') === 'recipient' ? 'recipient' : 'emitter';
+
+        $scope = $this->resolveAdminScope();
+        abort_if($scope !== null && ($scope['type'] !== $type || (string) $scope['id'] !== $id), 403,
+            'Vous ne pouvez gérer que le serveur OnlyOffice de votre propre administration.');
+
+        $model = $type === 'recipient' ? RecipientAdministration::class : IssuingAdministration::class;
+        abort_if($id === '' || !$model::whereKey($id)->exists(), 422, 'Administration introuvable.');
+
+        return [$id, $type];
+    }
+
     public function saveSignatureProvider(Request $request)
     {
         $this->guardPermission('administration.signature-provider');
@@ -4520,8 +4653,9 @@ class AdminController extends Controller
     // ── Config OnlyOffice pour un template existant ───────────────────────────
     public function getTemplateOoConfig(DocumentTemplate $template)
     {
-        $onlyofficeSecret = AppSetting::where('key', 'onlyoffice_secret')->value('value') ?: '';
-        $onlyofficeUrl    = AppSetting::where('key', 'onlyoffice_server_url')->value('value') ?: '';
+        $server           = app(OnlyOfficeServerResolver::class)->forTemplate($template);
+        $onlyofficeSecret = $server->secret;
+        $onlyofficeUrl    = $server->url;
         $appPublicUrl     = AppSetting::where('key', 'app_public_url')->value('value') ?: '';
 
         $ext = $template->file_type ?: 'docx';
@@ -4820,105 +4954,74 @@ class AdminController extends Controller
         // Certaines versions/paramétrages OO envoient status 4 avec URL de fichier à persister.
         if (in_array($status, [2, 4, 6], true) && !empty($data['url'])) {
             // ── Validation SSRF : l'URL doit provenir du serveur OO configuré ──
-            $ooServerUrl = (string) AppSetting::where('key', 'onlyoffice_server_url')->value('value');
-            $fileUrl     = (string) $data['url'];
-
-            if ($ooServerUrl !== '') {
-                $ooHost   = parse_url(rtrim($ooServerUrl, '/'), PHP_URL_HOST);
-                $fileHost = parse_url($fileUrl, PHP_URL_HOST);
-                if (!$ooHost || !$fileHost || strtolower($ooHost) !== strtolower($fileHost)) {
-                    \Log::warning('OO template callback: URL rejetée (hôte non autorisé)', [
-                        'template_id'  => $templateId,
-                        'allowed_host' => $ooHost,
-                        'received_host'=> $fileHost,
-                    ]);
-                    return response()->json(['error' => 0]);
-                }
-            }
-
+            $fileUrl  = (string) $data['url'];
             $template = \App\Models\DocumentTemplate::find($templateId);
             if ($template) {
+                $resolver = app(OnlyOfficeServerResolver::class);
                 try {
-                    $disableCert = filter_var(
-                        AppSetting::where('key', 'onlyoffice_disable_cert')->value('value') ?? false,
-                        FILTER_VALIDATE_BOOLEAN
-                    );
+                    // Ni repli sans vérification du certificat, ni téléchargement hors du serveur OnlyOffice.
+                    $fileContent = $resolver->download($resolver->forTemplate($template), $fileUrl);
+                } catch (\Throwable $e) {
+                    \Log::warning('OO template callback: modèle non enregistré', [
+                        'template_id' => $templateId,
+                        'reason'      => $e->getMessage(),
+                    ]);
+                    // Signale l'échec à OnlyOffice au lieu de laisser croire que le modèle est enregistré.
+                    return response()->json(['error' => 1]);
+                }
 
-                    $client = Http::timeout(60);
-                    if ($disableCert) {
-                        $client = $client->withoutVerifying();
+                try {
+                    $ext      = strtolower($template->file_type ?: 'docx');
+                    $filename = 'tpl_' . preg_replace('/[^a-zA-Z0-9_\-]/', '', $templateId) . '_' . time() . '.' . $ext;
+                    $destDir  = public_path('images/templates');
+                    $savedAbsPath = '';
+                    $savedStoragePath = '';
+
+                    // Supprimer l'ancien fichier si existant dans le dossier attendu
+                    if ($template->storage_path && str_starts_with($template->storage_path, 'images/templates/')) {
+                        $old = public_path($template->storage_path);
+                        if (file_exists($old)) {
+                            @unlink($old);
+                        }
                     }
 
+                    // Essai 1: écriture legacy dans public/images/templates
                     try {
-                        $response = $client->get($fileUrl);
-                    } catch (\Throwable $downloadError) {
-                        // Fallback auto sur erreur certificat TLS (cURL 60)
-                        if (!$disableCert && str_contains($downloadError->getMessage(), 'cURL error 60')) {
-                            $response = Http::timeout(60)->withoutVerifying()->get($fileUrl);
-                        } else {
-                            throw $downloadError;
+                        if (!is_dir($destDir)) {
+                            mkdir($destDir, 0755, true);
                         }
+                        file_put_contents($destDir . '/' . $filename, $fileContent);
+                        $savedAbsPath = $destDir . '/' . $filename;
+                        $savedStoragePath = 'images/templates/' . $filename;
+                    } catch (\Throwable $writePublicError) {
+                        // Essai 2 (fallback): disque public Laravel (storage/app/public/templates)
+                        $fallbackStoragePath = 'templates/' . $filename;
+                        \Illuminate\Support\Facades\Storage::disk('public')->put($fallbackStoragePath, $fileContent);
+                        $savedAbsPath = \Illuminate\Support\Facades\Storage::disk('public')->path($fallbackStoragePath);
+                        $savedStoragePath = $fallbackStoragePath;
+
+                        \Log::warning('OO callback write fallback to storage/public', [
+                            'template_id' => $templateId,
+                            'error' => $writePublicError->getMessage(),
+                            'saved_path' => $savedStoragePath,
+                        ]);
                     }
 
-                    if ($response->successful()) {
-                        $fileContent = $response->body();
-                        $ext      = strtolower($template->file_type ?: 'docx');
-                        $filename = 'tpl_' . preg_replace('/[^a-zA-Z0-9_\-]/', '', $templateId) . '_' . time() . '.' . $ext;
-                        $destDir  = public_path('images/templates');
-                        $savedAbsPath = '';
-                        $savedStoragePath = '';
+                    $template->storage_path = $savedStoragePath;
+                    $template->save();
+                    \Log::info('OO file saved: ' . $savedStoragePath . ' size=' . strlen($fileContent));
 
-                        // Supprimer l'ancien fichier si existant dans le dossier attendu
-                        if ($template->storage_path && str_starts_with($template->storage_path, 'images/templates/')) {
-                            $old = public_path($template->storage_path);
-                            if (file_exists($old)) {
-                                @unlink($old);
-                            }
+                    // ── Extraction automatique des variables après sauvegarde OO ──
+                    $absNewPath = $savedAbsPath;
+                    if (in_array($ext, ['docx', 'xlsx', 'pptx']) && file_exists($absNewPath)) {
+                        foreach ($this->extractVarsFromUploadedFile($absNewPath) as $fileVar) {
+                            $this->firstOrCreateTemplateVariable(
+                                $template,
+                                (string) ($fileVar['key'] ?? 'var'),
+                                (string) ($fileVar['label'] ?? ($fileVar['key'] ?? 'var'))
+                            );
                         }
-
-                        // Essai 1: écriture legacy dans public/images/templates
-                        try {
-                            if (!is_dir($destDir)) {
-                                mkdir($destDir, 0755, true);
-                            }
-                            file_put_contents($destDir . '/' . $filename, $fileContent);
-                            $savedAbsPath = $destDir . '/' . $filename;
-                            $savedStoragePath = 'images/templates/' . $filename;
-                        } catch (\Throwable $writePublicError) {
-                            // Essai 2 (fallback): disque public Laravel (storage/app/public/templates)
-                            $fallbackStoragePath = 'templates/' . $filename;
-                            \Illuminate\Support\Facades\Storage::disk('public')->put($fallbackStoragePath, $fileContent);
-                            $savedAbsPath = \Illuminate\Support\Facades\Storage::disk('public')->path($fallbackStoragePath);
-                            $savedStoragePath = $fallbackStoragePath;
-
-                            \Log::warning('OO callback write fallback to storage/public', [
-                                'template_id' => $templateId,
-                                'error' => $writePublicError->getMessage(),
-                                'saved_path' => $savedStoragePath,
-                            ]);
-                        }
-
-                        $template->storage_path = $savedStoragePath;
-                        $template->save();
-                        \Log::info('OO file saved: ' . $savedStoragePath . ' size=' . strlen($fileContent));
-
-                        // ── Extraction automatique des variables après sauvegarde OO ──
-                        $absNewPath = $savedAbsPath;
-                        if (in_array($ext, ['docx', 'xlsx', 'pptx']) && file_exists($absNewPath)) {
-                            foreach ($this->extractVarsFromUploadedFile($absNewPath) as $fileVar) {
-                                $this->firstOrCreateTemplateVariable(
-                                    $template,
-                                    (string) ($fileVar['key'] ?? 'var'),
-                                    (string) ($fileVar['label'] ?? ($fileVar['key'] ?? 'var'))
-                                );
-                            }
-                            \Log::info('OO vars extracted for template ' . $templateId);
-                        }
-                    } else {
-                        \Log::warning('OO template callback: échec téléchargement', [
-                            'template_id' => $templateId,
-                            'http_status' => $response->status(),
-                        ]);
+                        \Log::info('OO vars extracted for template ' . $templateId);
                     }
                 } catch (\Throwable $e) {
                     \Log::warning('OO callback save failed for template ' . $templateId . ': ' . $e->getMessage());
@@ -5272,8 +5375,9 @@ class AdminController extends Controller
             'doc_key' => 'required|string|max:255',
         ]);
 
-        $onlyofficeUrl = rtrim((string) (AppSetting::where('key', 'onlyoffice_server_url')->value('value') ?: ''), '/');
-        $onlyofficeSecret = (string) (AppSetting::where('key', 'onlyoffice_secret')->value('value') ?: '');
+        $server = app(OnlyOfficeServerResolver::class)->forTemplate($template);
+        $onlyofficeUrl = $server->url;
+        $onlyofficeSecret = $server->secret;
 
         if ($onlyofficeUrl === '') {
             return response()->json([
@@ -5282,10 +5386,7 @@ class AdminController extends Controller
             ], 422);
         }
 
-        $disableCert = filter_var(
-            AppSetting::where('key', 'onlyoffice_disable_cert')->value('value') ?? false,
-            FILTER_VALIDATE_BOOLEAN
-        );
+        $disableCert = $server->disableCert;
 
         $docKey = (string) $request->input('doc_key');
         $commandPayload = [

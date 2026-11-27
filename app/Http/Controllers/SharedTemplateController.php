@@ -738,87 +738,31 @@ class SharedTemplateController extends Controller
         }
 
         // ── 2. Fallback : API OnlyOffice ConvertService ───────────────────────
+        $tmpPath = null;
         try {
-            $ooUrl    = rtrim((string) \App\Models\AppSetting::where('key', 'onlyoffice_server_url')->value('value'), '/');
-            $ooSecret = (string) \App\Models\AppSetting::where('key', 'onlyoffice_secret')->value('value');
+            // Le document généré appartient à l'utilisateur courant : serveur de son administration.
+            $resolver = app(\App\Services\OnlyOfficeServerResolver::class);
+            $server   = $resolver->forUser(Auth::user());
             $appUrl   = rtrim((string) \App\Models\AppSetting::where('key', 'app_public_url')->value('value'), '/');
 
-            if (empty($ooUrl)) {
+            if ($server->url === '') {
                 return null; // OnlyOffice non configuré
             }
 
             // Publier le fichier source temporairement dans storage/public/tmp-convert/
-            $tmpDir  = 'tmp-convert';
-            $tmpName = uniqid('conv_', true) . '.' . pathinfo($absOfficePath, PATHINFO_EXTENSION);
-            \Illuminate\Support\Facades\Storage::disk('public')->put($tmpDir . '/' . $tmpName, file_get_contents($absOfficePath));
-            $fileUrl = $appUrl . '/storage/' . $tmpDir . '/' . $tmpName;
+            $ext     = strtolower(pathinfo($absOfficePath, PATHINFO_EXTENSION));
+            $tmpPath = 'tmp-convert/' . uniqid('conv_', true) . '.' . $ext;
+            Storage::disk('public')->put($tmpPath, file_get_contents($absOfficePath));
 
-            $ext      = strtolower(pathinfo($absOfficePath, PATHINFO_EXTENSION));
-            $convKey  = md5($tmpName . time());
-
-            $payload = [
+            $pdfContent = $resolver->convertToPdf($server, [
                 'async'        => false,
                 'embeddedfonts'=> true,
                 'filetype'     => $ext,
-                'key'          => $convKey,
+                'key'          => md5($tmpPath . time()),
                 'outputtype'   => 'pdf',
                 'title'        => pathinfo($absOfficePath, PATHINFO_FILENAME) . '.pdf',
-                'url'          => $fileUrl,
-            ];
-
-            // Générer le JWT si secret configuré
-            $headers = ['Authorization: Bearer '];
-            if (!empty($ooSecret)) {
-                $jwtHeader  = rtrim(strtr(base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT'])), '+/', '-_'), '=');
-                $jwtBody    = rtrim(strtr(base64_encode(json_encode(['payload' => $payload])), '+/', '-_'), '=');
-                $jwtSig     = rtrim(strtr(base64_encode(hash_hmac('sha256', "$jwtHeader.$jwtBody", $ooSecret, true)), '+/', '-_'), '=');
-                $jwt        = "$jwtHeader.$jwtBody.$jwtSig";
-                $headers    = ['Authorization: Bearer ' . $jwt, 'Accept: application/json'];
-            }
-
-            $ch = curl_init($ooUrl . '/ConvertService.ashx');
-            curl_setopt_array($ch, [
-                CURLOPT_POST           => true,
-                CURLOPT_POSTFIELDS     => json_encode($payload),
-                CURLOPT_HTTPHEADER     => array_merge(['Content-Type: application/json'], $headers),
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT        => 60,
-                CURLOPT_SSL_VERIFYPEER => false,
+                'url'          => $appUrl . '/storage/' . $tmpPath,
             ]);
-            $body = curl_exec($ch);
-            curl_close($ch);
-
-            // Supprimer le fichier source temporaire
-            \Illuminate\Support\Facades\Storage::disk('public')->delete($tmpDir . '/' . $tmpName);
-
-            if (!$body) {
-                return null;
-            }
-
-            $json = json_decode($body, true);
-            $pdfUrl = $json['fileUrl'] ?? null;
-
-            if (!$pdfUrl) {
-                return null;
-            }
-
-            // Télécharger le PDF converti
-            $pdfContent = @file_get_contents($pdfUrl);
-            if (!$pdfContent) {
-                // Essai avec curl (si SSL ou auth nécessaire)
-                $ch2 = curl_init($pdfUrl);
-                curl_setopt_array($ch2, [
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT        => 30,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                ]);
-                $pdfContent = curl_exec($ch2);
-                curl_close($ch2);
-            }
-
-            if (!$pdfContent) {
-                return null;
-            }
 
             $localPdf = storage_path('app/tmp/pdf-convert/'
                 . pathinfo($absOfficePath, PATHINFO_FILENAME) . '_oo.pdf');
@@ -830,6 +774,10 @@ class SharedTemplateController extends Controller
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('convertOfficeToPdf (OO fallback) failed: ' . $e->getMessage());
             return null;
+        } finally {
+            if ($tmpPath !== null) {
+                Storage::disk('public')->delete($tmpPath);
+            }
         }
     }
 

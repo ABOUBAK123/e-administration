@@ -522,7 +522,6 @@ const ROUTES = {
     onlyofficeConfig: '{{ url("documents/onlyoffice-config") }}',
 };
 
-const OO_URL = @json($onlyofficeUrl ?? '');
 const RECIPIENT_ADMINS = @json($recipientsJson);
 const INTERNAL_USERS = @json($internalUsersJson);
 const INTERNAL_SUB_ENTITIES = @json($internalSubEntitiesJson);
@@ -1987,10 +1986,6 @@ async function submitShare() {
 let _ooDocEditorInstance = null;
 
 async function openInOnlyOffice(docId) {
-    if (!OO_URL) {
-        alert('Le serveur OnlyOffice n\'est pas configuré. Contactez l\'administrateur.');
-        return;
-    }
     const modal = document.getElementById('ooDocModal');
     const status = document.getElementById('ooDocStatus');
     const ph = document.getElementById('ooDocPlaceholder');
@@ -2019,14 +2014,16 @@ async function openInOnlyOffice(docId) {
         return;
     }
 
-    // Charger api.js si pas déjà chargé
-    if (!window.DocsAPI) {
+    // Charger api.js depuis le serveur de ce document : il peut changer d'un document à l'autre
+    const apiUrl = new URL(cfg.ooUrl + '/web-apps/apps/api/documents/api.js', window.location.href).href;
+    const loaded = document.getElementById('oo-doc-api-script');
+    if (!window.DocsAPI || !loaded || loaded.src !== apiUrl) {
+        if (loaded) loaded.remove();
+        window.DocsAPI = undefined;
         await new Promise((resolve, reject) => {
-            const old = document.getElementById('oo-doc-api-script');
-            if (old) old.remove();
             const s = document.createElement('script');
             s.id = 'oo-doc-api-script';
-            s.src = cfg.ooUrl + '/web-apps/apps/api/documents/api.js';
+            s.src = apiUrl;
             s.onload = resolve;
             s.onerror = () => reject(new Error('Impossible de charger api.js depuis ' + cfg.ooUrl));
             document.head.appendChild(s);

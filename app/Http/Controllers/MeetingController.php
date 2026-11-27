@@ -1142,7 +1142,8 @@ class MeetingController extends Controller
             return response()->json(['error' => 'Fichier modèle introuvable sur le disque.'], 404);
         }
 
-        $onlyofficeUrl = AppSetting::where('key', 'onlyoffice_server_url')->value('value') ?: '';
+        $server        = app(\App\Services\OnlyOfficeServerResolver::class)->forMeeting($meeting);
+        $onlyofficeUrl = $server->url;
         $appPublicUrl  = AppSetting::where('key', 'app_public_url')->value('value') ?: '';
 
         if (!$onlyofficeUrl) {
@@ -1188,6 +1189,12 @@ class MeetingController extends Controller
             ],
         ];
 
+        if ($server->secret !== '') {
+            $encode = fn (array $data) => rtrim(strtr(base64_encode(json_encode($data)), '+/', '-_'), '=');
+            $unsigned = $encode(['alg' => 'HS256', 'typ' => 'JWT']) . '.' . $encode($payload);
+            $payload['token'] = $unsigned . '.' . rtrim(strtr(base64_encode(hash_hmac('sha256', $unsigned, $server->secret, true)), '+/', '-_'), '=');
+        }
+
         return response()->json([
             'onlyofficeUrl' => rtrim($onlyofficeUrl, '/'),
             'config'        => $payload,
@@ -1211,25 +1218,44 @@ class MeetingController extends Controller
 
         // Status 2 = prêt à sauvegarder, 6 = forcer la sauvegarde
         if (in_array($status, [2, 6], true)) {
-            $downloadUrl = $body['url'] ?? null;
-            if ($downloadUrl) {
-                $ctx     = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
-                $content = file_get_contents($downloadUrl, false, $ctx);
-                if ($content !== false) {
-                    $templatePath = (string) ($meeting->minutes_template ?? '');
-                    if ($templatePath && str_starts_with($templatePath, '/storage/')) {
-                        $relative = ltrim(str_replace('/storage/', '', $templatePath), '/');
-                        Storage::disk('public')->put($relative, $content);
-                        // Le template source a été modifié: invalider l'analyse/scellé précédent.
-                        $meeting->template_sealed_path = null;
-                        $meeting->template_variables = null;
-                        $meeting->save();
-                    }
+            $downloadUrl = (string) ($body['url'] ?? '');
+            if ($downloadUrl !== '') {
+                $content = $this->downloadEditedTemplate($meeting, $downloadUrl);
+                if ($content === null) {
+                    // Signale l'échec à OnlyOffice au lieu de laisser croire que le modèle est enregistré.
+                    return response()->json(['error' => 1]);
+                }
+
+                $templatePath = (string) ($meeting->minutes_template ?? '');
+                if ($templatePath && str_starts_with($templatePath, '/storage/')) {
+                    $relative = ltrim(str_replace('/storage/', '', $templatePath), '/');
+                    Storage::disk('public')->put($relative, $content);
+                    // Le template source a été modifié: invalider l'analyse/scellé précédent.
+                    $meeting->template_sealed_path = null;
+                    $meeting->template_variables = null;
+                    $meeting->save();
                 }
             }
         }
 
         return response()->json(['error' => 0]);
+    }
+
+    /** Modèle édité, téléchargé depuis le serveur OnlyOffice de la réunion ; null si refusé ou impossible. */
+    private function downloadEditedTemplate(Meeting $meeting, string $url): ?string
+    {
+        $resolver = app(\App\Services\OnlyOfficeServerResolver::class);
+
+        try {
+            return $resolver->download($resolver->forMeeting($meeting), $url);
+        } catch (\Throwable $e) {
+            Log::warning('OnlyOffice : modèle de compte rendu non enregistré', [
+                'meeting_id' => (string) $meeting->id,
+                'reason'     => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 
         // -------------------------------------------------------------------------
