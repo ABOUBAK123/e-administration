@@ -176,6 +176,11 @@ class Meeting extends Model
         return $this->hasMany(MeetingAttendance::class);
     }
 
+    public function minutesReceipts()
+    {
+        return $this->hasMany(MeetingMinutesReceipt::class)->orderBy('name')->orderBy('email');
+    }
+
     public function minutesVersions()
     {
         return $this->hasMany(MeetingMinutesVersion::class)->orderByDesc('version_no');

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AppSetting;
 use App\Models\Meeting;
 use App\Models\MeetingAttendance;
+use App\Models\MeetingMinutesReceipt;
 use App\Models\MeetingMinutesVersion;
 use App\Models\MeetingParticipant;
 use App\Models\MeetingRoom;
@@ -567,7 +568,7 @@ class MeetingController extends Controller
 
         $this->abortIfMeetingOutsideScope($meeting);
 
-        $meeting->load(['room', 'organizer', 'minutesWriter', 'validator', 'validatedByUser', 'participants.user', 'attendances', 'minutesVersions.creator']);
+        $meeting->load(['room', 'organizer', 'minutesWriter', 'validator', 'validatedByUser', 'participants.user', 'attendances', 'minutesVersions.creator', 'minutesReceipts']);
 
         $qrUrl = route('meetings.qr.show', ['token' => $meeting->qr_token]);
 
@@ -712,7 +713,8 @@ class MeetingController extends Controller
         $this->abortIfMeetingOutsideScope($meeting);
 
         $validated = $request->validate([
-            'action' => 'required|in:submit_validation,validate,publish,request_review,sign_writer,send',
+            'action' => 'required|in:submit_validation,validate,publish,request_review,sign_writer,send,remind_receipt',
+            'ack_required' => 'nullable|boolean',
             'review_comment' => 'nullable|string|max:2000',
             'signature' => 'nullable|string',
         ]);
@@ -841,6 +843,12 @@ class MeetingController extends Controller
                 return back()->with('error', 'Seul le rédacteur, le validateur ou l\'organisateur peut envoyer le compte rendu.');
             }
 
+            // Choix fait au moment de l'envoi ; updated_at reste inchangé.
+            if ($request->has('ack_required')) {
+                Meeting::whereKey($meeting->id)->toBase()->update(['diffusion_ack_required' => $request->boolean('ack_required')]);
+                $meeting->diffusion_ack_required = $request->boolean('ack_required');
+            }
+
             $result = $this->sendMinutesEmails($meeting);
             if ($result['sent'] === 0) {
                 return back()->with('error', $result['error']);
@@ -848,6 +856,32 @@ class MeetingController extends Controller
 
             $this->appendMinutesVersion($meeting, 'Compte rendu et liste de présence envoyés par e-mail (' . $result['sent'] . ' destinataire(s))');
             $response = back()->with('success', 'Compte rendu et liste de présence envoyés à ' . $result['sent'] . ' destinataire(s).');
+
+            return $result['error'] ? $response->with('error', $result['error']) : $response;
+        }
+
+        if ($action === 'remind_receipt') {
+            if (!in_array($meeting->workflow_status, ['validated', 'published'], true)) {
+                return back()->with('error', 'Le compte rendu doit être validé avant d\'être envoyé.');
+            }
+
+            $allowed = array_filter(array_map('strval', [$meeting->minutes_writer_id, $meeting->validator_id, $meeting->organizer_id]));
+            if (!in_array((string) Auth::id(), $allowed, true)) {
+                return back()->with('error', 'Seul le rédacteur, le validateur ou l\'organisateur peut relancer les destinataires.');
+            }
+
+            $pending = MeetingMinutesReceipt::where('meeting_id', $meeting->id)->whereNull('acknowledged_at')->pluck('email')->all();
+            if ($pending === []) {
+                return back()->with('success', 'Aucune relance nécessaire : tous les accusés de réception sont arrivés.');
+            }
+
+            $result = $this->sendMinutesEmails($meeting, $meeting->workflow_status === 'published', $pending);
+            if ($result['sent'] === 0) {
+                return back()->with('error', $result['error']);
+            }
+
+            $this->appendMinutesVersion($meeting, 'Relance des accusés de réception (' . $result['sent'] . ' destinataire(s))');
+            $response = back()->with('success', 'Relance envoyée à ' . $result['sent'] . ' destinataire(s).');
 
             return $result['error'] ? $response->with('error', $result['error']) : $response;
         }
@@ -1189,9 +1223,12 @@ class MeetingController extends Controller
      * personnes ayant émargé), avec le SMTP de l'administration de la réunion.
      * Un message par destinataire : une adresse refusée ne bloque pas les autres.
      *
+     * Avec $only, il s'agit d'une relance des seules adresses données.
+     *
+     * @param list<string>|null $only adresses en minuscules
      * @return array{sent: int, error: string|null} error décrit ce qui n'a pas pu être envoyé
      */
-    private function sendMinutesEmails(Meeting $meeting, bool $withMeetingAttachments = false): array
+    private function sendMinutesEmails(Meeting $meeting, bool $withMeetingAttachments = false, ?array $only = null): array
     {
         $failure = fn (string $message) => ['sent' => 0, 'error' => 'E-mail non envoyé : ' . $message];
 
@@ -1199,16 +1236,20 @@ class MeetingController extends Controller
 
         $emails = collect();
         $withoutEmail = [];
-        $addEmail = function (?string $email) use ($emails): bool {
+        $names = [];
+        $addEmail = function (?string $email, ?string $name = null) use ($emails, &$names): bool {
             $email = trim((string) $email);
             if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 return false;
             }
             $emails->put(mb_strtolower($email), $email);
+            if (trim((string) $name) !== '') {
+                $names[mb_strtolower($email)] ??= trim((string) $name);
+            }
             return true;
         };
         foreach ($meeting->participants as $participant) {
-            $hasEmail = $addEmail($participant->email ?: $participant->user?->email);
+            $hasEmail = $addEmail($participant->email ?: $participant->user?->email, $participant->full_name ?: $participant->user?->name);
             // Un participant sans adresse peut en avoir saisi une à l'émargement.
             $signedWithEmail = $meeting->attendances->contains(
                 fn ($a) => (string) $a->meeting_participant_id === (string) $participant->id && filter_var(trim((string) $a->email), FILTER_VALIDATE_EMAIL)
@@ -1218,7 +1259,12 @@ class MeetingController extends Controller
             }
         }
         foreach ($meeting->attendances as $attendance) {
-            $addEmail($attendance->email);
+            $addEmail($attendance->email, $attendance->full_name);
+        }
+
+        if ($only !== null) {
+            $emails = $emails->only($only);
+            $withoutEmail = [];
         }
 
         if ($emails->isEmpty()) {
@@ -1242,28 +1288,42 @@ class MeetingController extends Controller
         }
 
         $subject = trim((string) ($meeting->diffusion_email_subject ?: 'Compte rendu de réunion - ' . $meeting->title));
-        $bodyTemplate = (string) ($meeting->diffusion_email_body ?: "Bonjour,\n\nVeuillez trouver ci-joint le compte rendu et la liste de présence de la réunion {meeting_title}.\nDate: {meeting_date}\nSalle: {meeting_room}\n\nCordialement.");
-        $body = strtr($bodyTemplate, [
-            '{meeting_title}' => (string) $meeting->title,
-            '{meeting_date}' => (string) optional($meeting->starts_at)->format('d/m/Y H:i'),
-            '{meeting_room}' => (string) ($meeting->room?->name ?: 'N/A'),
-        ]);
-        if ($meeting->diffusion_ack_required) {
-            $body .= "\n\nMerci de répondre à cet e-mail pour accusé de réception.";
+        if ($only !== null) {
+            $subject = 'Rappel : ' . $subject;
         }
+
+        // Le message personnalisé de la réunion remplace le texte standard.
+        $custom = trim((string) $meeting->diffusion_email_body);
+        $mailData = $this->minutesEmailData($meeting) + [
+            'subjectLine' => $subject,
+            'isReminder' => $only !== null,
+            'attachmentNames' => array_column($files, 'name'),
+            'customBody' => $custom === '' ? null : strtr($custom, [
+                '{meeting_title}' => (string) $meeting->title,
+                '{meeting_date}' => (string) optional($meeting->starts_at)->format('d/m/Y H:i'),
+                '{meeting_room}' => (string) ($meeting->room?->name ?: 'N/A'),
+            ]),
+        ];
+        $askReceipt = $only !== null || $meeting->diffusion_ack_required;
 
         @set_time_limit(0);
         $sent = 0;
         $failed = [];
         foreach ($emails->values() as $email) {
             try {
-                Mail::raw($body, function ($message) use ($email, $subject, $files) {
+                $receipt = $askReceipt ? MeetingMinutesReceipt::prepare($meeting, $email, $names[mb_strtolower($email)] ?? null) : null;
+                $data = $mailData + [
+                    'recipientName' => $names[mb_strtolower($email)] ?? null,
+                    'receiptUrl' => $receipt?->link(),
+                ];
+                Mail::send(['html' => 'emails.meeting-minutes', 'text' => 'emails.meeting-minutes-text'], $data, function ($message) use ($email, $subject, $files) {
                     $message->to($email)->subject($subject);
                     foreach ($files as $file) {
                         $message->attachData($file['data'], $file['name'], ['mime' => $file['mime']]);
                     }
                 });
                 $sent++;
+                $receipt?->markSent();
             } catch (\Throwable $e) {
                 $failed[] = $email;
                 Log::error('Envoi compte rendu : échec', [
@@ -1291,6 +1351,37 @@ class MeetingController extends Controller
         }
 
         return ['sent' => $sent, 'error' => $problems ? implode(' ', $problems) : null];
+    }
+
+    /** Informations communes à tous les destinataires : administration, réunion, contact. */
+    private function minutesEmailData(Meeting $meeting): array
+    {
+        $meeting->loadMissing(['room', 'organizer', 'validatedByUser']);
+        $branding = app(MeetingAttendanceController::class)->emailBranding($meeting);
+
+        $start = $meeting->starts_at;
+        $end = $meeting->ends_at;
+        $date = $start?->format('d/m/Y') . ' de ' . $start?->format('H:i') . ' à '
+            . ($end?->isSameDay($start) ? $end->format('H:i') : $end?->format('d/m/Y H:i'));
+        $location = $meeting->room?->location ? ' (' . $meeting->room->location . ')' : '';
+        $validation = $meeting->validated_at
+            ? 'Le ' . $meeting->validated_at->format('d/m/Y') . ($meeting->validatedByUser ? ' par ' . $meeting->validatedByUser->name : '')
+            : null;
+
+        $organizer = $meeting->organizer;
+
+        return [
+            'senderName' => $branding['name'] ?: (string) (config('mail.from.name') ?: config('app.name')),
+            'logo' => $branding['logo'],
+            'meetingTitle' => (string) $meeting->title,
+            'details' => array_filter([
+                'Date et horaire' => $start ? $date : null,
+                'Salle' => $meeting->room ? $meeting->room->name . $location : null,
+                'Organisateur' => $organizer?->name,
+                'Validation' => $validation,
+            ]),
+            'contact' => $organizer ? trim($organizer->name . ($organizer->email ? ' (' . $organizer->email . ')' : '')) : null,
+        ];
     }
 
     /**

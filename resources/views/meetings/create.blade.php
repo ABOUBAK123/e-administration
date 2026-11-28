@@ -255,7 +255,7 @@
                 <div class="md:col-span-2">
                     <label class="inline-flex items-center gap-2 text-sm text-gray-700">
                         <input type="checkbox" name="diffusion_ack_required" value="1" {{ $checked('diffusion_ack_required', (bool) $editing?->diffusion_ack_required) ? 'checked' : '' }}>
-                        Accusé de réception optionnel
+                        Demander un accusé de réception du compte rendu (lien de confirmation dans l'e-mail)
                     </label>
                 </div>
             </div>

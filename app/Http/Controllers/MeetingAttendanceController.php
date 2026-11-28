@@ -414,6 +414,34 @@ class MeetingAttendanceController extends Controller
         return $pdf;
     }
 
+    /**
+     * En-tête des e-mails : nom de l'entité et logo à intégrer au message. Seule une image
+     * locale légère est retenue, les messageries bloquant les images distantes.
+     *
+     * @return array{name: string|null, logo: array{data: string, mime: string, name: string}|null}
+     */
+    public function emailBranding(Meeting $meeting): array
+    {
+        $branding = $this->resolveOrganizerBranding($meeting);
+        $source = (string) $this->resolvePdfLogoSource($branding['logo_url'] ?? null);
+
+        // Une adresse absolue vers ce site désigne un fichier local.
+        $appUrl = rtrim(url('/'), '/');
+        if (str_starts_with($source, $appUrl . '/')) {
+            $source = (string) $this->resolvePdfImageSource(substr($source, strlen($appUrl)));
+        }
+
+        $logo = null;
+        if (preg_match('#^data:image/(png|jpe?g|gif);base64,(.+)$#s', $source, $parts)) {
+            $data = base64_decode($parts[2], true);
+            if ($data !== false && strlen($data) <= 300 * 1024) {
+                $logo = ['data' => $data, 'mime' => 'image/' . ($parts[1] === 'jpg' ? 'jpeg' : $parts[1]), 'name' => 'logo.' . $parts[1]];
+            }
+        }
+
+        return ['name' => $branding['tutelle_entity_name'], 'logo' => $logo];
+    }
+
     private function resolvePdfLogoSource(?string $logoUrl): ?string
     {
         return $this->resolvePdfImageSource($logoUrl);

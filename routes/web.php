@@ -15,6 +15,7 @@ use App\Http\Controllers\QrVerificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\MeetingController;
 use App\Http\Controllers\MeetingManagementController;
+use App\Http\Controllers\MeetingReceiptController;
 use App\Http\Controllers\MeetingRoomController;
 use App\Http\Controllers\MeetingAttendanceController;
 use App\Http\Controllers\DebugController;
@@ -209,6 +210,12 @@ Route::post('/meetings/qr/{token}', [MeetingAttendanceController::class, 'signBy
 Route::get('/meetings/qr/{token}/lookup', [MeetingAttendanceController::class, 'lookupByToken'])
     ->middleware('throttle:120,1')->name('meetings.qr.lookup');
 Route::post('/meetings/qr/{token}/correct', [MeetingAttendanceController::class, 'correctByToken'])->name('meetings.qr.correct');
+
+// Accusé de réception du compte rendu (lien personnel envoyé par e-mail)
+Route::get('/meetings/receipt/{token}', [MeetingReceiptController::class, 'show'])
+    ->middleware('throttle:120,1')->name('meetings.receipt.show');
+Route::post('/meetings/receipt/{token}', [MeetingReceiptController::class, 'confirm'])
+    ->middleware('throttle:60,1')->name('meetings.receipt.confirm');
 
 // Téléchargement public d'un document via token QR
 Route::get('/qr-download/{token}', [QrVerificationController::class, 'downloadByToken'])->name('qr.download');

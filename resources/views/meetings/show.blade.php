@@ -326,6 +326,11 @@
                           onsubmit="if (!confirm('Envoyer le compte rendu et la liste de présence par e-mail à tous les participants ?')) return false; this.querySelector('button').disabled = true;">
                         @csrf
                         <input type="hidden" name="action" value="send">
+                        <label class="inline-flex items-center gap-2 text-xs text-gray-700 mr-2">
+                            <input type="hidden" name="ack_required" value="0">
+                            <input type="checkbox" name="ack_required" value="1" {{ $meeting->diffusion_ack_required ? 'checked' : '' }}>
+                            Demander un accusé de réception
+                        </label>
                         <button class="px-3 py-1.5 rounded-lg bg-[#2453d6] text-white text-xs font-semibold hover:bg-[#1f47bb] disabled:opacity-50">
                             <i class="fas fa-paper-plane mr-1"></i> Envoyer
                         </button>
@@ -346,6 +351,44 @@
                 </div>
             @endif
         </div>
+
+        @if($meeting->minutesReceipts->isNotEmpty())
+        @php $pendingReceipts = $meeting->minutesReceipts->whereNull('acknowledged_at')->count(); @endphp
+        <div class="border-t border-gray-100 pt-4 space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <h3 class="font-semibold text-gray-800">Accusés de réception : {{ $meeting->minutesReceipts->count() - $pendingReceipts }} sur {{ $meeting->minutesReceipts->count() }}</h3>
+                @if($pendingReceipts > 0 && !$cancelled && ($isWriter || $isValidator || $isOrganizer))
+                <form method="POST" action="{{ route('meetings.workflow', $meeting) }}"
+                      onsubmit="if (!confirm('Renvoyer le compte rendu aux destinataires qui n\'ont pas confirmé ?')) return false; this.querySelector('button').disabled = true;">
+                    @csrf
+                    <input type="hidden" name="action" value="remind_receipt">
+                    <button class="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-semibold disabled:opacity-50">
+                        <i class="fas fa-bell mr-1"></i> Relancer ({{ $pendingReceipts }})
+                    </button>
+                </form>
+                @endif
+            </div>
+            <ul class="space-y-2 text-sm">
+                @foreach($meeting->minutesReceipts as $receipt)
+                <li class="flex flex-wrap items-center justify-between gap-2 border border-gray-200 rounded-lg px-3 py-2">
+                    <div>
+                        <div class="font-semibold text-gray-700">{{ $receipt->name ?: $receipt->email }}</div>
+                        <div class="text-xs text-gray-500">
+                            {{ $receipt->email }} —
+                            @if($receipt->sent_at) dernier envoi le {{ $receipt->sent_at->format('d/m/Y H:i') }}@if($receipt->send_count > 1) ({{ $receipt->send_count }} envois)@endif
+                            @else envoi en échec @endif
+                        </div>
+                    </div>
+                    @if($receipt->acknowledged_at)
+                    <span class="text-xs font-semibold text-emerald-700"><i class="fas fa-check-circle mr-1"></i> Confirmé le {{ $receipt->acknowledged_at->format('d/m/Y H:i') }}</span>
+                    @else
+                    <span class="text-xs font-semibold text-amber-700"><i class="fas fa-clock mr-1"></i> En attente</span>
+                    @endif
+                </li>
+                @endforeach
+            </ul>
+        </div>
+        @endif
 
         <div class="border-t border-gray-100 pt-4">
             <h3 class="font-semibold text-gray-800 mb-2">Historique des versions</h3>
