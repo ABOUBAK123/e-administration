@@ -205,7 +205,8 @@ Route::post('/demande-acte/{administration_id}/{requested_act_id}', [PublicActRe
 // Emargement public par QR code (sans authentification)
 Route::get('/meetings/qr/{token}', [MeetingAttendanceController::class, 'showByToken'])->name('meetings.qr.show');
 Route::post('/meetings/qr/{token}', [MeetingAttendanceController::class, 'signByToken'])->name('meetings.qr.sign');
-Route::get('/meetings/qr/{token}/lookup', [MeetingAttendanceController::class, 'lookupByToken'])->name('meetings.qr.lookup');
+Route::get('/meetings/qr/{token}/lookup', [MeetingAttendanceController::class, 'lookupByToken'])
+    ->middleware('throttle:120,1')->name('meetings.qr.lookup');
 Route::post('/meetings/qr/{token}/correct', [MeetingAttendanceController::class, 'correctByToken'])->name('meetings.qr.correct');
 
 // Téléchargement public d'un document via token QR
@@ -347,6 +348,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/meetings/{meeting}', [MeetingController::class, 'show'])->name('meetings.show');
     Route::post('/meetings/{meeting}/minutes', [MeetingController::class, 'updateMinutes'])->name('meetings.minutes.update');
     Route::post('/meetings/{meeting}/ai-minutes', [MeetingController::class, 'aiGenerateMinutes'])->name('meetings.ai.minutes');
+    Route::get('/meetings/{meeting}/minutes/pdf', [MeetingController::class, 'minutesPdf'])->name('meetings.minutes.pdf');
     Route::post('/meetings/{meeting}/workflow', [MeetingController::class, 'workflow'])->name('meetings.workflow');
     Route::post('/meetings/{meeting}/template-oo-config', [MeetingController::class, 'templateOoConfig'])->name('meetings.template.oo.config');
         Route::post('/meetings/{meeting}/template-analyze', [MeetingController::class, 'analyzeTemplate'])->name('meetings.template.analyze');

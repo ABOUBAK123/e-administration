@@ -18,19 +18,37 @@ use Illuminate\Support\Str;
  */
 class MeetingReminderService
 {
+    /**
+     * Les rappels partent d'une tâche planifiée, sans utilisateur connecté : on prend le SMTP de
+     * l'administration de l'utilisateur qui a créé la réunion (l'organisateur), à défaut celui de
+     * l'administration de la réunion.
+     */
     private function resolveMeetingSmtpSetting(Meeting $meeting): ?AdministrationSmtpSetting
     {
+        $complete = fn (?AdministrationSmtpSetting $smtp) => $smtp && $smtp->mail_host && $smtp->mail_from_address ? $smtp : null;
+
+        $smtp = $complete(NotificationService::resolveWorkflowSmtpSetting((string) $meeting->organizer_id));
+        if ($smtp) {
+            return $smtp;
+        }
+
         $administrationId = trim((string) ($meeting->issuing_administration_id ?? ''));
         if ($administrationId === '') {
             return null;
         }
 
-        return AdministrationSmtpSetting::forAdministration($administrationId, 'emitter')
-            ?? AdministrationSmtpSetting::forAdministration($administrationId, 'recipient');
+        return $complete(AdministrationSmtpSetting::forAdministration($administrationId, 'emitter'))
+            ?? $complete(AdministrationSmtpSetting::forAdministration($administrationId, 'recipient'));
     }
 
-    private function applyMeetingScopedSmtpConfiguration(AdministrationSmtpSetting $smtp): void
+    /** @throws \RuntimeException aucune configuration SMTP utilisable */
+    private function configureMeetingMailerFor(Meeting $meeting): void
     {
+        $smtp = $this->resolveMeetingSmtpSetting($meeting);
+        if (!$smtp) {
+            throw new \RuntimeException("Aucune configuration SMTP complete pour l'administration de l'organisateur.");
+        }
+
         config([
             'mail.default' => 'smtp',
             'mail.mailers.smtp.host' => $smtp->mail_host,
@@ -42,21 +60,9 @@ class MeetingReminderService
             'mail.from.address' => $smtp->mail_from_address,
             'mail.from.name' => $smtp->mail_from_name ?? config('app.name'),
         ]);
-    }
 
-    private function configureMeetingMailerFor(Meeting $meeting): ?string
-    {
-        $smtp = $this->resolveMeetingSmtpSetting($meeting);
-        if (!$smtp) {
-            return "Aucune configuration SMTP d'administration n'a ete trouvee pour cette reunion.";
-        }
-
-        if (!$smtp->mail_host || !$smtp->mail_from_address) {
-            return "La configuration SMTP d'administration est incomplete (hote ou expediteur manquant).";
-        }
-
-        $this->applyMeetingScopedSmtpConfiguration($smtp);
-        return null;
+        // Plusieurs administrations sont traitées à la suite : sans purge, le premier SMTP resterait utilisé.
+        Mail::purge('smtp');
     }
 
     /**
@@ -259,35 +265,17 @@ class MeetingReminderService
         $body .= "\nMerci de vous organiser en consequence.\n\n"
             . "Cordialement.";
 
-        $smtpError = $this->configureMeetingMailerFor($meeting);
-        if ($smtpError !== null) {
-            Log::error('MeetingReminderService reminder config unavailable', [
-                'meeting_id' => (string) $meeting->id,
-                'meeting_title' => (string) $meeting->title,
-                'admin_id' => (string) ($meeting->issuing_administration_id ?? ''),
-                'error' => $smtpError,
-            ]);
-            return;
-        }
+        $this->configureMeetingMailerFor($meeting);
 
-        try {
-            Mail::raw($body, function ($message) use ($emails, $subject) {
-                $to = $emails->first();
-                $bcc = $emails->slice(1)->all();
+        Mail::raw($body, function ($message) use ($emails, $subject) {
+            $to = $emails->first();
+            $bcc = $emails->slice(1)->all();
 
-                $message->to($to)->subject($subject);
-                if (!empty($bcc)) {
-                    $message->bcc($bcc);
-                }
-            });
-        } catch (\Throwable $e) {
-            Log::error('MeetingReminderService reminder email failed', [
-                'meeting_id' => (string) $meeting->id,
-                'meeting_title' => (string) $meeting->title,
-                'recipient_count' => $emails->count(),
-                'error' => $e->getMessage(),
-            ]);
-        }
+            $message->to($to)->subject($subject);
+            if (!empty($bcc)) {
+                $message->bcc($bcc);
+            }
+        });
     }
 
     private function dispatchValidationFollowUpEmail(Meeting $meeting, string $validatorEmail): void
@@ -306,30 +294,11 @@ class MeetingReminderService
             . "{$showUrl}\n\n"
             . "Cordialement.";
 
-        $smtpError = $this->configureMeetingMailerFor($meeting);
-        if ($smtpError !== null) {
-            Log::error('MeetingReminderService validation follow-up config unavailable', [
-                'meeting_id' => (string) $meeting->id,
-                'meeting_title' => (string) $meeting->title,
-                'validator_email' => $validatorEmail,
-                'admin_id' => (string) ($meeting->issuing_administration_id ?? ''),
-                'error' => $smtpError,
-            ]);
-            return;
-        }
+        $this->configureMeetingMailerFor($meeting);
 
-        try {
-            Mail::raw($body, function ($message) use ($validatorEmail, $subject) {
-                $message->to($validatorEmail)->subject($subject);
-            });
-        } catch (\Throwable $e) {
-            Log::error('MeetingReminderService validation follow-up email failed', [
-                'meeting_id' => (string) $meeting->id,
-                'meeting_title' => (string) $meeting->title,
-                'validator_email' => $validatorEmail,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        Mail::raw($body, function ($message) use ($validatorEmail, $subject) {
+            $message->to($validatorEmail)->subject($subject);
+        });
     }
 
     private function dispatchDeadlineAlertEmail(Meeting $meeting, \Illuminate\Support\Collection $recipients): void
@@ -347,34 +316,16 @@ class MeetingReminderService
             . "{$showUrl}\n\n"
             . "Cordialement.";
 
-        $smtpError = $this->configureMeetingMailerFor($meeting);
-        if ($smtpError !== null) {
-            Log::error('MeetingReminderService deadline alert config unavailable', [
-                'meeting_id' => (string) $meeting->id,
-                'meeting_title' => (string) $meeting->title,
-                'admin_id' => (string) ($meeting->issuing_administration_id ?? ''),
-                'error' => $smtpError,
-            ]);
-            return;
-        }
+        $this->configureMeetingMailerFor($meeting);
 
-        try {
-            Mail::raw($body, function ($message) use ($recipients, $subject) {
-                $to = $recipients->first();
-                $cc = $recipients->slice(1)->all();
+        Mail::raw($body, function ($message) use ($recipients, $subject) {
+            $to = $recipients->first();
+            $cc = $recipients->slice(1)->all();
 
-                $message->to($to)->subject($subject);
-                if (!empty($cc)) {
-                    $message->cc($cc);
-                }
-            });
-        } catch (\Throwable $e) {
-            Log::error('MeetingReminderService deadline alert email failed', [
-                'meeting_id' => (string) $meeting->id,
-                'meeting_title' => (string) $meeting->title,
-                'recipient_count' => $recipients->count(),
-                'error' => $e->getMessage(),
-            ]);
-        }
+            $message->to($to)->subject($subject);
+            if (!empty($cc)) {
+                $message->cc($cc);
+            }
+        });
     }
 }

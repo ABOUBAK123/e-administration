@@ -21,12 +21,15 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use App\Services\ClamAvScanner;
 use App\Services\MeetingAiMinutesService;
+use App\Services\MeetingMinutesPdf;
 use App\Traits\GuardsPermissions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class MeetingController extends Controller
 {
+    private const MINUTES_LOCKED = 'Le compte rendu est validé : il ne peut plus être modifié.';
+
     use GuardsPermissions;
 
     public function index(Request $request)
@@ -438,6 +441,9 @@ class MeetingController extends Controller
         if (!$isWriter && !$isValidator) {
             return back()->with('error', 'Seul le rédacteur ou le validateur peut modifier le compte rendu.');
         }
+        if ($meeting->isMinutesLocked()) {
+            return back()->with('error', self::MINUTES_LOCKED);
+        }
 
         $validated = $request->validate([
             'minutes_content' => 'required|string',
@@ -473,6 +479,9 @@ class MeetingController extends Controller
         if (!$isWriter && !$isValidator) {
             return response()->json(['error' => 'Seul le rédacteur ou le validateur peut générer un compte rendu par IA.'], 403);
         }
+        if ($meeting->isMinutesLocked()) {
+            return response()->json(['error' => self::MINUTES_LOCKED], 403);
+        }
 
         $validated = $request->validate([
             'audio' => 'required|file|max:20480',
@@ -505,7 +514,7 @@ class MeetingController extends Controller
         $this->abortIfMeetingOutsideScope($meeting);
 
         $validated = $request->validate([
-            'action' => 'required|in:submit_validation,validate,publish,request_review,sign_writer',
+            'action' => 'required|in:submit_validation,validate,publish,request_review,sign_writer,send',
             'review_comment' => 'nullable|string|max:2000',
             'signature' => 'nullable|string',
         ]);
@@ -552,10 +561,18 @@ class MeetingController extends Controller
             $meeting->review_comment = null;
             $meeting->validated_by = Auth::id();
             $meeting->validated_at = now();
-            $meeting->save();
-            $this->appendMinutesVersion($meeting, 'Compte rendu validé par ' . (Auth::user()?->name ?? 'Validateur'));
+            $meeting->setRelation('validatedByUser', Auth::user());
 
-            return back()->with('success', 'Compte rendu validé.');
+            try {
+                app(MeetingMinutesPdf::class)->freeze($meeting);
+            } catch (\RuntimeException $e) {
+                return back()->with('error', 'Validation impossible : ' . $e->getMessage());
+            }
+
+            $meeting->save();
+            $this->appendMinutesVersion($meeting, 'Compte rendu validé par ' . (Auth::user()?->name ?? 'Validateur') . ' et figé en PDF');
+
+            return back()->with('success', 'Compte rendu validé et converti en PDF. Il n\'est plus modifiable.');
         }
 
         if ($action === 'request_review') {
@@ -600,6 +617,27 @@ class MeetingController extends Controller
             return back()->with('success', 'Signature enregistrée.');
         }
 
+        if ($action === 'send') {
+            if (!in_array($meeting->workflow_status, ['validated', 'published'], true)) {
+                return back()->with('error', 'Le compte rendu doit être validé avant d\'être envoyé.');
+            }
+
+            $allowed = array_filter(array_map('strval', [$meeting->minutes_writer_id, $meeting->validator_id, $meeting->organizer_id]));
+            if (!in_array((string) Auth::id(), $allowed, true)) {
+                return back()->with('error', 'Seul le rédacteur, le validateur ou l\'organisateur peut envoyer le compte rendu.');
+            }
+
+            $result = $this->sendMinutesEmails($meeting);
+            if ($result['sent'] === 0) {
+                return back()->with('error', $result['error']);
+            }
+
+            $this->appendMinutesVersion($meeting, 'Compte rendu et liste de présence envoyés par e-mail (' . $result['sent'] . ' destinataire(s))');
+            $response = back()->with('success', 'Compte rendu et liste de présence envoyés à ' . $result['sent'] . ' destinataire(s).');
+
+            return $result['error'] ? $response->with('error', $result['error']) : $response;
+        }
+
         // publish
         if ($meeting->workflow_status !== 'validated') {
             return back()->with('error', 'Le compte rendu doit être validé avant publication.');
@@ -614,9 +652,35 @@ class MeetingController extends Controller
         $meeting->save();
 
         $this->appendMinutesVersion($meeting, 'Compte rendu publié');
-        $this->sendDiffusionEmails($meeting);
+        $result = $this->sendMinutesEmails($meeting, true);
+        if ($result['sent'] === 0) {
+            return back()->with('success', 'Compte rendu publié.')->with('error', $result['error']);
+        }
 
-        return back()->with('success', 'Compte rendu publié et diffusé automatiquement par email.');
+        $response = back()->with('success', 'Compte rendu publié et diffusé par e-mail à ' . $result['sent'] . ' destinataire(s).');
+
+        return $result['error'] ? $response->with('error', $result['error']) : $response;
+    }
+
+    /** Compte rendu validé, tel que figé en PDF. */
+    public function minutesPdf(Meeting $meeting)
+    {
+        $this->guardPermission('meetings.view');
+        $this->abortIfMeetingOutsideScope($meeting);
+        abort_unless($meeting->isMinutesLocked(), 404, 'Le compte rendu n\'est pas encore validé.');
+
+        $pdf = app(MeetingMinutesPdf::class);
+
+        try {
+            $content = $pdf->content($meeting);
+        } catch (\RuntimeException $e) {
+            return redirect()->route('meetings.show', $meeting)->with('error', 'PDF indisponible : ' . $e->getMessage());
+        }
+
+        return response($content, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="' . $pdf->fileName($meeting) . '"',
+        ]);
     }
 
     public function reporting(Request $request)
@@ -863,6 +927,7 @@ class MeetingController extends Controller
         }
 
         $this->applyMeetingScopedSmtpConfiguration($smtp);
+        Mail::purge('smtp');
         return null;
     }
 
@@ -941,31 +1006,65 @@ class MeetingController extends Controller
         ]);
     }
 
-    private function sendDiffusionEmails(Meeting $meeting): void
+    /**
+     * Envoie le compte rendu et la liste de présence à tous les participants (invités et
+     * personnes ayant émargé), avec le SMTP de l'administration de la réunion.
+     * Un message par destinataire : une adresse refusée ne bloque pas les autres.
+     *
+     * @return array{sent: int, error: string|null} error décrit ce qui n'a pas pu être envoyé
+     */
+    private function sendMinutesEmails(Meeting $meeting, bool $withMeetingAttachments = false): array
     {
-        $meeting->loadMissing(['participants.user', 'attendances', 'room']);
+        $failure = fn (string $message) => ['sent' => 0, 'error' => 'E-mail non envoyé : ' . $message];
+
+        $meeting->loadMissing(['participants.user', 'attendances', 'room', 'validatedByUser']);
 
         $emails = collect();
+        $withoutEmail = [];
+        $addEmail = function (?string $email) use ($emails): bool {
+            $email = trim((string) $email);
+            if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return false;
+            }
+            $emails->put(mb_strtolower($email), $email);
+            return true;
+        };
         foreach ($meeting->participants as $participant) {
-            $email = trim((string) ($participant->email ?: $participant->user?->email ?: ''));
-            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                $emails->push($email);
+            $hasEmail = $addEmail($participant->email ?: $participant->user?->email);
+            // Un participant sans adresse peut en avoir saisi une à l'émargement.
+            $signedWithEmail = $meeting->attendances->contains(
+                fn ($a) => (string) $a->meeting_participant_id === (string) $participant->id && filter_var(trim((string) $a->email), FILTER_VALIDATE_EMAIL)
+            );
+            if (!$hasEmail && !$signedWithEmail) {
+                $withoutEmail[] = (string) ($participant->full_name ?: $participant->user?->name ?: 'Participant');
             }
         }
         foreach ($meeting->attendances as $attendance) {
-            $email = trim((string) ($attendance->email ?: ''));
-            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                $emails->push($email);
-            }
+            $addEmail($attendance->email);
         }
 
-        $emails = $emails->unique()->values();
         if ($emails->isEmpty()) {
-            return;
+            return $failure('aucun participant n\'a d\'adresse e-mail valide.');
+        }
+
+        $smtpError = $this->configureMeetingMailerFor($meeting);
+        if ($smtpError !== null) {
+            Log::error('Envoi compte rendu : SMTP indisponible', [
+                'meeting_id' => (string) $meeting->id,
+                'admin_id'   => (string) ($meeting->issuing_administration_id ?? ''),
+                'error'      => $smtpError,
+            ]);
+            return $failure($smtpError . ' Configurez le SMTP dans les paramètres administrateur.');
+        }
+
+        try {
+            $files = $this->minutesEmailFiles($meeting, $withMeetingAttachments);
+        } catch (\RuntimeException $e) {
+            return $failure($e->getMessage());
         }
 
         $subject = trim((string) ($meeting->diffusion_email_subject ?: 'Compte rendu de réunion - ' . $meeting->title));
-        $bodyTemplate = (string) ($meeting->diffusion_email_body ?: "Bonjour,\n\nVeuillez trouver ci-joint le compte rendu de la réunion {meeting_title}.\nDate: {meeting_date}\nSalle: {meeting_room}\n\nCordialement.");
+        $bodyTemplate = (string) ($meeting->diffusion_email_body ?: "Bonjour,\n\nVeuillez trouver ci-joint le compte rendu et la liste de présence de la réunion {meeting_title}.\nDate: {meeting_date}\nSalle: {meeting_room}\n\nCordialement.");
         $body = strtr($bodyTemplate, [
             '{meeting_title}' => (string) $meeting->title,
             '{meeting_date}' => (string) optional($meeting->starts_at)->format('d/m/Y H:i'),
@@ -975,67 +1074,90 @@ class MeetingController extends Controller
             $body .= "\n\nMerci de répondre à cet e-mail pour accusé de réception.";
         }
 
-        $minutesPdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('meetings.minutes_pdf', ['meeting' => $meeting])->output();
-        $attendancePdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('meetings.attendance_list_pdf', [
-            'meeting' => $meeting,
-            'attendances' => $meeting->attendances,
-        ])->output();
-
-        $smtpError = $this->configureMeetingMailerFor($meeting);
-        if ($smtpError !== null) {
-            Log::error('MeetingController diffusion email config unavailable', [
-                'meeting_id' => (string) $meeting->id,
-                'meeting_title' => (string) $meeting->title,
-                'admin_id' => (string) ($meeting->issuing_administration_id ?? ''),
-                'error' => $smtpError,
-            ]);
-            return;
+        @set_time_limit(0);
+        $sent = 0;
+        $failed = [];
+        foreach ($emails->values() as $email) {
+            try {
+                Mail::raw($body, function ($message) use ($email, $subject, $files) {
+                    $message->to($email)->subject($subject);
+                    foreach ($files as $file) {
+                        $message->attachData($file['data'], $file['name'], ['mime' => $file['mime']]);
+                    }
+                });
+                $sent++;
+            } catch (\Throwable $e) {
+                $failed[] = $email;
+                Log::error('Envoi compte rendu : échec', [
+                    'meeting_id' => (string) $meeting->id,
+                    'recipient'  => $email,
+                    'error'      => $e->getMessage(),
+                ]);
+                // Serveur injoignable ou identifiants refusés : inutile d'essayer tout le monde.
+                if ($sent === 0 && count($failed) >= 3) {
+                    break;
+                }
+            }
         }
 
-        try {
-            Mail::raw($body, function ($message) use ($emails, $subject, $minutesPdf, $attendancePdf, $meeting) {
-                $to = $emails->first();
-                $bcc = $emails->slice(1)->all();
-
-                $message->to($to)->subject($subject);
-                if (!empty($bcc)) {
-                    $message->bcc($bcc);
-                }
-
-                $message->attachData($minutesPdf, 'compte_rendu_' . Str::slug($meeting->title) . '.pdf', [
-                    'mime' => 'application/pdf',
-                ]);
-                $message->attachData($attendancePdf, 'liste_presence_' . Str::slug($meeting->title) . '.pdf', [
-                    'mime' => 'application/pdf',
-                ]);
-
-                foreach ((array) ($meeting->attachments ?? []) as $attachment) {
-                    $publicPath = (string) ($attachment['path'] ?? '');
-                    if (!str_starts_with($publicPath, '/storage/')) {
-                        continue;
-                    }
-
-                    $relativePath = ltrim(substr($publicPath, strlen('/storage/')), '/');
-                    if (!Storage::disk('public')->exists($relativePath)) {
-                        continue;
-                    }
-
-                    $message->attachData(
-                        Storage::disk('public')->get($relativePath),
-                        (string) ($attachment['name'] ?? basename($relativePath)),
-                        ['mime' => (string) ($attachment['mime'] ?? Storage::disk('public')->mimeType($relativePath) ?? 'application/octet-stream')]
-                    );
-                }
-            });
-        } catch (\Throwable $e) {
-            Log::error('MeetingController diffusion email failed', [
-                'meeting_id' => (string) $meeting->id,
-                'meeting_title' => (string) $meeting->title,
-                'recipients_count' => $emails->count(),
-                'error' => $e->getMessage(),
-            ]);
+        if ($sent === 0) {
+            return $failure('le serveur SMTP de l\'administration a refusé l\'envoi ou est injoignable. Vérifiez la configuration (bouton de test dans les paramètres administrateur).');
         }
 
+        $problems = [];
+        if ($failed) {
+            $problems[] = 'Échec d\'envoi pour : ' . implode(', ', $failed) . '.';
+        }
+        if ($withoutEmail) {
+            $problems[] = 'Non destinataires faute d\'adresse e-mail valide : ' . implode(', ', $withoutEmail) . '.';
+        }
+
+        return ['sent' => $sent, 'error' => $problems ? implode(' ', $problems) : null];
+    }
+
+    /**
+     * Pièces jointes de l'envoi : compte rendu, liste de présence et, à la publication,
+     * les pièces jointes de la réunion.
+     *
+     * @return list<array{name: string, data: string, mime: string}>
+     * @throws \RuntimeException aucun compte rendu à joindre
+     */
+    private function minutesEmailFiles(Meeting $meeting, bool $withMeetingAttachments): array
+    {
+        $slug = Str::slug($meeting->title) ?: 'reunion';
+        $minutes = app(MeetingMinutesPdf::class);
+
+        $files = [[
+            'name' => $minutes->fileName($meeting),
+            'data' => $minutes->content($meeting),
+            'mime' => 'application/pdf',
+        ]];
+
+        $files[] = [
+            'name' => "liste_presence_{$slug}.pdf",
+            'data' => app(MeetingAttendanceController::class)->attendancePdf($meeting, 'landscape')->output(),
+            'mime' => 'application/pdf',
+        ];
+
+        foreach ($withMeetingAttachments ? (array) ($meeting->attachments ?? []) : [] as $attachment) {
+            $publicPath = (string) ($attachment['path'] ?? '');
+            if (!str_starts_with($publicPath, '/storage/')) {
+                continue;
+            }
+
+            $relativePath = ltrim(substr($publicPath, strlen('/storage/')), '/');
+            if (!Storage::disk('public')->exists($relativePath)) {
+                continue;
+            }
+
+            $files[] = [
+                'name' => (string) ($attachment['name'] ?? basename($relativePath)),
+                'data' => Storage::disk('public')->get($relativePath),
+                'mime' => (string) ($attachment['mime'] ?? (Storage::disk('public')->mimeType($relativePath) ?: 'application/octet-stream')),
+            ];
+        }
+
+        return $files;
     }
 
     private function sendValidationRequestEmail(Meeting $meeting): void
@@ -1131,6 +1253,9 @@ class MeetingController extends Controller
         if (!$isWriter && !$isValidator) {
             return response()->json(['error' => 'Seul le rédacteur ou le validateur peut ouvrir ce modèle dans OnlyOffice.'], 403);
         }
+        if ($meeting->isMinutesLocked()) {
+            return response()->json(['error' => self::MINUTES_LOCKED], 403);
+        }
 
         $templatePath = (string) ($meeting->minutes_template ?? '');
         if (!$templatePath || !str_starts_with($templatePath, '/storage/')) {
@@ -1218,6 +1343,12 @@ class MeetingController extends Controller
 
         // Status 2 = prêt à sauvegarder, 6 = forcer la sauvegarde
         if (in_array($status, [2, 6], true)) {
+            // Une session ouverte avant la validation ne doit plus rien enregistrer.
+            if ($meeting->isMinutesLocked()) {
+                Log::warning('OnlyOffice : enregistrement refusé, compte rendu validé', ['meeting_id' => (string) $meeting->id]);
+                return response()->json(['error' => 1]);
+            }
+
             $downloadUrl = (string) ($body['url'] ?? '');
             if ($downloadUrl !== '') {
                 $content = $this->downloadEditedTemplate($meeting, $downloadUrl);
@@ -1278,6 +1409,9 @@ class MeetingController extends Controller
             $isOrganizer = (string) ($meeting->organizer_id   ?? '') === $currentUserId;
             if (!$isWriter && !$isValidator && !$isOrganizer) {
                 return response()->json(['error' => 'Accès refusé.'], 403);
+            }
+            if ($meeting->isMinutesLocked()) {
+                return response()->json(['error' => self::MINUTES_LOCKED], 403);
             }
 
             $templatePath = (string) ($meeting->minutes_template ?? '');

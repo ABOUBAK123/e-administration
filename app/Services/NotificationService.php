@@ -41,7 +41,8 @@ class NotificationService
         ]);
     }
 
-    private static function resolveWorkflowSmtpSetting(?string $userId): ?AdministrationSmtpSetting
+    /** SMTP de l'administration à laquelle l'utilisateur est rattaché. */
+    public static function resolveWorkflowSmtpSetting(?string $userId): ?AdministrationSmtpSetting
     {
         $normalizedUserId = trim((string) ($userId ?? ''));
         if ($normalizedUserId === '') {

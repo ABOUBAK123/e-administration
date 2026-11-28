@@ -8,6 +8,7 @@
     $currentUserId = (string) auth()->id();
     $isWriter = (string) ($meeting->minutes_writer_id ?? '') === $currentUserId;
     $isValidator = (string) ($meeting->validator_id ?? '') === $currentUserId;
+    $locked = $meeting->isMinutesLocked();
 @endphp
 @php
     $isOrganizer = isset($isOrganizer) ? $isOrganizer : ((string) ($meeting->organizer_id ?? '') === (string) auth()->id());
@@ -73,6 +74,15 @@
                 Modèle de compte rendu
             </h3>
 
+            @if($locked)
+            <div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                <p class="text-sm text-emerald-800"><i class="fas fa-lock mr-1"></i> Compte rendu validé : il n'est plus modifiable.</p>
+                <a href="{{ route('meetings.minutes.pdf', $meeting) }}" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700">
+                    <i class="fas fa-file-pdf mr-1"></i> Télécharger le PDF validé
+                </a>
+            </div>
+            @endif
+
             @if($meeting->minutes_template && str_starts_with($meeting->minutes_template, '/storage/'))
 
             {{-- Fichier modèle --}}
@@ -83,13 +93,13 @@
                     <p class="text-xs text-gray-500">Modèle Word uploadé</p>
                 </div>
                 <div class="flex gap-2 shrink-0">
-                    @if($isWriter || $isValidator || $isOrganizer)
+                    @if(!$locked && ($isWriter || $isValidator || $isOrganizer))
                     <button type="button" id="btn-analyze-tpl" onclick="analyzeTemplate()"
                             class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 whitespace-nowrap">
                         <i class="fas fa-robot mr-1"></i> Analyser le modèle
                     </button>
                     @endif
-                    @if($isWriter || $isValidator)
+                    @if(!$locked && ($isWriter || $isValidator))
                     <button type="button" onclick="openTemplateInOO()"
                             class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#2453d6] text-white text-xs font-semibold hover:bg-[#1f47bb] whitespace-nowrap">
                         <i class="fas fa-edit mr-1"></i> OnlyOffice
@@ -98,6 +108,7 @@
                 </div>
             </div>
 
+            @if(!$locked)
             {{-- Panneau Agent IA --}}
             <div id="tpl-analysis-panel"
                  class="{{ ($meeting->template_variables && count($meeting->template_variables)) ? '' : 'hidden' }} rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-4">
@@ -166,13 +177,14 @@
                 Cliquez sur "Analyser le modèle" pour détecter les variables <code class="bg-gray-100 px-1 rounded">{{ '{' . '{ variable }' . '}' }}</code>
                 et sceller les zones de signature <code class="bg-gray-100 px-1 rounded">@@@</code>.
             </div>
+            @endif
 
             @else
             <p class="text-sm text-gray-400 italic">Aucun modèle de compte rendu chargé pour cette réunion.</p>
             @endif
 
             {{-- Contenu libre --}}
-            @if($isWriter || $isValidator)
+            @if(!$locked && ($isWriter || $isValidator))
             <div class="border-t border-gray-100 pt-3 space-y-2" id="ai-minutes-block">
                 <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                     <i class="fas fa-robot text-purple-500 mr-1"></i> IA : écouter la réunion et proposer un compte rendu
@@ -193,6 +205,14 @@
             </div>
             @endif
 
+            @if($locked)
+            @if(trim((string) $meeting->minutes_content) !== '')
+            <div class="border-t border-gray-100 pt-3">
+                <p class="text-xs font-semibold text-gray-600 mb-1">Contenu libre du compte rendu</p>
+                <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 whitespace-pre-line">{{ $meeting->minutes_content }}</div>
+            </div>
+            @endif
+            @else
             <form method="POST" action="{{ route('meetings.minutes.update', $meeting) }}" class="space-y-2 border-t border-gray-100 pt-3">
                 @csrf
                 <label class="block text-xs font-semibold text-gray-600 mb-1">Contenu libre du compte rendu</label>
@@ -200,6 +220,7 @@
                 <input type="text" name="note" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Note de version (optionnel)">
                 <button class="px-3 py-2 rounded-lg bg-[#2453d6] text-white text-sm font-semibold hover:bg-[#1f47bb]">Enregistrer une version</button>
             </form>
+            @endif
         </div>
 
 
@@ -211,7 +232,7 @@
                 @endif
 
                 @if($isValidator && $meeting->workflow_status === 'in_validation')
-                    <form method="POST" action="{{ route('meetings.workflow', $meeting) }}">@csrf<input type="hidden" name="action" value="validate"><button class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold">Valider</button></form>
+                    <form method="POST" action="{{ route('meetings.workflow', $meeting) }}" onsubmit="if (!confirm('Valider le compte rendu ? Il sera converti en PDF et ne pourra plus être modifié. Fermez d\'abord l\'éditeur OnlyOffice.')) return false; this.querySelector('button').disabled = true;">@csrf<input type="hidden" name="action" value="validate"><button class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold">Valider</button></form>
                     <form method="POST" action="{{ route('meetings.workflow', $meeting) }}" class="flex items-center gap-2">
                         @csrf
                         <input type="hidden" name="action" value="request_review">
@@ -231,6 +252,17 @@
 
                 @if($isWriter)
                     <form method="POST" action="{{ route('meetings.workflow', $meeting) }}">@csrf<input type="hidden" name="action" value="publish"><button class="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold">Publier et diffuser</button></form>
+                @endif
+
+                @if(($isWriter || $isValidator || $isOrganizer) && in_array($meeting->workflow_status, ['validated', 'published'], true))
+                    <form method="POST" action="{{ route('meetings.workflow', $meeting) }}"
+                          onsubmit="if (!confirm('Envoyer le compte rendu et la liste de présence par e-mail à tous les participants ?')) return false; this.querySelector('button').disabled = true;">
+                        @csrf
+                        <input type="hidden" name="action" value="send">
+                        <button class="px-3 py-1.5 rounded-lg bg-[#2453d6] text-white text-xs font-semibold hover:bg-[#1f47bb] disabled:opacity-50">
+                            <i class="fas fa-paper-plane mr-1"></i> Envoyer
+                        </button>
+                    </form>
                 @endif
             </div>
 

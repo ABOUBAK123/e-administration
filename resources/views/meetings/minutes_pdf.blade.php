@@ -14,8 +14,10 @@
     <div class="meta">
         Réunion: {{ $meeting->title }}<br>
         Date: {{ $meeting->starts_at?->format('d/m/Y H:i') }}<br>
-        Salle: {{ $meeting->room?->name ?: 'N/A' }}<br>
-        Workflow: {{ $meeting->workflow_status ?: 'draft' }}
+        Salle: {{ $meeting->room?->name ?: 'N/A' }}
+        @if($meeting->validated_at)
+        <br>Validé le {{ $meeting->validated_at->format('d/m/Y H:i') }}{{ $meeting->validatedByUser ? ' par ' . $meeting->validatedByUser->name : '' }}
+        @endif
     </div>
 
     <div class="box">{{ $meeting->minutes_content ?: 'Aucun contenu de compte rendu.' }}</div>

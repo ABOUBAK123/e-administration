@@ -79,6 +79,12 @@ class Meeting extends Model
         'deadline_alert_sent_at' => 'datetime',
     ];
 
+    /** Un compte rendu validé (puis publié) n'est plus modifiable. */
+    public function isMinutesLocked(): bool
+    {
+        return in_array($this->workflow_status, ['validated', 'published'], true);
+    }
+
     public function room()
     {
         return $this->belongsTo(MeetingRoom::class, 'meeting_room_id');

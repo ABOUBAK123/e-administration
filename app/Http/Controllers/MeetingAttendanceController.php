@@ -7,6 +7,8 @@ use App\Models\IssuingAdministration;
 use App\Models\Meeting;
 use App\Models\MeetingAttendance;
 use App\Models\MeetingParticipant;
+use App\Models\PersonnelEmployee;
+use App\Models\RecipientAdministration;
 use App\Models\SubEntity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -66,31 +68,13 @@ class MeetingAttendanceController extends Controller
         ]);
 
         $identifier = trim($validated['identifier']);
-        $normalizedIdentifier = mb_strtolower($identifier, 'UTF-8');
 
-        $participant = MeetingParticipant::where('meeting_id', $meeting->id)
-            ->where(function ($query) use ($identifier) {
-                $query->where('email', $identifier)
-                    ->orWhereHas('user', function ($userQuery) use ($identifier) {
-                        $userQuery->where('email', $identifier);
-                    });
-            })
-            ->first();
+        $participant = $this->findParticipant($meeting, $identifier);
+        $profile = $participant ? $this->participantProfile($meeting, $participant) : [];
 
-        $resolvedEmail = trim((string) ($participant?->email ?: $participant?->user?->email ?: ($validated['email'] ?? '')));
-        $normalizedEmail = $resolvedEmail !== '' ? mb_strtolower($resolvedEmail, 'UTF-8') : null;
+        $resolvedEmail = trim((string) (($profile['email'] ?? null) ?: ($validated['email'] ?? '')));
 
-        $existingAttendance = MeetingAttendance::query()
-            ->where('meeting_id', $meeting->id)
-            ->where(function ($query) use ($normalizedIdentifier, $normalizedEmail) {
-                $query->whereRaw('LOWER(identifier) = ?', [$normalizedIdentifier]);
-
-                if ($normalizedEmail) {
-                    $query->orWhereRaw('LOWER(email) = ?', [$normalizedEmail]);
-                }
-            })
-            ->orderBy('signed_at')
-            ->first();
+        $existingAttendance = $this->findAttendance($meeting, $identifier, $participant, $resolvedEmail);
 
         if ($existingAttendance) {
             $registeredName = trim((string) ($existingAttendance->full_name ?? ''));
@@ -110,10 +94,7 @@ class MeetingAttendanceController extends Controller
                 ->with('error', $message);
         }
 
-        $name = $participant?->full_name ?: ($validated['full_name'] ?? null);
-        if (!$name && $participant?->user) {
-            $name = $participant->user->name;
-        }
+        $name = ($profile['full_name'] ?? null) ?: ($validated['full_name'] ?? null);
 
         if (!$name) {
             return back()->withInput()->with('error', 'Nom obligatoire pour un participant externe.');
@@ -136,9 +117,9 @@ class MeetingAttendanceController extends Controller
             'identifier' => $identifier,
             'full_name' => $name,
             'email' => $resolvedEmail !== '' ? $resolvedEmail : null,
-            'phone' => $validated['phone'] ?? null,
-            'job_title' => $validated['job_title'] ?? null,
-            'organization' => $validated['organization'] ?? null,
+            'phone' => ($validated['phone'] ?? null) ?: ($profile['phone'] ?? null),
+            'job_title' => ($validated['job_title'] ?? null) ?: ($profile['job_title'] ?? null),
+            'organization' => ($validated['organization'] ?? null) ?: ($profile['organization'] ?? null),
             'attendance_status' => 'present',
             'signed_at' => now(),
             'signature_path' => $signaturePath,
@@ -151,22 +132,16 @@ class MeetingAttendanceController extends Controller
     {
         $meeting = Meeting::where('qr_token', $token)->firstOrFail();
 
-        $identifier = trim($request->input('identifier', ''));
-        if ($identifier === '') {
+        $identifier = trim((string) $request->input('identifier', ''));
+        if ($identifier === '' || !$this->isQrWindowValid($meeting)) {
             return response()->json(null);
         }
 
-        $normalizedIdentifier = mb_strtolower($identifier, 'UTF-8');
+        $participant = $this->findParticipant($meeting, $identifier);
+        $profile = $participant ? $this->participantProfile($meeting, $participant) : null;
 
-        // Search in current meeting attendances for this identifier or email
-        $attendance = MeetingAttendance::query()
-            ->where('meeting_id', $meeting->id)
-            ->where(function ($query) use ($normalizedIdentifier) {
-                $query->whereRaw('LOWER(identifier) = ?', [$normalizedIdentifier])
-                    ->orWhereRaw('LOWER(email) = ?', [$normalizedIdentifier]);
-            })
-            ->orderBy('signed_at')
-            ->first();
+        // Déjà émargé, avec ce même identifiant ou avec l'autre (e-mail / matricule).
+        $attendance = $this->findAttendance($meeting, $identifier, $participant, $profile['email'] ?? null);
 
         if ($attendance) {
             $registeredName = trim((string) ($attendance->full_name ?? ''));
@@ -193,27 +168,7 @@ class MeetingAttendanceController extends Controller
             ]);
         }
 
-        // Search in meeting participants by email
-        $participant = MeetingParticipant::where('meeting_id', $meeting->id)
-            ->where(function ($q) use ($identifier) {
-                $q->where('email', $identifier)
-                  ->orWhereHas('user', fn($u) => $u->where('email', $identifier));
-            })
-            ->with('user')
-            ->first();
-
-        if ($participant) {
-            return response()->json([
-                'already_registered' => false,
-                'full_name'    => $participant->full_name ?: $participant->user?->name,
-                'email'        => $participant->email ?: $participant->user?->email,
-                'phone'        => null,
-                'job_title'    => null,
-                'organization' => null,
-            ]);
-        }
-
-        return response()->json(null);
+        return response()->json($profile ? ['already_registered' => false] + $profile : null);
     }
 
     public function correctByToken(Request $request, string $token)
@@ -235,16 +190,10 @@ class MeetingAttendanceController extends Controller
         ]);
 
         $identifier = trim($validated['identifier']);
-        $normalizedIdentifier = mb_strtolower($identifier, 'UTF-8');
+        $participant = $this->findParticipant($meeting, $identifier);
+        $email = $participant ? $this->participantProfile($meeting, $participant)['email'] : null;
 
-        $attendance = MeetingAttendance::query()
-            ->where('meeting_id', $meeting->id)
-            ->where(function ($query) use ($normalizedIdentifier) {
-                $query->whereRaw('LOWER(identifier) = ?', [$normalizedIdentifier])
-                    ->orWhereRaw('LOWER(email) = ?', [$normalizedIdentifier]);
-            })
-            ->orderBy('signed_at')
-            ->first();
+        $attendance = $this->findAttendance($meeting, $identifier, $participant, $email);
 
         if (!$attendance) {
             return back()->withInput()->with('error', 'Aucune inscription trouvée pour cet identifiant.');
@@ -265,8 +214,8 @@ class MeetingAttendanceController extends Controller
         }
 
         $attendance->update([
-            'full_name'      => $validated['full_name'] ?: $attendance->full_name,
-            'email'          => $validated['email'] ?: $attendance->email,
+            'full_name'      => ($validated['full_name'] ?? null) ?: $attendance->full_name,
+            'email'          => ($validated['email'] ?? null) ?: $attendance->email,
             'phone'          => array_key_exists('phone', $validated) ? ($validated['phone'] ?? null) : $attendance->phone,
             'job_title'      => array_key_exists('job_title', $validated) ? ($validated['job_title'] ?? null) : $attendance->job_title,
             'organization'   => array_key_exists('organization', $validated) ? ($validated['organization'] ?? null) : $attendance->organization,
@@ -274,6 +223,116 @@ class MeetingAttendanceController extends Controller
         ]);
 
         return back()->with('success', 'Vos informations ont été mises à jour avec succès.');
+    }
+
+    /** Participant inscrit à la réunion, désigné par son e-mail ou son matricule (saisie exacte). */
+    private function findParticipant(Meeting $meeting, string $identifier): ?MeetingParticipant
+    {
+        $needle = mb_strtolower(trim($identifier), 'UTF-8');
+        if ($needle === '') {
+            return null;
+        }
+
+        $participants = MeetingParticipant::where('meeting_id', $meeting->id)->with('user')->get();
+
+        if (str_contains($needle, '@')) {
+            return $participants->first(fn (MeetingParticipant $p) => in_array($needle, $this->participantEmails($p), true));
+        }
+
+        $employees = PersonnelEmployee::query()
+            ->whereRaw('LOWER(employee_number) = ?', [$needle])
+            ->get(['linked_user_id', 'email']);
+
+        $matches = $participants->filter(fn (MeetingParticipant $p) => $employees->contains(
+            fn (PersonnelEmployee $e) => ($e->linked_user_id && (string) $e->linked_user_id === (string) $p->user_id)
+                || ($e->email && in_array(mb_strtolower(trim($e->email), 'UTF-8'), $this->participantEmails($p), true))
+        ));
+
+        // Un matricule désignant deux personnes différentes ne pré-remplit rien.
+        return $matches->unique(fn ($p) => (string) ($p->user_id ?: $p->id))->count() === 1 ? $matches->first() : null;
+    }
+
+    /** @return list<string> adresses du participant, en minuscules */
+    private function participantEmails(MeetingParticipant $participant): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            fn ($email) => mb_strtolower(trim((string) $email), 'UTF-8'),
+            [$participant->email, $participant->user?->email],
+        ))));
+    }
+
+    /**
+     * Informations à pré-remplir : inscription, compte, dossier du personnel,
+     * puis dernier émargement de la personne pour ce qui manque.
+     *
+     * @return array{full_name: ?string, email: ?string, phone: ?string, job_title: ?string, organization: ?string}
+     */
+    private function participantProfile(Meeting $meeting, MeetingParticipant $participant): array
+    {
+        $user = $participant->user;
+        $emails = $this->participantEmails($participant);
+
+        $employees = PersonnelEmployee::query()
+            ->where(function ($query) use ($participant, $emails) {
+                $query->whereRaw('1 = 0');
+                if ($participant->user_id) {
+                    $query->orWhere('linked_user_id', $participant->user_id);
+                }
+                foreach ($emails as $email) {
+                    $query->orWhereRaw('LOWER(email) = ?', [$email]);
+                }
+            })
+            ->get();
+        // Le dossier lié au compte, dans l'administration de la réunion, est prioritaire.
+        $employee = $employees->sortByDesc(fn (PersonnelEmployee $e) => ($participant->user_id && (string) $e->linked_user_id === (string) $participant->user_id ? 2 : 0)
+            + ((string) $e->administration_id === (string) $meeting->issuing_administration_id ? 1 : 0))->first();
+
+        $previous = $emails === [] ? collect() : MeetingAttendance::query()
+            ->where(function ($query) use ($emails) {
+                foreach ($emails as $email) {
+                    $query->orWhereRaw('LOWER(email) = ?', [$email]);
+                }
+            })
+            ->latest('signed_at')
+            ->limit(10)
+            ->get(['phone', 'job_title', 'organization']);
+        $last = fn (string $field) => $previous->pluck($field)->first(fn ($value) => trim((string) $value) !== '');
+
+        // Un agent invité sans dossier appartient à l'administration qui organise la réunion.
+        $administrationId = $employee?->administration_id ?: ($user && !$participant->is_external ? $meeting->issuing_administration_id : null);
+        $organization = $administrationId
+            ? (IssuingAdministration::find($administrationId)?->name ?? RecipientAdministration::find($administrationId)?->name)
+            : null;
+
+        return [
+            'full_name'    => $participant->full_name ?: $user?->name ?: $employee?->full_name ?: null,
+            'email'        => $participant->email ?: $user?->email ?: $employee?->email ?: null,
+            'phone'        => $user?->phone ?: $employee?->phone ?: $last('phone'),
+            'job_title'    => $employee?->job_title ?: $last('job_title'),
+            'organization' => $organization ?: $last('organization'),
+        ];
+    }
+
+    /** Émargement existant : même identifiant, même e-mail ou même participant. */
+    private function findAttendance(Meeting $meeting, string $identifier, ?MeetingParticipant $participant, ?string $email): ?MeetingAttendance
+    {
+        $needles = array_unique(array_filter(array_map(
+            fn ($value) => mb_strtolower(trim((string) $value), 'UTF-8'),
+            [$identifier, $email],
+        )));
+
+        return MeetingAttendance::query()
+            ->where('meeting_id', $meeting->id)
+            ->where(function ($query) use ($needles, $participant) {
+                foreach ($needles as $needle) {
+                    $query->orWhereRaw('LOWER(identifier) = ?', [$needle])->orWhereRaw('LOWER(email) = ?', [$needle]);
+                }
+                if ($participant) {
+                    $query->orWhere('meeting_participant_id', $participant->id);
+                }
+            })
+            ->orderBy('signed_at')
+            ->first();
     }
 
     public function downloadAttendance(Request $request, Meeting $meeting)
@@ -287,26 +346,7 @@ class MeetingAttendanceController extends Controller
         $baseName    = 'presence_' . Str::slug($meeting->title) . '_' . ($meeting->starts_at?->format('Ymd') ?? date('Ymd'));
 
         if ($format === 'pdf') {
-            $meeting->load(['participants', 'room', 'organizer']);
-            $branding = $this->resolveOrganizerBranding($meeting);
-            $branding['logo_pdf_src'] = $this->resolvePdfLogoSource($branding['logo_url'] ?? null);
-            $signatureSources = [];
-
-            foreach ($attendances as $attendance) {
-                $signatureSources[(string) $attendance->id] = $this->resolvePdfImageSource($attendance->signature_path);
-            }
-
-            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('meetings.attendance_pdf', [
-                'meeting'     => $meeting,
-                'attendances' => $attendances,
-                'branding'    => $branding,
-                'signatureSources' => $signatureSources,
-            ]);
-
-            $pdf->setOption('isRemoteEnabled', true);
-            $pdf->setPaper('a4', $orientation);
-
-            return $pdf->download($baseName . '.pdf');
+            return $this->attendancePdf($meeting, $orientation)->download($baseName . '.pdf');
         }
 
         // CSV
@@ -345,6 +385,33 @@ class MeetingAttendanceController extends Controller
         };
 
         return response()->stream($callback, 200, $headers);
+    }
+
+    /** Liste de présence signée (logo, émargements), pour le téléchargement et l'envoi par e-mail. */
+    public function attendancePdf(Meeting $meeting, string $orientation = 'portrait'): \Barryvdh\DomPDF\PDF
+    {
+        $meeting->load(['participants', 'room', 'organizer']);
+        $attendances = $meeting->attendances()->latest('signed_at')->get();
+        $branding = $this->resolveOrganizerBranding($meeting);
+        $branding['logo_pdf_src'] = $this->resolvePdfLogoSource($branding['logo_url'] ?? null);
+        $signatureSources = [];
+
+        foreach ($attendances as $attendance) {
+            $signatureSources[(string) $attendance->id] = $this->resolvePdfImageSource($attendance->signature_path);
+        }
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('meetings.attendance_pdf', [
+            'meeting'     => $meeting,
+            'attendances' => $attendances,
+            'branding'    => $branding,
+            'signatureSources' => $signatureSources,
+        ]);
+
+        $pdf->setOption('isRemoteEnabled', true);
+        $pdf->setOption('isFontSubsettingEnabled', true);
+        $pdf->setPaper('a4', $orientation);
+
+        return $pdf;
     }
 
     private function resolvePdfLogoSource(?string $logoUrl): ?string

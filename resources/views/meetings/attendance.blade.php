@@ -318,8 +318,8 @@
             <label class="block text-xs font-semibold text-gray-700 mb-1">Matricule ou email</label>
             <input id="field-identifier" name="identifier" required
                    class="w-full border border-gray-300 rounded-lg px-3 py-3 text-base"
-                   placeholder="email@organisation.com" autocomplete="off">
-            <span id="autofill-badge" class="hidden text-xs text-green-700 font-medium mt-1 block qr-badge qr-hidden">✓ Informations pré-remplies</span>
+                   placeholder="Votre matricule ou votre adresse e-mail" autocomplete="off">
+            <span id="autofill-badge" class="hidden text-xs text-green-700 font-medium mt-1 block qr-badge qr-hidden">✓ Informations pré-remplies : il ne reste qu'à signer.</span>
         </div>
         <div class="qr-field">
             <label class="block text-xs font-semibold text-gray-700 mb-1">Nom complet (si externe)</label>
@@ -451,7 +451,6 @@
     function enterCorrectionMode() {
         correctionMode = true;
         form.action = correctUrl;
-        identifierInput.setAttribute('readonly', 'readonly');
         submitBtn.textContent = 'Corriger mes informations';
         submitBtn.classList.remove('qr-submit');
         submitBtn.classList.add('qr-submit-correct');
@@ -462,26 +461,30 @@
     function exitCorrectionMode() {
         correctionMode = false;
         form.action = signUrl;
-        identifierInput.removeAttribute('readonly');
         submitBtn.textContent = 'Signer ma présence';
         submitBtn.classList.remove('qr-submit-correct');
         submitBtn.classList.add('qr-submit');
         hideCorrectionBanner();
     }
 
+    // Seuls les champs remplis automatiquement sont effacés : la saisie manuelle est conservée.
+    let autofilled = [];
+
     function fill(data) {
+        clear();
         fields.forEach(function (key) {
             const el = document.getElementById('field-' + key);
-            if (el && data[key] != null) el.value = data[key];
+            if (el && data[key]) {
+                el.value = data[key];
+                autofilled.push(el);
+            }
         });
         badge.classList.remove('hidden', 'qr-hidden');
     }
 
     function clear() {
-        fields.forEach(function (key) {
-            const el = document.getElementById('field-' + key);
-            if (el) el.value = '';
-        });
+        autofilled.forEach(function (el) { el.value = ''; });
+        autofilled = [];
         badge.classList.add('hidden', 'qr-hidden');
     }
 
@@ -491,24 +494,23 @@
         hideLookupError();
         hideCorrectionBanner();
         exitCorrectionMode();
+        clear();
         const val = this.value.trim();
-        if (val.length < 3) { clear(); return; }
+        if (val.length < 3) return;
 
         debounceTimer = setTimeout(function () {
-            fetch(lookupUrl + '?identifier=' + encodeURIComponent(val))
-                .then(function (r) { return r.json(); })
+            fetch(lookupUrl + '?identifier=' + encodeURIComponent(val), { headers: { 'Accept': 'application/json' } })
+                .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (data) {
-                    if (data) {
-                        fill(data);
-                        if (data.already_registered) {
-                            if (data.can_edit) {
-                                enterCorrectionMode();
-                            } else {
-                                showLookupError(data.message || 'Vous êtes déjà inscrit à cette réunion. La période de modification est terminée.');
-                            }
+                    // La saisie a pu changer pendant la recherche.
+                    if (identifierInput.value.trim() !== val || !data || !Object.keys(data).length) return;
+                    fill(data);
+                    if (data.already_registered) {
+                        if (data.can_edit) {
+                            enterCorrectionMode();
+                        } else {
+                            showLookupError(data.message || 'Vous êtes déjà inscrit à cette réunion. La période de modification est terminée.');
                         }
-                    } else {
-                        clear();
                     }
                 })
                 .catch(function () {});
