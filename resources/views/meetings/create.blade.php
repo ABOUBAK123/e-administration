@@ -164,6 +164,19 @@
         </div>
 
         <div class="md:col-span-2">
+            <label for="reminder_hours_before" class="block text-xs font-semibold text-gray-700 mb-1">Rappel aux participants (e-mail)</label>
+            <select id="reminder_hours_before" name="reminder_hours_before" class="w-full md:w-1/2 border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                @foreach(\App\Models\Meeting::reminderOptions() as $hours => $label)
+                <option value="{{ $hours }}" {{ (int) old('reminder_hours_before', config('meetings.reminder_hours_before_meeting', 24)) === $hours ? 'selected' : '' }}>{{ $label }}</option>
+                @endforeach
+            </select>
+            <p class="text-xs text-gray-400 mt-1">Un seul e-mail est envoyé aux participants sélectionnés, au délai choisi avant le début de la réunion.</p>
+            @error('reminder_hours_before')
+                <p class="text-xs text-red-500 mt-1">{{ $message }}</p>
+            @enderror
+        </div>
+
+        <div class="md:col-span-2">
             <label class="block text-xs font-semibold text-gray-700 mb-1">Documents joints</label>
             <input type="file" name="attachments[]" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
         </div>

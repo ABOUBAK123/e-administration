@@ -17,10 +17,10 @@ Artisan::command('inspire', function () {
 
 // Rappels/alertes automatiques du module Reunions : rappel de reunion a
 // venir, relance validateur, alerte echeance de traitement. La commande
-// est idempotente (marque les entites deja traitees), donc une execution
-// horaire suffit meme si le scheduler redemarre.
+// est idempotente (marque les entites deja traitees). Le passage toutes les
+// 15 minutes permet de respecter les delais courts (1 heure avant).
 Schedule::command('meetings:send-reminders')
-    ->hourly()
+    ->everyFifteenMinutes()
     ->withoutOverlapping()
     ->onFailure(function () {
         Log::error('La commande meetings:send-reminders a echoue.');

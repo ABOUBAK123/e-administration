@@ -66,9 +66,8 @@ class MeetingReminderService
     }
 
     /**
-     * Envoie un rappel par email aux participants invites pour les reunions
-     * qui debutent dans les prochaines $hoursBefore heures et qui n'ont pas
-     * deja ete rappelees.
+     * Envoie un rappel par email aux participants invites, au delai choisi pour
+     * chaque reunion ($hoursBefore pour celles sans choix), une seule fois.
      *
      * @return array{processed:int,sent:int,skipped:int,errors:int}
      */
@@ -80,9 +79,14 @@ class MeetingReminderService
             ->whereNull('reminder_sent_at')
             ->whereNotNull('starts_at')
             ->where('starts_at', '>', now())
-            ->where('starts_at', '<=', now()->addHours($hoursBefore))
+            ->where('starts_at', '<=', now()->addHours(max($hoursBefore, ...array_keys(Meeting::REMINDER_OPTIONS))))
             ->with(['participants.user', 'room', 'organizer'])
-            ->get();
+            ->get()
+            ->filter(function (Meeting $meeting) use ($hoursBefore) {
+                $hours = $meeting->reminderHours($hoursBefore);
+
+                return $hours > 0 && $meeting->starts_at->lte(now()->addHours($hours));
+            });
 
         foreach ($meetings as $meeting) {
             $stats['processed']++;

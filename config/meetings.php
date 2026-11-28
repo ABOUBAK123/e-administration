@@ -11,8 +11,8 @@ return [
     |
     */
 
-    // Nombre d'heures avant le debut de la reunion pour envoyer le rappel
-    // aux participants invites.
+    // Delai (heures avant le debut) propose par defaut a la creation d'une reunion,
+    // et applique aux reunions sans choix.
     'reminder_hours_before_meeting' => (int) env('MEETING_REMINDER_HOURS_BEFORE', 24),
 
     // Duree (en heures) au-dela de laquelle une demande de validation du

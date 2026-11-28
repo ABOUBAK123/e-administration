@@ -9,7 +9,21 @@ class Meeting extends Model
 {
     use HasUuids;
 
+    /** Délais de rappel proposés (heures avant le début) ; 0 désactive le rappel. */
+    public const REMINDER_OPTIONS = [
+        0   => 'Aucun rappel',
+        1   => '1 heure avant',
+        2   => '2 heures avant',
+        4   => '4 heures avant',
+        12  => '12 heures avant',
+        24  => '1 jour avant',
+        48  => '2 jours avant',
+        72  => '3 jours avant',
+        168 => '1 semaine avant',
+    ];
+
     protected $fillable = [
+        'reminder_hours_before',
         'title',
         'meeting_type',
         'meeting_room_id',
@@ -74,6 +88,7 @@ class Meeting extends Model
         'published_at' => 'datetime',
         'diffusion_ack_required' => 'boolean',
         'is_virtual' => 'boolean',
+        'reminder_hours_before' => 'integer',
         'reminder_sent_at' => 'datetime',
         'validation_reminder_sent_at' => 'datetime',
         'deadline_alert_sent_at' => 'datetime',
@@ -83,6 +98,22 @@ class Meeting extends Model
     public function isMinutesLocked(): bool
     {
         return in_array($this->workflow_status, ['validated', 'published'], true);
+    }
+
+    /** Délai de rappel de cette réunion ; les réunions sans choix suivent le réglage du serveur. */
+    public function reminderHours(?int $default = null): int
+    {
+        return $this->reminder_hours_before ?? $default ?? (int) config('meetings.reminder_hours_before_meeting', 24);
+    }
+
+    /** @return array<int, string> délais proposés, réglage du serveur compris */
+    public static function reminderOptions(): array
+    {
+        $default = max(0, (int) config('meetings.reminder_hours_before_meeting', 24));
+        $options = self::REMINDER_OPTIONS + [$default => $default . ' heures avant'];
+        ksort($options);
+
+        return $options;
     }
 
     public function room()

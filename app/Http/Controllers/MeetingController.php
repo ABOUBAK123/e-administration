@@ -222,6 +222,7 @@ class MeetingController extends Controller
             'diffusion_email_subject' => 'nullable|string|max:255',
             'diffusion_email_body' => 'nullable|string|max:5000',
             'diffusion_ack_required' => 'nullable|boolean',
+            'reminder_hours_before' => ['nullable', 'integer', \Illuminate\Validation\Rule::in(array_keys(Meeting::reminderOptions()))],
             'recurrence_type' => 'nullable|in:none,daily,weekly,monthly,yearly',
             'recurrence_until' => 'nullable|date|after_or_equal:today',
             'participants' => 'nullable|array',
@@ -370,6 +371,7 @@ class MeetingController extends Controller
             'qr_token' => (string) Str::uuid(),
             'qr_valid_from' => $startsAt,
             'qr_valid_until' => $endsAt,
+            'reminder_hours_before' => $validated['reminder_hours_before'] ?? null,
         ]);
 
         foreach ((array) ($validated['participants'] ?? []) as $userId) {

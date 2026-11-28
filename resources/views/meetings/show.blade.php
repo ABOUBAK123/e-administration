@@ -34,6 +34,13 @@
             <div><span class="text-gray-500">Fin:</span> {{ $meeting->ends_at?->format('d/m/Y H:i') }}</div>
             <div><span class="text-gray-500">Délai fixé:</span> {{ $meeting->processing_deadline?->format('d/m/Y H:i') ?: '—' }}</div>
             <div><span class="text-gray-500">Organisateur:</span> {{ $meeting->organizer?->name }}</div>
+            <div>
+                <span class="text-gray-500">Rappel aux participants:</span>
+                {{ \App\Models\Meeting::reminderOptions()[$meeting->reminderHours()] ?? $meeting->reminderHours() . ' heures avant' }}
+                @if($meeting->reminder_sent_at && $meeting->participants->isNotEmpty())
+                    <span class="text-emerald-700">(envoyé le {{ $meeting->reminder_sent_at->format('d/m/Y H:i') }})</span>
+                @endif
+            </div>
             <div><span class="text-gray-500">Rédacteur:</span> {{ $meeting->minutesWriter?->name }}</div>
             <div><span class="text-gray-500">Validateur:</span> {{ $meeting->validator?->name ?: '—' }}</div>
             <div><span class="text-gray-500">Workflow:</span> <span class="font-semibold">{{ $meeting->workflow_status ?? 'draft' }}</span></div>
