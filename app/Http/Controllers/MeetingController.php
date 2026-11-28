@@ -162,6 +162,8 @@ class MeetingController extends Controller
 
         $users = User::query()
             ->select('users.id', 'users.name', 'users.email')
+            // Les comptes désactivés ou suspendus ne sont plus proposés.
+            ->where('users.status', 'active')
             ->whereExists(function ($query) use ($scope) {
                 $query->select(DB::raw(1))
                     ->from('user_direction_assignments as uda')
@@ -231,6 +233,18 @@ class MeetingController extends Controller
             'attachments' => 'nullable|array',
             'attachments.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx|max:20480',
         ]);
+
+        // Envoi forcé, ou compte désactivé après l'affichage du formulaire.
+        $disabledNames = User::withTrashed()
+            ->whereIn('id', array_merge(
+                [(string) $validated['minutes_writer_id'], (string) $validated['validator_id']],
+                (array) ($validated['participants'] ?? []),
+            ))
+            ->where(fn ($query) => $query->where('status', '!=', 'active')->orWhereNotNull('deleted_at'))
+            ->pluck('name');
+        if ($disabledNames->isNotEmpty()) {
+            return back()->withInput()->with('error', 'Compte désactivé, à retirer de la réunion : ' . $disabledNames->implode(', ') . '.');
+        }
 
         $allowedUserIds = $this->resolveScopeUserIds($scope);
         if (!in_array((string) $validated['minutes_writer_id'], $allowedUserIds, true)) {
