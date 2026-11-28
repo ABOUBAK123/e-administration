@@ -79,7 +79,9 @@
                 <div class="space-y-1">
                     @foreach($day['meetings']->take(3) as $meeting)
                         @php
-                            $colorClass = $workflowColors[$meeting->workflow_status ?? 'draft'] ?? $workflowColors['draft'];
+                            $colorClass = $meeting->status === 'cancelled'
+                                ? 'bg-red-50 text-red-600 border-red-200 line-through'
+                                : ($workflowColors[$meeting->workflow_status ?? 'draft'] ?? $workflowColors['draft']);
                         @endphp
                         <a href="{{ route('meetings.show', $meeting) }}"
                            title="{{ $meeting->title }} - {{ $meeting->room?->name ?: 'Sans salle' }} - {{ $meeting->organizer?->name }}"
@@ -103,5 +105,6 @@
     <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-amber-100 border border-amber-200 inline-block"></span> En validation</span>
     <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-blue-100 border border-blue-200 inline-block"></span> Validé</span>
     <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-emerald-100 border border-emerald-200 inline-block"></span> Publié</span>
+    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-red-50 border border-red-200 inline-block"></span> Annulée</span>
 </div>
 @endsection

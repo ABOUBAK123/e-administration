@@ -77,6 +77,7 @@ class MeetingReminderService
 
         $meetings = Meeting::query()
             ->whereNull('reminder_sent_at')
+            ->where('status', '!=', 'cancelled')
             ->whereNotNull('starts_at')
             ->where('starts_at', '>', now())
             ->where('starts_at', '<=', now()->addHours(max($hoursBefore, ...array_keys(Meeting::REMINDER_OPTIONS))))
@@ -136,6 +137,7 @@ class MeetingReminderService
 
         $meetings = Meeting::query()
             ->where('workflow_status', 'in_validation')
+            ->where('status', '!=', 'cancelled')
             ->whereNotNull('validation_requested_at')
             ->where('validation_requested_at', '<=', now()->subHours($staleHours))
             ->where(function ($query) use ($reminderIntervalHours) {
@@ -190,6 +192,7 @@ class MeetingReminderService
 
         $meetings = Meeting::query()
             ->whereNotNull('processing_deadline')
+            ->where('status', '!=', 'cancelled')
             ->where('workflow_status', '!=', 'published')
             ->where('processing_deadline', '>', now())
             ->where('processing_deadline', '<=', now()->addHours($hoursBefore))

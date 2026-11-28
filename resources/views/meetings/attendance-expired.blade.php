@@ -55,7 +55,11 @@
 <body class="bg-gray-100 min-h-screen py-8 px-4 qr-expired-body">
 <div class="max-w-xl mx-auto bg-white rounded-2xl shadow p-6 text-center qr-expired-card">
     <h1 class="text-xl font-bold text-gray-800 qr-expired-title">QR Code non valide</h1>
+    @if($meeting->isCancelled())
+    <p class="text-sm text-gray-600 mt-2 qr-expired-text">La réunion <strong>{{ $meeting->title }}</strong> a été annulée.</p>
+    @else
     <p class="text-sm text-gray-600 mt-2 qr-expired-text">La période d'émargement est expirée pour la réunion: <strong>{{ $meeting->title }}</strong>.</p>
+    @endif
 </div>
 </body>
 </html>

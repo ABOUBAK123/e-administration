@@ -26,6 +26,14 @@ Schedule::command('meetings:send-reminders')
         Log::error('La commande meetings:send-reminders a echoue.');
     });
 
+// Statut des reunions (en cours, terminee) et archivage GED des comptes rendus valides.
+Schedule::command('meetings:close-finished')
+    ->everyFifteenMinutes()
+    ->withoutOverlapping()
+    ->onFailure(function () {
+        Log::error('La commande meetings:close-finished a signale des erreurs.');
+    });
+
 Artisan::command('templates:backfill-content
     {--dry-run : Affiche les templates qui seront repares sans ecrire en base}
     {--limit=200 : Nombre max de templates a traiter}

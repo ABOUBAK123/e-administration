@@ -14,6 +14,7 @@ use App\Http\Controllers\PublicActRequestController;
 use App\Http\Controllers\QrVerificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\MeetingController;
+use App\Http\Controllers\MeetingManagementController;
 use App\Http\Controllers\MeetingRoomController;
 use App\Http\Controllers\MeetingAttendanceController;
 use App\Http\Controllers\DebugController;
@@ -343,8 +344,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/meetings', [MeetingController::class, 'index'])->name('meetings.index');
     Route::get('/meetings/create', [MeetingController::class, 'create'])->name('meetings.create');
     Route::post('/meetings', [MeetingController::class, 'store'])->name('meetings.store');
-    // Backward-compat route name used by older compiled meeting views.
-    Route::get('/meetings/{meeting}/edit', [MeetingController::class, 'show'])->name('meetings.edit');
+    Route::get('/meetings/{meeting}/edit', [MeetingManagementController::class, 'edit'])->name('meetings.edit');
+    Route::put('/meetings/{meeting}', [MeetingManagementController::class, 'update'])->name('meetings.update');
+    Route::post('/meetings/{meeting}/cancel', [MeetingManagementController::class, 'cancel'])->name('meetings.cancel');
+    Route::post('/meetings/{meeting}/invitations', [MeetingManagementController::class, 'invitations'])->name('meetings.invitations');
     Route::get('/meetings/{meeting}', [MeetingController::class, 'show'])->name('meetings.show');
     Route::post('/meetings/{meeting}/minutes', [MeetingController::class, 'updateMinutes'])->name('meetings.minutes.update');
     Route::post('/meetings/{meeting}/ai-minutes', [MeetingController::class, 'aiGenerateMinutes'])->name('meetings.ai.minutes');

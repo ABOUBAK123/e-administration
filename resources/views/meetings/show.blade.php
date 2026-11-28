@@ -8,7 +8,9 @@
     $currentUserId = (string) auth()->id();
     $isWriter = (string) ($meeting->minutes_writer_id ?? '') === $currentUserId;
     $isValidator = (string) ($meeting->validator_id ?? '') === $currentUserId;
-    $locked = $meeting->isMinutesLocked();
+    $cancelled = $meeting->isCancelled();
+    $locked = $cancelled || $meeting->isMinutesLocked();
+    $canManage = $canManage ?? false;
 @endphp
 @php
     $isOrganizer = isset($isOrganizer) ? $isOrganizer : ((string) ($meeting->organizer_id ?? '') === (string) auth()->id());
@@ -16,6 +18,43 @@
 @include('meetings._nav')
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
     <div class="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
+        @if($cancelled)
+        <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <i class="fas fa-ban mr-1"></i> <strong>Réunion annulée</strong>@if($meeting->cancelled_at) le {{ $meeting->cancelled_at->format('d/m/Y H:i') }}@endif.
+            @if($meeting->cancellation_reason) Motif : {{ $meeting->cancellation_reason }}@endif
+        </div>
+        @elseif($canManage)
+        <div class="flex flex-wrap items-start gap-2">
+            @if($meeting->isChangeable())
+            <a href="{{ route('meetings.edit', $meeting) }}" class="px-3 py-1.5 rounded-lg bg-[#2453d6] text-white text-xs font-semibold hover:bg-[#1f47bb]">
+                <i class="fas fa-calendar-alt mr-1"></i> Modifier / Reporter
+            </a>
+            @endif
+            @if($meeting->participants->isNotEmpty() && $meeting->ends_at?->isFuture())
+            <form method="POST" action="{{ route('meetings.invitations', $meeting) }}"
+                  onsubmit="if (!confirm('Envoyer l\'invitation à tous les participants ?')) return false; this.querySelector('button').disabled = true;">
+                @csrf
+                <button class="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 text-xs font-semibold hover:bg-gray-100"><i class="fas fa-envelope mr-1"></i> Renvoyer les invitations</button>
+            </form>
+            @endif
+            @if($meeting->isChangeable())
+            <details class="text-xs">
+                <summary class="cursor-pointer px-3 py-1.5 rounded-lg border border-red-300 text-red-700 font-semibold list-none"><i class="fas fa-ban mr-1"></i> Annuler la réunion</summary>
+                <form method="POST" action="{{ route('meetings.cancel', $meeting) }}" class="mt-2 space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 w-80"
+                      onsubmit="if (!confirm('Confirmer l\'annulation ? Elle est définitive.')) return false; this.querySelector('button').disabled = true;">
+                    @csrf
+                    <textarea name="cancellation_reason" rows="2" maxlength="1000" placeholder="Motif (optionnel)" class="w-full border border-gray-300 rounded-lg px-2 py-1"></textarea>
+                    @if($meeting->recurrence_series_id)
+                    <label class="flex items-center gap-2"><input type="radio" name="apply_to" value="one" checked> Cette réunion seulement</label>
+                    <label class="flex items-center gap-2"><input type="radio" name="apply_to" value="following"> Cette réunion et les suivantes</label>
+                    @endif
+                    <label class="flex items-center gap-2"><input type="hidden" name="send_invitations" value="0"><input type="checkbox" name="send_invitations" value="1" checked> Informer les participants par e-mail</label>
+                    <button class="px-3 py-1.5 rounded-lg bg-red-600 text-white font-semibold">Confirmer l'annulation</button>
+                </form>
+            </details>
+            @endif
+        </div>
+        @endif
         @if(!empty($series))
         <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
             <span><i class="fas fa-redo mr-1"></i> Série {{ $series['label'] }} : réunion {{ $series['position'] }} sur {{ $series['total'] }}</span>
@@ -66,7 +105,7 @@
             <h3 class="font-semibold text-gray-800 mb-1">Participants ({{ $meeting->participants->count() }})</h3>
             <ul class="text-sm text-gray-700 space-y-1">
                 @forelse($meeting->participants as $p)
-                <li>- {{ $p->full_name ?: $p->user?->name }} ({{ $p->email ?: $p->user?->email }})</li>
+                <li>- {{ $p->full_name ?: $p->user?->name }} ({{ $p->email ?: $p->user?->email }})@if($p->is_external) <span class="text-xs text-gray-500">— externe{{ $p->organization ? ', ' . $p->organization : '' }}</span>@endif</li>
                 @empty
                 <li class="text-gray-400">Aucun participant enregistré.</li>
                 @endforelse
@@ -90,12 +129,21 @@
                 Modèle de compte rendu
             </h3>
 
-            @if($locked)
+            @if($meeting->isMinutesLocked())
             <div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
                 <p class="text-sm text-emerald-800"><i class="fas fa-lock mr-1"></i> Compte rendu validé : il n'est plus modifiable.</p>
                 <a href="{{ route('meetings.minutes.pdf', $meeting) }}" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700">
                     <i class="fas fa-file-pdf mr-1"></i> Télécharger le PDF validé
                 </a>
+                <p class="w-full text-xs text-emerald-700">
+                    <i class="fas fa-archive mr-1"></i>
+                    @if($meeting->archived_at)
+                        Archivé dans la GED le {{ $meeting->archived_at->format('d/m/Y H:i') }}, avec la liste de présence
+                        (<a href="{{ route('documents.index') }}" class="underline font-semibold">Mes Documents</a>, dossier « {{ \App\Services\MeetingArchive::FOLDER }} » de l'organisateur, du rédacteur et du validateur).
+                    @else
+                        Archivage dans la GED en attente (après la fin de la réunion).
+                    @endif
+                </p>
             </div>
             @endif
 
@@ -242,7 +290,10 @@
 
         <div class="border-t border-gray-100 pt-4 space-y-3">
             <h3 class="font-semibold text-gray-800">Validation et signature</h3>
-            <div class="flex flex-wrap gap-2">
+            @if($cancelled)
+            <p class="text-sm text-gray-400 italic">Réunion annulée : aucune action possible.</p>
+            @endif
+            <div class="flex flex-wrap gap-2 {{ $cancelled ? 'hidden' : '' }}">
                 @if($isWriter && $meeting->workflow_status === 'draft')
                     <form method="POST" action="{{ route('meetings.workflow', $meeting) }}">@csrf<input type="hidden" name="action" value="submit_validation"><button class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold">Envoyer en validation</button></form>
                 @endif

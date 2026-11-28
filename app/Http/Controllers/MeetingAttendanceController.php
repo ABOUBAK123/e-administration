@@ -309,7 +309,7 @@ class MeetingAttendanceController extends Controller
             'email'        => $participant->email ?: $user?->email ?: $employee?->email ?: null,
             'phone'        => $user?->phone ?: $employee?->phone ?: $last('phone'),
             'job_title'    => $employee?->job_title ?: $last('job_title'),
-            'organization' => $organization ?: $last('organization'),
+            'organization' => $participant->organization ?: $organization ?: $last('organization'),
         ];
     }
 
@@ -457,6 +457,10 @@ class MeetingAttendanceController extends Controller
 
     private function isQrWindowValid(Meeting $meeting): bool
     {
+        if ($meeting->isCancelled()) {
+            return false;
+        }
+
         if (!$meeting->qr_valid_from || !$meeting->qr_valid_until) {
             return true;
         }

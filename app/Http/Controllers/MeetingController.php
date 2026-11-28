@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AdministrationSmtpSetting;
 use App\Models\AppSetting;
 use App\Models\Meeting;
 use App\Models\MeetingAttendance;
@@ -21,6 +20,8 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use App\Services\ClamAvScanner;
 use App\Services\MeetingAiMinutesService;
+use App\Services\MeetingArchive;
+use App\Services\MeetingMailer;
 use App\Services\MeetingMinutesPdf;
 use App\Services\MeetingRecurrence;
 use App\Traits\GuardsPermissions;
@@ -30,6 +31,7 @@ use Illuminate\Support\Str;
 class MeetingController extends Controller
 {
     private const MINUTES_LOCKED = 'Le compte rendu est validé : il ne peut plus être modifié.';
+    private const CANCELLED = 'Cette réunion est annulée.';
 
     use GuardsPermissions;
 
@@ -160,19 +162,7 @@ class MeetingController extends Controller
             ->orderBy('name')
             ->get();
 
-        $users = User::query()
-            ->select('users.id', 'users.name', 'users.email')
-            // Les comptes désactivés ou suspendus ne sont plus proposés.
-            ->where('users.status', 'active')
-            ->whereExists(function ($query) use ($scope) {
-                $query->select(DB::raw(1))
-                    ->from('user_direction_assignments as uda')
-                    ->whereColumn('uda.user_id', 'users.id')
-                    ->where('uda.direction_scope_id', $scope['administration_id'])
-                    ->whereRaw("UPPER(COALESCE(uda.sub_entity_code, '')) = ?", [$scope['sub_entity_code']]);
-            })
-            ->orderBy('users.name')
-            ->get();
+        $users = $this->selectableUsers($scope);
 
         // Pré-remplissage depuis le calendrier (clic sur un jour) : date + créneau par défaut 09:00-10:00.
         $prefillStartsAt = null;
@@ -207,61 +197,13 @@ class MeetingController extends Controller
             return back()->withInput()->with('error', 'Impossible de créer une réunion sans entité sous tutelle.');
         }
 
-        $validated = $request->validate([
-            'title' => 'required|string|max:255',
-            'meeting_type' => 'required|in:ordinary,extraordinary,management_committee,project,technical,other',
-            'meeting_room_id' => 'required|uuid|exists:meeting_rooms,id',
-            'starts_at' => 'required|date',
-            'ends_at' => 'required|date|after:starts_at',
-            'processing_deadline' => 'nullable|date|after_or_equal:starts_at',
-            'minutes_writer_id' => 'required|uuid|exists:users,id',
-            'validator_id' => 'required|uuid|exists:users,id',
-            'is_virtual' => 'nullable|boolean',
-            'meeting_link' => 'nullable|url|max:500|required_if:is_virtual,1',
-            'agenda' => 'nullable|string',
-            'minutes_template_file' => 'nullable|file|mimes:doc,docx|max:20480',
-            'priority' => 'required|in:low,normal,high,urgent',
-            'confidentiality' => 'required|in:public,internal,confidential',
-            'diffusion_email_subject' => 'nullable|string|max:255',
-            'diffusion_email_body' => 'nullable|string|max:5000',
-            'diffusion_ack_required' => 'nullable|boolean',
-            'reminder_hours_before' => ['nullable', 'integer', \Illuminate\Validation\Rule::in(array_keys(Meeting::reminderOptions()))],
-            'recurrence_type' => 'nullable|in:none,daily,weekly,monthly,yearly',
-            'recurrence_until' => 'nullable|date|after_or_equal:today',
-            'participants' => 'nullable|array',
-            'participants.*' => 'uuid|exists:users,id',
-            'attachments' => 'nullable|array',
-            'attachments.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx|max:20480',
-        ]);
+        $validated = $request->validate($this->meetingRules());
 
-        // Envoi forcé, ou compte désactivé après l'affichage du formulaire.
-        $disabledNames = User::withTrashed()
-            ->whereIn('id', array_merge(
-                [(string) $validated['minutes_writer_id'], (string) $validated['validator_id']],
-                (array) ($validated['participants'] ?? []),
-            ))
-            ->where(fn ($query) => $query->where('status', '!=', 'active')->orWhereNotNull('deleted_at'))
-            ->pluck('name');
-        if ($disabledNames->isNotEmpty()) {
-            return back()->withInput()->with('error', 'Compte désactivé, à retirer de la réunion : ' . $disabledNames->implode(', ') . '.');
+        [$externals, $peopleError] = $this->checkPeople($validated, $scope);
+        if ($peopleError) {
+            return back()->withInput()->with('error', $peopleError);
         }
-
-        $allowedUserIds = $this->resolveScopeUserIds($scope);
-        if (!in_array((string) $validated['minutes_writer_id'], $allowedUserIds, true)) {
-            return back()->withInput()->with('error', 'Le rédacteur doit appartenir à la même entité sous tutelle.');
-        }
-        if (!in_array((string) $validated['validator_id'], $allowedUserIds, true)) {
-            return back()->withInput()->with('error', 'Le validateur doit appartenir à la même entité sous tutelle.');
-        }
-        if ((string) $validated['validator_id'] === (string) $validated['minutes_writer_id']) {
-            return back()->withInput()->with('error', 'Le validateur doit être différent du rédacteur.');
-        }
-
         $requestedParticipants = array_map('strval', (array) ($validated['participants'] ?? []));
-        $forbiddenParticipants = array_diff($requestedParticipants, $allowedUserIds);
-        if (!empty($forbiddenParticipants)) {
-            return back()->withInput()->with('error', 'Tous les participants doivent appartenir à la même entité sous tutelle.');
-        }
 
         $startsAt = now()->parse($validated['starts_at']);
         $endsAt = now()->parse($validated['ends_at']);
@@ -298,31 +240,9 @@ class MeetingController extends Controller
             return back()->withInput()->with('error', $conflict);
         }
 
-        $attachments = [];
-        foreach ((array) $request->file('attachments', []) as $file) {
-            ClamAvScanner::scan($file, 'reunions');
-            $path = $file->store('meetings/attachments', 'public');
-            $attachments[] = [
-                'name' => $file->getClientOriginalName(),
-                'path' => '/storage/' . $path,
-                'mime' => $file->getMimeType(),
-                'size' => $file->getSize(),
-            ];
-        }
+        [$attachments, $minutesTemplatePath] = $this->storeUploads($request);
 
-        $minutesTemplatePath = null;
-        if ($request->hasFile('minutes_template_file')) {
-            $tplFile = $request->file('minutes_template_file');
-            ClamAvScanner::scan($tplFile, 'reunions');
-            $tplStorePath = $tplFile->storeAs(
-                'meetings/templates/' . Str::uuid(),
-                $tplFile->getClientOriginalName(),
-                'public'
-            );
-            $minutesTemplatePath = '/storage/' . $tplStorePath;
-        }
-
-        $participantUsers = User::whereIn('id', $requestedParticipants)->get();
+        $participants = $this->wantedParticipants($validated, $externals);
         $deadlineOffset = !empty($validated['processing_deadline'])
             ? now()->parse($validated['processing_deadline'])->getTimestamp() - $startsAt->getTimestamp()
             : null;
@@ -330,7 +250,7 @@ class MeetingController extends Controller
         $templateCopies = [];
 
         try {
-            $meetings = DB::transaction(function () use ($validated, $scope, $slots, $type, $seriesId, $deadlineOffset, $attachments, $minutesTemplatePath, $participantUsers, &$templateCopies) {
+            $meetings = DB::transaction(function () use ($validated, $scope, $slots, $type, $seriesId, $deadlineOffset, $attachments, $minutesTemplatePath, $participants, &$templateCopies) {
                 $meetings = [];
                 foreach ($slots as $index => [$slotStart, $slotEnd]) {
                     // Chaque réunion modifie son propre modèle de compte rendu : une copie par date.
@@ -385,17 +305,8 @@ class MeetingController extends Controller
                         'reminder_hours_before' => $validated['reminder_hours_before'] ?? null,
                     ]);
 
-                    foreach ($participantUsers as $participantUser) {
-                        MeetingParticipant::updateOrCreate(
-                            ['meeting_id' => $meeting->id, 'user_id' => $participantUser->id],
-                            [
-                                'email' => $participantUser->email,
-                                'full_name' => $participantUser->name,
-                                'participant_role' => 'participant',
-                                'is_external' => false,
-                                'invitation_status' => 'sent',
-                            ]
-                        );
+                    foreach ($participants as $participant) {
+                        MeetingParticipant::create(['meeting_id' => $meeting->id] + $participant);
                     }
 
                     $meetings[] = $meeting;
@@ -412,26 +323,189 @@ class MeetingController extends Controller
             ? 'Réunion créée avec succès.'
             : count($meetings) . ' réunions créées (récurrence ' . MeetingRecurrence::LABELS[$type] . ', jusqu\'au ' . end($slots)[0]->format('d/m/Y') . ').';
 
-        return redirect()->route('meetings.show', $meetings[0])->with('success', $message);
+        $mailError = null;
+        if ($request->boolean('send_invitations', true)) {
+            $mailer = app(MeetingMailer::class);
+            $result = $mailer->invite($mailer->recipients($meetings));
+            if ($result['sent'] > 0) {
+                $message .= ' Invitation envoyée à ' . $result['sent'] . ' participant(s).';
+            }
+            $mailError = $result['error'];
+        }
+
+        $response = redirect()->route('meetings.show', $meetings[0])->with('success', $message);
+
+        return $mailError ? $response->with('error', 'Invitations non envoyées en totalité : ' . $mailError) : $response;
+    }
+
+    protected function meetingRules(): array
+    {
+        return [
+            'title' => 'required|string|max:255',
+            'meeting_type' => 'required|in:ordinary,extraordinary,management_committee,project,technical,other',
+            'meeting_room_id' => 'required|uuid|exists:meeting_rooms,id',
+            'starts_at' => 'required|date',
+            'ends_at' => 'required|date|after:starts_at',
+            'processing_deadline' => 'nullable|date|after_or_equal:starts_at',
+            'minutes_writer_id' => 'required|uuid|exists:users,id',
+            'validator_id' => 'required|uuid|exists:users,id',
+            'is_virtual' => 'nullable|boolean',
+            'meeting_link' => 'nullable|url|max:500|required_if:is_virtual,1',
+            'agenda' => 'nullable|string',
+            'minutes_template_file' => 'nullable|file|mimes:doc,docx|max:20480',
+            'priority' => 'required|in:low,normal,high,urgent',
+            'confidentiality' => 'required|in:public,internal,confidential',
+            'diffusion_email_subject' => 'nullable|string|max:255',
+            'diffusion_email_body' => 'nullable|string|max:5000',
+            'diffusion_ack_required' => 'nullable|boolean',
+            'reminder_hours_before' => ['nullable', 'integer', \Illuminate\Validation\Rule::in(array_keys(Meeting::reminderOptions()))],
+            'recurrence_type' => 'nullable|in:none,daily,weekly,monthly,yearly',
+            'recurrence_until' => 'nullable|date|after_or_equal:today',
+            'participants' => 'nullable|array',
+            'participants.*' => 'uuid|exists:users,id',
+            'externals' => 'nullable|array|max:100',
+            'externals.*.full_name' => 'nullable|string|max:255',
+            'externals.*.email' => 'nullable|email|max:191',
+            'externals.*.organization' => 'nullable|string|max:255',
+            'send_invitations' => 'nullable|boolean',
+            'attachments' => 'nullable|array',
+            'attachments.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,ppt,pptx|max:20480',
+        ];
     }
 
     /**
-     * Salle ou personne déjà prise sur l'un des créneaux. Rien n'est créé tant qu'il en reste un.
+     * Rédacteur, validateur et participants autorisés dans l'entité, participants externes complets.
      *
-     * @param list<array{0: \Carbon\CarbonInterface, 1: \Carbon\CarbonInterface}> $slots
-     * @param array<int, string> $userIds
+     * @return array{0: list<array{full_name: string, email: string, organization: ?string}>, 1: ?string} externes, erreur
      */
-    private function findScheduleConflict(string $roomId, array $slots, array $userIds): ?string
+    protected function checkPeople(array $validated, array $scope): array
     {
+        $internal = array_map('strval', (array) ($validated['participants'] ?? []));
+
+        // Envoi forcé, ou compte désactivé après l'affichage du formulaire.
+        $disabledNames = User::withTrashed()
+            ->whereIn('id', array_merge([(string) $validated['minutes_writer_id'], (string) $validated['validator_id']], $internal))
+            ->where(fn ($query) => $query->where('status', '!=', 'active')->orWhereNotNull('deleted_at'))
+            ->pluck('name');
+        if ($disabledNames->isNotEmpty()) {
+            return [[], 'Compte désactivé, à retirer de la réunion : ' . $disabledNames->implode(', ') . '.'];
+        }
+
+        $allowedUserIds = $this->resolveScopeUserIds($scope);
+        if (!in_array((string) $validated['minutes_writer_id'], $allowedUserIds, true)) {
+            return [[], 'Le rédacteur doit appartenir à la même entité sous tutelle.'];
+        }
+        if (!in_array((string) $validated['validator_id'], $allowedUserIds, true)) {
+            return [[], 'Le validateur doit appartenir à la même entité sous tutelle.'];
+        }
+        if ((string) $validated['validator_id'] === (string) $validated['minutes_writer_id']) {
+            return [[], 'Le validateur doit être différent du rédacteur.'];
+        }
+        if (array_diff($internal, $allowedUserIds)) {
+            return [[], 'Tous les participants internes doivent appartenir à la même entité sous tutelle.'];
+        }
+
+        $externals = [];
+        foreach ((array) ($validated['externals'] ?? []) as $row) {
+            $name = trim((string) ($row['full_name'] ?? ''));
+            $email = trim((string) ($row['email'] ?? ''));
+            $organization = trim((string) ($row['organization'] ?? ''));
+            if ($name === '' && $email === '' && $organization === '') {
+                continue;
+            }
+            if ($name === '' || $email === '') {
+                return [[], 'Participant externe incomplet : le nom et l\'adresse e-mail sont obligatoires.'];
+            }
+            $externals[mb_strtolower($email)] = ['full_name' => $name, 'email' => $email, 'organization' => $organization ?: null];
+        }
+
+        return [array_values($externals), null];
+    }
+
+    /**
+     * Participants demandés, sans doublon : un externe déjà choisi comme agent n'est pas répété.
+     *
+     * @return array<string, array> données à enregistrer, par clé de participant
+     */
+    protected function wantedParticipants(array $validated, array $externals): array
+    {
+        $wanted = [];
+        $emails = [];
+        foreach (User::whereIn('id', (array) ($validated['participants'] ?? []))->get() as $user) {
+            $emails[] = mb_strtolower((string) $user->email);
+            $wanted['u:' . $user->id] = [
+                'user_id' => $user->id, 'email' => $user->email, 'full_name' => $user->name, 'organization' => null,
+                'participant_role' => 'participant', 'is_external' => false, 'invitation_status' => 'pending',
+            ];
+        }
+        foreach ($externals as $external) {
+            $email = mb_strtolower($external['email']);
+            if (!in_array($email, $emails, true)) {
+                $wanted['e:' . $email] = $external + ['user_id' => null, 'participant_role' => 'guest', 'is_external' => true, 'invitation_status' => 'pending'];
+            }
+        }
+
+        return $wanted;
+    }
+
+    /** @return array{0: list<array>, 1: ?string} pièces jointes et modèle de compte rendu téléversés */
+    protected function storeUploads(Request $request): array
+    {
+        $attachments = [];
+        foreach ((array) $request->file('attachments', []) as $file) {
+            ClamAvScanner::scan($file, 'reunions');
+            $path = $file->store('meetings/attachments', 'public');
+            $attachments[] = [
+                'name' => $file->getClientOriginalName(),
+                'path' => '/storage/' . $path,
+                'mime' => $file->getMimeType(),
+                'size' => $file->getSize(),
+            ];
+        }
+
+        $templatePath = null;
+        if ($request->hasFile('minutes_template_file')) {
+            $file = $request->file('minutes_template_file');
+            ClamAvScanner::scan($file, 'reunions');
+            $templatePath = '/storage/' . $file->storeAs('meetings/templates/' . Str::uuid(), $file->getClientOriginalName(), 'public');
+        }
+
+        return [$attachments, $templatePath];
+    }
+
+    /** Agents actifs de l'entité : les comptes désactivés ou suspendus ne sont plus proposés. */
+    protected function selectableUsers(array $scope)
+    {
+        return User::query()
+            ->select('users.id', 'users.name', 'users.email')
+            ->where('users.status', 'active')
+            ->whereIn('users.id', $this->resolveScopeUserIds($scope))
+            ->orderBy('users.name')
+            ->get();
+    }
+
+    /**
+     * Salle ou personne déjà prise sur l'un des créneaux. Rien n'est enregistré tant qu'il en reste un.
+     *
+     * @param list<array> $slots [début, fin, salle ?, personnes ?], dans l'ordre chronologique
+     * @param array<int, string> $userIds
+     * @param array<int, string> $ignoreIds réunions en cours de modification
+     */
+    protected function findScheduleConflict(string $roomId, array $slots, array $userIds, array $ignoreIds = [], string $prefix = 'Aucune réunion créée. '): ?string
+    {
+        $allRooms = array_unique(array_map(fn (array $slot) => $slot[2] ?? $roomId, $slots));
+        $allUsers = array_values(array_unique(array_merge($userIds, ...array_map(fn (array $slot) => $slot[3] ?? [], $slots))));
+
         $existing = Meeting::whereIn('status', ['planned', 'in_progress'])
+            ->whereNotIn('id', $ignoreIds)
             ->where('starts_at', '<', end($slots)[1])
             ->where('ends_at', '>', $slots[0][0])
-            ->where(function ($query) use ($roomId, $userIds) {
-                $query->where('meeting_room_id', $roomId)
-                    ->orWhereIn('organizer_id', $userIds)
-                    ->orWhereIn('minutes_writer_id', $userIds)
-                    ->orWhereIn('validator_id', $userIds)
-                    ->orWhereHas('participants', fn ($participants) => $participants->whereIn('user_id', $userIds));
+            ->where(function ($query) use ($allRooms, $allUsers) {
+                $query->whereIn('meeting_room_id', $allRooms)
+                    ->orWhereIn('organizer_id', $allUsers)
+                    ->orWhereIn('minutes_writer_id', $allUsers)
+                    ->orWhereIn('validator_id', $allUsers)
+                    ->orWhereHas('participants', fn ($participants) => $participants->whereIn('user_id', $allUsers));
             })
             ->with('participants')
             ->get();
@@ -439,15 +513,18 @@ class MeetingController extends Controller
         $roomDates = [];
         $userDates = [];
         $busyUserIds = [];
-        foreach ($slots as [$start, $end]) {
+        foreach ($slots as $slot) {
+            [$start, $end] = $slot;
+            $room = $slot[2] ?? $roomId;
+            $people = $slot[3] ?? $userIds;
             foreach ($existing as $other) {
                 if (!$other->starts_at->lt($end) || !$other->ends_at->gt($start)) {
                     continue;
                 }
-                if ((string) $other->meeting_room_id === $roomId) {
+                if ((string) $other->meeting_room_id === $room) {
                     $roomDates[$start->format('d/m/Y')] = true;
                 }
-                $engaged = array_intersect($userIds, array_map('strval', array_filter(array_merge(
+                $engaged = array_intersect($people, array_map('strval', array_filter(array_merge(
                     [$other->organizer_id, $other->minutes_writer_id, $other->validator_id],
                     $other->participants->pluck('user_id')->all(),
                 ))));
@@ -477,7 +554,7 @@ class MeetingController extends Controller
             $messages[] = 'Conflit de planning : ' . $names . ' déjà engagé(s) sur une autre réunion ' . ($series ? 'le ' . $dates($userDates) : 'à ce créneau') . '.';
         }
 
-        return ($series ? 'Aucune réunion créée. ' : '') . implode(' ', $messages);
+        return ($series || $ignoreIds ? $prefix : '') . implode(' ', $messages);
     }
 
     public function show(Meeting $meeting)
@@ -527,7 +604,22 @@ class MeetingController extends Controller
             ];
         }
 
-        return view('meetings.show', compact('meeting', 'qrUrl', 'qrImageDataUri', 'isWriter', 'isValidator', 'isOrganizer', 'series'));
+        $canManage = $this->canManage($meeting);
+
+        return view('meetings.show', compact('meeting', 'qrUrl', 'qrImageDataUri', 'isWriter', 'isValidator', 'isOrganizer', 'series', 'canManage'));
+    }
+
+    /** L'organisateur gère sa réunion ; si son compte n'est plus actif, un autre agent de l'entité le peut. */
+    protected function canManage(Meeting $meeting): bool
+    {
+        if (!$this->canPermission('meetings.create')) {
+            return false;
+        }
+        if ((string) $meeting->organizer_id === (string) Auth::id()) {
+            return true;
+        }
+
+        return !User::whereKey($meeting->organizer_id)->where('status', 'active')->exists();
     }
 
     public function updateMinutes(Request $request, Meeting $meeting)
@@ -540,6 +632,9 @@ class MeetingController extends Controller
         $isValidator = (string) ($meeting->validator_id ?? '') === $currentUserId;
         if (!$isWriter && !$isValidator) {
             return back()->with('error', 'Seul le rédacteur ou le validateur peut modifier le compte rendu.');
+        }
+        if ($meeting->isCancelled()) {
+            return back()->with('error', self::CANCELLED);
         }
         if ($meeting->isMinutesLocked()) {
             return back()->with('error', self::MINUTES_LOCKED);
@@ -578,6 +673,9 @@ class MeetingController extends Controller
         $isValidator = (string) ($meeting->validator_id ?? '') === $currentUserId;
         if (!$isWriter && !$isValidator) {
             return response()->json(['error' => 'Seul le rédacteur ou le validateur peut générer un compte rendu par IA.'], 403);
+        }
+        if ($meeting->isCancelled()) {
+            return response()->json(['error' => self::CANCELLED], 403);
         }
         if ($meeting->isMinutesLocked()) {
             return response()->json(['error' => self::MINUTES_LOCKED], 403);
@@ -620,6 +718,10 @@ class MeetingController extends Controller
         ]);
 
         $action = (string) $validated['action'];
+
+        if ($meeting->isCancelled()) {
+            return back()->with('error', self::CANCELLED);
+        }
 
         if ($action === 'submit_validation') {
             if ($meeting->workflow_status !== 'draft') {
@@ -672,8 +774,20 @@ class MeetingController extends Controller
             $meeting->save();
             $this->appendMinutesVersion($meeting, 'Compte rendu validé par ' . (Auth::user()?->name ?? 'Validateur') . ' et figé en PDF');
 
-            return back()->with('success', 'Compte rendu validé et converti en PDF. Il n\'est plus modifiable.');
-        }
+            $message = 'Compte rendu validé et converti en PDF. Il n\'est plus modifiable.';
+            $archive = app(MeetingArchive::class);
+            if (!$archive->isDue($meeting)) {
+                return back()->with('success', $message . ' Il sera archivé dans la GED à la fin de la réunion.');
+            }
+
+            try {
+                $archive->archive($meeting);
+            } catch (\RuntimeException $e) {
+                return back()->with('success', $message)
+                    ->with('error', 'Archivage GED reporté : ' . $e->getMessage() . ' Une nouvelle tentative aura lieu automatiquement.');
+            }
+
+            return back()->with('success', $message . ' Compte rendu et liste de présence archivés dans la GED.');        }
 
         if ($action === 'request_review') {
             if ((string) $meeting->validator_id !== (string) Auth::id()) {
@@ -801,7 +915,8 @@ class MeetingController extends Controller
             }, function ($query) {
                 $query->where('organizer_id', Auth::id());
             })
-            ->whereYear('starts_at', $year);
+            ->whereYear('starts_at', $year)
+            ->where('status', '!=', 'cancelled');
 
         $meetings = $meetingsQuery->with(['room'])->get();
         $meetingIds = $meetings->pluck('id');
@@ -989,49 +1104,12 @@ class MeetingController extends Controller
         return $pdf->download('synthese_reunions_' . $mode . '_' . now()->format('Ymd_His') . '.pdf');
     }
 
-    private function resolveMeetingSmtpSetting(Meeting $meeting): ?AdministrationSmtpSetting
-    {
-        $administrationId = trim((string) ($meeting->issuing_administration_id ?? ''));
-        if ($administrationId === '') {
-            return null;
-        }
-
-        return AdministrationSmtpSetting::forAdministration($administrationId, 'emitter')
-            ?? AdministrationSmtpSetting::forAdministration($administrationId, 'recipient');
-    }
-
-    private function applyMeetingScopedSmtpConfiguration(AdministrationSmtpSetting $smtp): void
-    {
-        config([
-            'mail.default' => 'smtp',
-            'mail.mailers.smtp.host' => $smtp->mail_host,
-            'mail.mailers.smtp.port' => $smtp->mail_port ?? 587,
-            'mail.mailers.smtp.username' => $smtp->mail_username,
-            'mail.mailers.smtp.password' => $smtp->mail_password,
-            'mail.mailers.smtp.encryption' => $smtp->mail_encryption ?: null,
-            'mail.mailers.smtp.timeout' => 10,
-            'mail.from.address' => $smtp->mail_from_address,
-            'mail.from.name' => $smtp->mail_from_name ?? config('app.name'),
-        ]);
-    }
-
     private function configureMeetingMailerFor(Meeting $meeting): ?string
     {
-        $smtp = $this->resolveMeetingSmtpSetting($meeting);
-        if (!$smtp) {
-            return "Aucune configuration SMTP d'administration n'a ete trouvee pour cette reunion.";
-        }
-
-        if (!$smtp->mail_host || !$smtp->mail_from_address) {
-            return "La configuration SMTP d'administration est incomplete (hote ou expediteur manquant).";
-        }
-
-        $this->applyMeetingScopedSmtpConfiguration($smtp);
-        Mail::purge('smtp');
-        return null;
+        return app(MeetingMailer::class)->configureFor($meeting);
     }
 
-    private function abortIfMeetingOutsideScope(Meeting $meeting): void
+    protected function abortIfMeetingOutsideScope(Meeting $meeting): void
     {
         $scope = $this->resolveCurrentUserScope();
 
@@ -1047,7 +1125,7 @@ class MeetingController extends Controller
         );
     }
 
-    private function resolveCurrentUserScope(): ?array
+    protected function resolveCurrentUserScope(): ?array
     {
         $user = Auth::user();
         if (!$user) {
@@ -1078,7 +1156,7 @@ class MeetingController extends Controller
             && Schema::hasTable('user_direction_assignments');
     }
 
-    private function resolveScopeUserIds(array $scope): array
+    protected function resolveScopeUserIds(array $scope): array
     {
         return DB::table('user_direction_assignments')
             ->where('direction_scope_id', $scope['administration_id'])
@@ -1090,7 +1168,7 @@ class MeetingController extends Controller
             ->all();
     }
 
-    private function appendMinutesVersion(Meeting $meeting, string $note): void
+    protected function appendMinutesVersion(Meeting $meeting, string $note): void
     {
         $lastVersion = MeetingMinutesVersion::query()
             ->where('meeting_id', $meeting->id)
@@ -1353,6 +1431,9 @@ class MeetingController extends Controller
         if (!$isWriter && !$isValidator) {
             return response()->json(['error' => 'Seul le rédacteur ou le validateur peut ouvrir ce modèle dans OnlyOffice.'], 403);
         }
+        if ($meeting->isCancelled()) {
+            return response()->json(['error' => self::CANCELLED], 403);
+        }
         if ($meeting->isMinutesLocked()) {
             return response()->json(['error' => self::MINUTES_LOCKED], 403);
         }
@@ -1444,7 +1525,7 @@ class MeetingController extends Controller
         // Status 2 = prêt à sauvegarder, 6 = forcer la sauvegarde
         if (in_array($status, [2, 6], true)) {
             // Une session ouverte avant la validation ne doit plus rien enregistrer.
-            if ($meeting->isMinutesLocked()) {
+            if ($meeting->isMinutesLocked() || $meeting->isCancelled()) {
                 Log::warning('OnlyOffice : enregistrement refusé, compte rendu validé', ['meeting_id' => (string) $meeting->id]);
                 return response()->json(['error' => 1]);
             }
@@ -1509,6 +1590,9 @@ class MeetingController extends Controller
             $isOrganizer = (string) ($meeting->organizer_id   ?? '') === $currentUserId;
             if (!$isWriter && !$isValidator && !$isOrganizer) {
                 return response()->json(['error' => 'Accès refusé.'], 403);
+            }
+            if ($meeting->isCancelled()) {
+                return response()->json(['error' => self::CANCELLED], 403);
             }
             if ($meeting->isMinutesLocked()) {
                 return response()->json(['error' => self::MINUTES_LOCKED], 403);

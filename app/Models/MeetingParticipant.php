@@ -16,6 +16,7 @@ class MeetingParticipant extends Model
         'full_name',
         'participant_role',
         'is_external',
+        'organization',
         'invitation_status',
     ];
 

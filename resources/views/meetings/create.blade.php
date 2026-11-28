@@ -1,28 +1,53 @@
 @extends('layouts.app')
-@section('title', 'Nouvelle réunion')
-@section('page-title', 'Nouvelle réunion')
-@section('page-subtitle', 'Planifier une réunion')
+@section('title', isset($meeting) ? 'Modifier la réunion' : 'Nouvelle réunion')
+@section('page-title', isset($meeting) ? 'Modifier la réunion' : 'Nouvelle réunion')
+@section('page-subtitle', isset($meeting) ? $meeting->title : 'Planifier une réunion')
 
 @section('content')
 @include('meetings._nav')
-<form method="POST" action="{{ route('meetings.store') }}" enctype="multipart/form-data" class="space-y-5">
+@php
+    // En modification, les champs reprennent la réunion ; après un refus, la saisie.
+    $editing = isset($meeting) ? $meeting : null;
+    $value = fn (string $field, $default = null) => old($field, $editing ? $editing->{$field} : $default);
+    $dateValue = fn (string $field, $default = null) => old($field, $editing ? $editing->{$field}?->format('Y-m-d\TH:i') : $default);
+    $checked = fn (string $field, bool $default) => session()->hasOldInput() ? (bool) old($field) : $default;
+    $selectedParticipants = array_map('strval', (array) old('participants', session()->hasOldInput() || !$editing ? [] : $editing->participants->pluck('user_id')->filter()->all()));
+    $externalRows = array_values((array) old('externals', session()->hasOldInput() || !$editing ? [] : $editing->participants
+        ->filter(fn ($p) => !$p->user_id && $p->email)
+        ->map(fn ($p) => ['full_name' => $p->full_name, 'email' => $p->email, 'organization' => $p->organization])->values()->all()));
+@endphp
+<form method="POST" action="{{ $editing ? route('meetings.update', $editing) : route('meetings.store') }}" enctype="multipart/form-data" class="space-y-5">
     @csrf
+    @if($editing)
+        @method('PUT')
+        @if($editing->recurrence_series_id && ($following ?? 0) > 0)
+        <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 space-y-1">
+            <p class="font-semibold">Cette réunion fait partie d'une série.</p>
+            <label class="flex items-center gap-2"><input type="radio" name="apply_to" value="one" {{ old('apply_to', 'one') === 'one' ? 'checked' : '' }}> Modifier cette réunion seulement</label>
+            <label class="flex items-center gap-2"><input type="radio" name="apply_to" value="following" {{ old('apply_to') === 'following' ? 'checked' : '' }}> Appliquer aussi aux {{ $following }} réunion(s) suivante(s)</label>
+            <p class="text-xs">Seuls les champs que vous changez sont reportés ; un changement de date décale chaque réunion du même écart.</p>
+        </div>
+        @endif
+        @if(($droppedNames ?? collect())->isNotEmpty())
+        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Compte désactivé, retiré à l'enregistrement : {{ $droppedNames->implode(', ') }}.</div>
+        @endif
+    @endif
 
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="md:col-span-2">
             <label class="block text-xs font-semibold text-gray-700 mb-1">Titre</label>
-            <input type="text" name="title" value="{{ old('title') }}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <input type="text" name="title" value="{{ $value('title') }}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
         </div>
 
         <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Type</label>
             <select name="meeting_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                <option value="ordinary">Réunion ordinaire</option>
-                <option value="extraordinary">Réunion extraordinaire</option>
-                <option value="management_committee">Comité de direction</option>
-                <option value="project">Réunion de projet</option>
-                <option value="technical">Réunion technique</option>
-                <option value="other">Autre</option>
+                <option value="ordinary" {{ $value('meeting_type') === 'ordinary' ? 'selected' : '' }}>Réunion ordinaire</option>
+                <option value="extraordinary" {{ $value('meeting_type') === 'extraordinary' ? 'selected' : '' }}>Réunion extraordinaire</option>
+                <option value="management_committee" {{ $value('meeting_type') === 'management_committee' ? 'selected' : '' }}>Comité de direction</option>
+                <option value="project" {{ $value('meeting_type') === 'project' ? 'selected' : '' }}>Réunion de projet</option>
+                <option value="technical" {{ $value('meeting_type') === 'technical' ? 'selected' : '' }}>Réunion technique</option>
+                <option value="other" {{ $value('meeting_type') === 'other' ? 'selected' : '' }}>Autre</option>
             </select>
         </div>
 
@@ -31,24 +56,24 @@
             <select name="meeting_room_id" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 <option value="">Sélectionner</option>
                 @foreach($rooms as $room)
-                <option value="{{ $room->id }}" {{ old('meeting_room_id', $prefillRoomId ?? '') === (string) $room->id ? 'selected' : '' }}>{{ $room->name }} ({{ $room->location }})</option>
+                <option value="{{ $room->id }}" {{ (string) $value('meeting_room_id', $prefillRoomId ?? '') === (string) $room->id ? 'selected' : '' }}>{{ $room->name }} ({{ $room->location }})</option>
                 @endforeach
             </select>
         </div>
 
         <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Début</label>
-            <input type="datetime-local" name="starts_at" value="{{ old('starts_at', $prefillStartsAt ?? '') }}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <input type="datetime-local" name="starts_at" value="{{ $dateValue('starts_at', $prefillStartsAt ?? '') }}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
         </div>
 
         <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Fin</label>
-            <input type="datetime-local" name="ends_at" value="{{ old('ends_at', $prefillEndsAt ?? '') }}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <input type="datetime-local" name="ends_at" value="{{ $dateValue('ends_at', $prefillEndsAt ?? '') }}" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
         </div>
 
         <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Délai fixé (traitement)</label>
-            <input type="datetime-local" name="processing_deadline" value="{{ old('processing_deadline') }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <input type="datetime-local" name="processing_deadline" value="{{ $dateValue('processing_deadline') }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
         </div>
 
         <div>
@@ -56,7 +81,7 @@
             <select name="minutes_writer_id" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 <option value="">Sélectionner</option>
                 @foreach($users as $u)
-                <option value="{{ $u->id }}" {{ old('minutes_writer_id') === (string) $u->id ? 'selected' : '' }}>{{ $u->name }} ({{ $u->email }})</option>
+                <option value="{{ $u->id }}" {{ (string) $value('minutes_writer_id') === (string) $u->id ? 'selected' : '' }}>{{ $u->name }} ({{ $u->email }})</option>
                 @endforeach
             </select>
         </div>
@@ -66,7 +91,7 @@
             <select name="validator_id" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 <option value="">Sélectionner</option>
                 @foreach($users as $u)
-                <option value="{{ $u->id }}" {{ old('validator_id') === (string) $u->id ? 'selected' : '' }}>{{ $u->name }} ({{ $u->email }})</option>
+                <option value="{{ $u->id }}" {{ (string) $value('validator_id') === (string) $u->id ? 'selected' : '' }}>{{ $u->name }} ({{ $u->email }})</option>
                 @endforeach
             </select>
             @error('validator_id')
@@ -77,22 +102,23 @@
         <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Priorité</label>
             <select name="priority" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                <option value="low">Faible</option>
-                <option value="normal" selected>Normale</option>
-                <option value="high">Élevée</option>
-                <option value="urgent">Urgente</option>
+                <option value="low" {{ $value('priority', 'normal') === 'low' ? 'selected' : '' }}>Faible</option>
+                <option value="normal" {{ $value('priority', 'normal') === 'normal' ? 'selected' : '' }}>Normale</option>
+                <option value="high" {{ $value('priority', 'normal') === 'high' ? 'selected' : '' }}>Élevée</option>
+                <option value="urgent" {{ $value('priority', 'normal') === 'urgent' ? 'selected' : '' }}>Urgente</option>
             </select>
         </div>
 
         <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Confidentialité</label>
             <select name="confidentiality" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                <option value="public">Publique</option>
-                <option value="internal" selected>Interne</option>
-                <option value="confidential">Confidentielle</option>
+                <option value="public" {{ $value('confidentiality', 'internal') === 'public' ? 'selected' : '' }}>Publique</option>
+                <option value="internal" {{ $value('confidentiality', 'internal') === 'internal' ? 'selected' : '' }}>Interne</option>
+                <option value="confidential" {{ $value('confidentiality', 'internal') === 'confidential' ? 'selected' : '' }}>Confidentielle</option>
             </select>
         </div>
 
+        @if(!$editing)
         <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Récurrence</label>
             <select name="recurrence_type" id="recurrence_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
@@ -109,17 +135,18 @@
             <input type="date" name="recurrence_until" id="recurrence_until" value="{{ old('recurrence_until') }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100">
             <p class="text-xs text-gray-400 mt-1">Une réunion est créée pour chaque date, sur un an au plus (cinq ans en récurrence annuelle).</p>
         </div>
+        @endif
 
         <div class="md:col-span-2 border border-gray-100 rounded-lg p-3 bg-gray-50/50">
             <label class="inline-flex items-center gap-2 text-sm text-gray-700 mb-2">
-                <input type="checkbox" id="is_virtual" name="is_virtual" value="1" {{ old('is_virtual') ? 'checked' : '' }}
+                <input type="checkbox" id="is_virtual" name="is_virtual" value="1" {{ $checked('is_virtual', (bool) $editing?->is_virtual) ? 'checked' : '' }}
                        class="rounded border-gray-300 text-[#2453d6] focus:ring-[#2453d6]"
                        onchange="document.getElementById('meeting_link_wrap').classList.toggle('hidden', !this.checked)">
                 Réunion virtuelle / hybride (visioconférence)
             </label>
-            <div id="meeting_link_wrap" class="{{ old('is_virtual') ? '' : 'hidden' }}">
+            <div id="meeting_link_wrap" class="{{ $checked('is_virtual', (bool) $editing?->is_virtual) ? '' : 'hidden' }}">
                 <label class="block text-xs font-semibold text-gray-700 mb-1">Lien de visioconférence (Teams, Zoom, Meet...)</label>
-                <input type="url" name="meeting_link" value="{{ old('meeting_link') }}" placeholder="https://teams.microsoft.com/..."
+                <input type="url" name="meeting_link" value="{{ $value('meeting_link') }}" placeholder="https://teams.microsoft.com/..."
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 @error('meeting_link')
                     <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
@@ -129,7 +156,7 @@
 
         <div class="md:col-span-2">
             <label class="block text-xs font-semibold text-gray-700 mb-1">Ordre du jour</label>
-            <textarea name="agenda" rows="5" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">{{ old('agenda') }}</textarea>
+            <textarea name="agenda" rows="5" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">{{ $value('agenda') }}</textarea>
         </div>
 
         <div class="md:col-span-2">
@@ -149,6 +176,9 @@
                      const lbl = document.getElementById('tpl-filename');
                      if (fn) { lbl.textContent = '✔ ' + fn; lbl.classList.remove('hidden'); }
                    ">
+            @if($editing?->minutes_template)
+            <p class="text-xs text-gray-500 mt-1">Modèle actuel : {{ basename($editing->minutes_template) }}. Un nouveau fichier le remplace.</p>
+            @endif
             @error('minutes_template_file')
                 <p class="text-xs text-red-500 mt-1">{{ $message }}</p>
             @enderror
@@ -158,17 +188,34 @@
             <label class="block text-xs font-semibold text-gray-700 mb-1">Participants internes</label>
             <select name="participants[]" multiple class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm h-40">
                 @foreach($users as $u)
-                <option value="{{ $u->id }}" {{ in_array((string) $u->id, (array) old('participants', []), true) ? 'selected' : '' }}>{{ $u->name }} ({{ $u->email }})</option>
+                <option value="{{ $u->id }}" {{ in_array((string) $u->id, $selectedParticipants, true) ? 'selected' : '' }}>{{ $u->name }} ({{ $u->email }})</option>
                 @endforeach
             </select>
             <p class="text-xs text-gray-400 mt-1">Maintenez Ctrl (ou Cmd) pour sélectionner plusieurs utilisateurs.</p>
         </div>
 
         <div class="md:col-span-2">
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Participants externes</label>
+            <div id="external-rows" class="space-y-2">
+                @foreach($externalRows as $i => $row)
+                <div class="external-row flex flex-wrap gap-2">
+                    <input type="text" name="externals[{{ $i }}][full_name]" value="{{ $row['full_name'] ?? '' }}" placeholder="Nom et prénom" style="min-width: 12rem" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                    <input type="email" name="externals[{{ $i }}][email]" value="{{ $row['email'] ?? '' }}" placeholder="Adresse e-mail" style="min-width: 12rem" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                    <input type="text" name="externals[{{ $i }}][organization]" value="{{ $row['organization'] ?? '' }}" placeholder="Organisation" style="min-width: 12rem" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                    <button type="button" class="external-remove px-3 py-2 rounded-lg border border-gray-300 text-gray-500 text-sm hover:bg-gray-100" title="Retirer">&times;</button>
+                </div>
+                @endforeach
+            </div>
+            <button type="button" id="external-add" class="mt-2 px-3 py-1.5 rounded-lg border border-[#2453d6] text-[#2453d6] text-xs font-semibold hover:bg-blue-50">
+                <i class="fas fa-user-plus mr-1"></i> Ajouter un participant externe
+            </button>
+        </div>
+
+        <div class="md:col-span-2">
             <label for="reminder_hours_before" class="block text-xs font-semibold text-gray-700 mb-1">Rappel aux participants (e-mail)</label>
             <select id="reminder_hours_before" name="reminder_hours_before" class="w-full md:w-1/2 border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 @foreach(\App\Models\Meeting::reminderOptions() as $hours => $label)
-                <option value="{{ $hours }}" {{ (int) old('reminder_hours_before', config('meetings.reminder_hours_before_meeting', 24)) === $hours ? 'selected' : '' }}>{{ $label }}</option>
+                <option value="{{ $hours }}" {{ (int) old('reminder_hours_before', $editing ? $editing->reminderHours() : config('meetings.reminder_hours_before_meeting', 24)) === $hours ? 'selected' : '' }}>{{ $label }}</option>
                 @endforeach
             </select>
             <p class="text-xs text-gray-400 mt-1">Un seul e-mail est envoyé aux participants sélectionnés, au délai choisi avant le début de la réunion.</p>
@@ -179,6 +226,11 @@
 
         <div class="md:col-span-2">
             <label class="block text-xs font-semibold text-gray-700 mb-1">Documents joints</label>
+            @foreach((array) ($editing?->attachments ?? []) as $file)
+            <label class="flex items-center gap-2 text-sm text-gray-700 mb-1">
+                <input type="checkbox" name="remove_attachments[]" value="{{ $file['path'] ?? '' }}"> Retirer « {{ $file['name'] ?? 'Document' }} »
+            </label>
+            @endforeach
             <input type="file" name="attachments[]" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
         </div>
 
@@ -187,15 +239,15 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="md:col-span-2">
                     <label class="block text-xs font-semibold text-gray-700 mb-1">Objet personnalisable</label>
-                    <input type="text" name="diffusion_email_subject" value="{{ old('diffusion_email_subject') }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Ex: Compte rendu - Réunion hebdomadaire">
+                    <input type="text" name="diffusion_email_subject" value="{{ $value('diffusion_email_subject') }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Ex: Compte rendu - Réunion hebdomadaire">
                 </div>
                 <div class="md:col-span-2">
                     <label class="block text-xs font-semibold text-gray-700 mb-1">Corps du message personnalisable</label>
-                    <textarea name="diffusion_email_body" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Variables: {meeting_title}, {meeting_date}, {meeting_room}">{{ old('diffusion_email_body') }}</textarea>
+                    <textarea name="diffusion_email_body" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Variables: {meeting_title}, {meeting_date}, {meeting_room}">{{ $value('diffusion_email_body') }}</textarea>
                 </div>
                 <div class="md:col-span-2">
                     <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" name="diffusion_ack_required" value="1" {{ old('diffusion_ack_required') ? 'checked' : '' }}>
+                        <input type="checkbox" name="diffusion_ack_required" value="1" {{ $checked('diffusion_ack_required', (bool) $editing?->diffusion_ack_required) ? 'checked' : '' }}>
                         Accusé de réception optionnel
                     </label>
                 </div>
@@ -203,17 +255,43 @@
         </div>
     </div>
 
-    <div class="flex justify-end gap-2">
-        <a href="{{ route('meetings.index') }}" class="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Annuler</a>
-        <button class="px-4 py-2 rounded-lg bg-[#2453d6] text-white text-sm font-semibold hover:bg-[#1f47bb]">Créer la réunion</button>
+    <div class="flex flex-wrap items-center justify-end gap-3">
+        <label class="inline-flex items-center gap-2 text-sm text-gray-700 mr-auto">
+            <input type="hidden" name="send_invitations" value="0">
+            <input type="checkbox" name="send_invitations" value="1" {{ $checked('send_invitations', true) ? 'checked' : '' }}>
+            {{ $editing ? 'Informer les participants par e-mail (nouvelle date, salle ou lien, ajouts et retraits)' : 'Envoyer l\'invitation par e-mail aux participants' }}
+        </label>
+        <a href="{{ $editing ? route('meetings.show', $editing) : route('meetings.index') }}" class="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Annuler</a>
+        <button class="px-4 py-2 rounded-lg bg-[#2453d6] text-white text-sm font-semibold hover:bg-[#1f47bb]">{{ $editing ? 'Enregistrer les modifications' : 'Créer la réunion' }}</button>
     </div>
 </form>
+
+<script>
+(function () {
+    const rows = document.getElementById('external-rows');
+    let next = rows.children.length;
+    document.getElementById('external-add').addEventListener('click', function () {
+        const i = next++;
+        const row = document.createElement('div');
+        row.className = 'external-row flex flex-wrap gap-2';
+        row.innerHTML = [['full_name', 'text', 'Nom et prénom'], ['email', 'email', 'Adresse e-mail'], ['organization', 'text', 'Organisation']]
+            .map(([field, kind, label]) => `<input type="${kind}" name="externals[${i}][${field}]" placeholder="${label}" style="min-width: 12rem" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">`).join('')
+            + '<button type="button" class="external-remove px-3 py-2 rounded-lg border border-gray-300 text-gray-500 text-sm hover:bg-gray-100" title="Retirer">&times;</button>';
+        rows.appendChild(row);
+        row.querySelector('input').focus();
+    });
+    rows.addEventListener('click', function (event) {
+        if (event.target.closest('.external-remove')) event.target.closest('.external-row').remove();
+    });
+})();
+</script>
 
 <script>
 (function () {
     // La date de fin n'a de sens que pour une réunion récurrente.
     const type = document.getElementById('recurrence_type');
     const until = document.getElementById('recurrence_until');
+    if (!type || !until) return;
     const sync = () => { until.disabled = type.value === 'none'; until.required = type.value !== 'none'; };
     type.addEventListener('change', sync);
     sync();

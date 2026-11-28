@@ -60,6 +60,9 @@ class Meeting extends Model
         'diffusion_email_body',
         'diffusion_ack_required',
         'recurrence_series_id',
+        'cancelled_at',
+        'cancelled_by',
+        'cancellation_reason',
         'recurrence_type',
         'recurrence_until',
         'recurrence_exceptions',
@@ -90,6 +93,9 @@ class Meeting extends Model
         'diffusion_ack_required' => 'boolean',
         'is_virtual' => 'boolean',
         'reminder_hours_before' => 'integer',
+        'cancelled_at' => 'datetime',
+        'archived_at' => 'datetime',
+        'archive_attempted_at' => 'datetime',
         'reminder_sent_at' => 'datetime',
         'validation_reminder_sent_at' => 'datetime',
         'deadline_alert_sent_at' => 'datetime',
@@ -115,6 +121,19 @@ class Meeting extends Model
         ksort($options);
 
         return $options;
+    }
+
+    public function isCancelled(): bool
+    {
+        return $this->status === 'cancelled';
+    }
+
+    /** Modifiable ou annulable tant qu'aucune présence n'est enregistrée et que le compte rendu est en brouillon. */
+    public function isChangeable(): bool
+    {
+        return !$this->isCancelled()
+            && ($this->workflow_status ?? 'draft') === 'draft'
+            && !$this->attendances()->exists();
     }
 
     public function room()

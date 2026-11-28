@@ -30,7 +30,10 @@
             @forelse($meetings as $meeting)
             @php
                 $statusLabels = [
-                    'planned' => 'Planifiee',
+                    'planned' => 'Planifiée',
+                    'in_progress' => 'En cours',
+                    'closed' => 'Terminée',
+                    'cancelled' => 'Annulée',
                 ];
                 $workflowLabels = [
                     'draft' => 'Brouillon',
@@ -41,7 +44,7 @@
                 <td class="px-4 py-3 text-gray-600">{{ $meeting->room?->name }}</td>
                 <td class="px-4 py-3 text-gray-600">{{ $meeting->starts_at?->format('d/m/Y H:i') }}</td>
                 <td class="px-4 py-3 text-gray-600">{{ $meeting->organizer?->name }}</td>
-                <td class="px-4 py-3 text-gray-600">{{ $statusLabels[$meeting->status] ?? $meeting->status }}</td>
+                <td class="px-4 py-3 {{ $meeting->status === 'cancelled' ? 'text-red-600 font-semibold' : 'text-gray-600' }}">{{ $statusLabels[$meeting->status] ?? $meeting->status }}</td>
                 <td class="px-4 py-3 text-gray-600">{{ $workflowLabels[$meeting->workflow_status ?? 'draft'] ?? ($meeting->workflow_status ?? 'draft') }}</td>
                 <td class="px-4 py-3">
                     <a href="{{ route('meetings.show', $meeting) }}" class="text-[#2453d6] font-semibold hover:underline">Ouvrir</a>
