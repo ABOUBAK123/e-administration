@@ -59,6 +59,7 @@ class Meeting extends Model
         'diffusion_email_subject',
         'diffusion_email_body',
         'diffusion_ack_required',
+        'recurrence_series_id',
         'recurrence_type',
         'recurrence_until',
         'recurrence_exceptions',

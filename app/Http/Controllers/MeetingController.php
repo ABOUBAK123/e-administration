@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Storage;
 use App\Services\ClamAvScanner;
 use App\Services\MeetingAiMinutesService;
 use App\Services\MeetingMinutesPdf;
+use App\Services\MeetingRecurrence;
 use App\Traits\GuardsPermissions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -251,16 +252,26 @@ class MeetingController extends Controller
         $startsAt = now()->parse($validated['starts_at']);
         $endsAt = now()->parse($validated['ends_at']);
 
-        $overlapExists = Meeting::where('meeting_room_id', $validated['meeting_room_id'])
-            ->whereIn('status', ['planned', 'in_progress'])
-            ->where(function ($query) use ($startsAt, $endsAt) {
-                $query->where('starts_at', '<', $endsAt)
-                    ->where('ends_at', '>', $startsAt);
-            })
-            ->exists();
+        $recurrence = app(MeetingRecurrence::class);
+        $type = (string) ($validated['recurrence_type'] ?? 'none') ?: 'none';
+        $until = null;
+        if ($type !== 'none') {
+            if (empty($validated['recurrence_until'])) {
+                return back()->withInput()->with('error', 'Indiquez la date de fin de récurrence.');
+            }
+            $until = now()->parse($validated['recurrence_until'])->endOfDay();
+            $maximum = $recurrence->maximumEnd($startsAt, $type);
+            if ($until->gt($maximum)) {
+                return back()->withInput()->with('error', 'La fin de récurrence ne peut pas dépasser le ' . $maximum->format('d/m/Y') . '.');
+            }
+        }
 
-        if ($overlapExists) {
-            return back()->withInput()->with('error', 'La salle est déjà réservée sur ce créneau horaire.');
+        $slots = $recurrence->slots($startsAt, $endsAt, $type, $until);
+        if ($type !== 'none' && count($slots) < 2) {
+            return back()->withInput()->with('error', 'La date de fin de récurrence ne permet pas de planifier une deuxième réunion.');
+        }
+        if (count($slots) > 1 && $slots[1][0]->lt($slots[0][1])) {
+            return back()->withInput()->with('error', 'La durée de la réunion dépasse l\'intervalle de récurrence.');
         }
 
         $involvedUserIds = array_unique(array_filter(array_merge(
@@ -268,46 +279,9 @@ class MeetingController extends Controller
             $requestedParticipants
         )));
 
-        $conflictingMeetings = Meeting::whereIn('status', ['planned', 'in_progress'])
-            ->where(function ($query) use ($startsAt, $endsAt) {
-                $query->where('starts_at', '<', $endsAt)
-                    ->where('ends_at', '>', $startsAt);
-            })
-            ->where(function ($query) use ($involvedUserIds) {
-                $query->whereIn('organizer_id', $involvedUserIds)
-                    ->orWhereIn('minutes_writer_id', $involvedUserIds)
-                    ->orWhereIn('validator_id', $involvedUserIds)
-                    ->orWhereHas('participants', function ($participantQuery) use ($involvedUserIds) {
-                        $participantQuery->whereIn('user_id', $involvedUserIds);
-                    });
-            })
-            ->with(['organizer', 'minutesWriter', 'validator', 'participants'])
-            ->get();
-
-        if ($conflictingMeetings->isNotEmpty()) {
-            $conflictingUserIds = collect();
-            foreach ($conflictingMeetings as $conflictingMeeting) {
-                foreach ([$conflictingMeeting->organizer_id, $conflictingMeeting->minutes_writer_id, $conflictingMeeting->validator_id] as $candidateId) {
-                    if ($candidateId !== null && in_array((string) $candidateId, $involvedUserIds, true)) {
-                        $conflictingUserIds->push((string) $candidateId);
-                    }
-                }
-                foreach ($conflictingMeeting->participants as $participant) {
-                    if ($participant->user_id !== null && in_array((string) $participant->user_id, $involvedUserIds, true)) {
-                        $conflictingUserIds->push((string) $participant->user_id);
-                    }
-                }
-            }
-
-            $conflictingNames = User::whereIn('id', $conflictingUserIds->unique()->values())
-                ->pluck('name')
-                ->unique()
-                ->implode(', ');
-
-            return back()->withInput()->with(
-                'error',
-                'Conflit de planning : ' . ($conflictingNames ?: 'un ou plusieurs participants') . ' déjà engagé(s) sur une autre réunion à ce créneau.'
-            );
+        $conflict = $this->findScheduleConflict((string) $validated['meeting_room_id'], $slots, $involvedUserIds);
+        if ($conflict !== null) {
+            return back()->withInput()->with('error', $conflict);
         }
 
         $attachments = [];
@@ -334,65 +308,162 @@ class MeetingController extends Controller
             $minutesTemplatePath = '/storage/' . $tplStorePath;
         }
 
-        $meeting = Meeting::create([
-            'id' => Str::uuid(),
-            'title' => $validated['title'],
-            'meeting_type' => $validated['meeting_type'],
-            'meeting_room_id' => $validated['meeting_room_id'],
-            'starts_at' => $startsAt,
-            'ends_at' => $endsAt,
-            'processing_deadline' => !empty($validated['processing_deadline']) ? now()->parse($validated['processing_deadline']) : null,
-            'estimated_duration_minutes' => $startsAt->diffInMinutes($endsAt),
-            'organizer_id' => Auth::id(),
-            'minutes_writer_id' => $validated['minutes_writer_id'],
-            'validator_id' => $validated['validator_id'],
-            'issuing_administration_id' => $scope['administration_id'],
-            'sub_entity_code' => $scope['sub_entity_code'],
-            'is_virtual' => (bool) ($validated['is_virtual'] ?? false),
-            'meeting_link' => $validated['meeting_link'] ?? null,
-            'agenda' => $validated['agenda'] ?? null,
-            'minutes_template' => $minutesTemplatePath,
-            'minutes_content' => null,
-            'attachments' => $attachments,
-            'priority' => $validated['priority'],
-            'confidentiality' => $validated['confidentiality'],
-            'status' => 'planned',
-            'workflow_status' => 'draft',
-            'review_requested' => false,
-            'validation_requested_at' => null,
-            'validated_by' => null,
-            'validated_at' => null,
-            'diffusion_email_subject' => $validated['diffusion_email_subject'] ?? null,
-            'diffusion_email_body' => $validated['diffusion_email_body'] ?? null,
-            'diffusion_ack_required' => (bool) ($validated['diffusion_ack_required'] ?? false),
-            'recurrence_type' => $validated['recurrence_type'] ?? 'none',
-            'recurrence_until' => $validated['recurrence_until'] ?? null,
-            'recurrence_exceptions' => [],
-            'qr_token' => (string) Str::uuid(),
-            'qr_valid_from' => $startsAt,
-            'qr_valid_until' => $endsAt,
-            'reminder_hours_before' => $validated['reminder_hours_before'] ?? null,
-        ]);
+        $participantUsers = User::whereIn('id', $requestedParticipants)->get();
+        $deadlineOffset = !empty($validated['processing_deadline'])
+            ? now()->parse($validated['processing_deadline'])->getTimestamp() - $startsAt->getTimestamp()
+            : null;
+        $seriesId = count($slots) > 1 ? (string) Str::uuid() : null;
+        $templateCopies = [];
 
-        foreach ((array) ($validated['participants'] ?? []) as $userId) {
-            $participantUser = User::find($userId);
-            if (!$participantUser) {
-                continue;
-            }
+        try {
+            $meetings = DB::transaction(function () use ($validated, $scope, $slots, $type, $seriesId, $deadlineOffset, $attachments, $minutesTemplatePath, $participantUsers, &$templateCopies) {
+                $meetings = [];
+                foreach ($slots as $index => [$slotStart, $slotEnd]) {
+                    // Chaque réunion modifie son propre modèle de compte rendu : une copie par date.
+                    $templatePath = $minutesTemplatePath;
+                    if ($templatePath && $index > 0) {
+                        $source = Str::after($minutesTemplatePath, '/storage/');
+                        $copy = 'meetings/templates/' . Str::uuid() . '/' . basename($source);
+                        if (!Storage::disk('public')->copy($source, $copy)) {
+                            throw new \RuntimeException('Copie du modèle de compte rendu impossible.');
+                        }
+                        $templateCopies[] = $copy;
+                        $templatePath = '/storage/' . $copy;
+                    }
 
-            MeetingParticipant::updateOrCreate(
-                ['meeting_id' => $meeting->id, 'user_id' => $participantUser->id],
-                [
-                    'email' => $participantUser->email,
-                    'full_name' => $participantUser->name,
-                    'participant_role' => 'participant',
-                    'is_external' => false,
-                    'invitation_status' => 'sent',
-                ]
-            );
+                    $meeting = Meeting::create([
+                        'title' => $validated['title'],
+                        'meeting_type' => $validated['meeting_type'],
+                        'meeting_room_id' => $validated['meeting_room_id'],
+                        'starts_at' => $slotStart,
+                        'ends_at' => $slotEnd,
+                        'processing_deadline' => $deadlineOffset === null ? null : $slotStart->copy()->addSeconds($deadlineOffset),
+                        'estimated_duration_minutes' => $slotStart->diffInMinutes($slotEnd),
+                        'organizer_id' => Auth::id(),
+                        'minutes_writer_id' => $validated['minutes_writer_id'],
+                        'validator_id' => $validated['validator_id'],
+                        'issuing_administration_id' => $scope['administration_id'],
+                        'sub_entity_code' => $scope['sub_entity_code'],
+                        'is_virtual' => (bool) ($validated['is_virtual'] ?? false),
+                        'meeting_link' => $validated['meeting_link'] ?? null,
+                        'agenda' => $validated['agenda'] ?? null,
+                        'minutes_template' => $templatePath,
+                        'minutes_content' => null,
+                        'attachments' => $attachments,
+                        'priority' => $validated['priority'],
+                        'confidentiality' => $validated['confidentiality'],
+                        'status' => 'planned',
+                        'workflow_status' => 'draft',
+                        'review_requested' => false,
+                        'validation_requested_at' => null,
+                        'validated_by' => null,
+                        'validated_at' => null,
+                        'diffusion_email_subject' => $validated['diffusion_email_subject'] ?? null,
+                        'diffusion_email_body' => $validated['diffusion_email_body'] ?? null,
+                        'diffusion_ack_required' => (bool) ($validated['diffusion_ack_required'] ?? false),
+                        'recurrence_series_id' => $seriesId,
+                        'recurrence_type' => $type,
+                        'recurrence_until' => $type === 'none' ? null : $validated['recurrence_until'],
+                        'recurrence_exceptions' => [],
+                        'qr_token' => (string) Str::uuid(),
+                        'qr_valid_from' => $slotStart,
+                        'qr_valid_until' => $slotEnd,
+                        'reminder_hours_before' => $validated['reminder_hours_before'] ?? null,
+                    ]);
+
+                    foreach ($participantUsers as $participantUser) {
+                        MeetingParticipant::updateOrCreate(
+                            ['meeting_id' => $meeting->id, 'user_id' => $participantUser->id],
+                            [
+                                'email' => $participantUser->email,
+                                'full_name' => $participantUser->name,
+                                'participant_role' => 'participant',
+                                'is_external' => false,
+                                'invitation_status' => 'sent',
+                            ]
+                        );
+                    }
+
+                    $meetings[] = $meeting;
+                }
+
+                return $meetings;
+            });
+        } catch (\Throwable $e) {
+            Storage::disk('public')->delete($templateCopies);
+            throw $e;
         }
 
-        return redirect()->route('meetings.show', $meeting)->with('success', 'Réunion créée avec succès.');
+        $message = count($meetings) === 1
+            ? 'Réunion créée avec succès.'
+            : count($meetings) . ' réunions créées (récurrence ' . MeetingRecurrence::LABELS[$type] . ', jusqu\'au ' . end($slots)[0]->format('d/m/Y') . ').';
+
+        return redirect()->route('meetings.show', $meetings[0])->with('success', $message);
+    }
+
+    /**
+     * Salle ou personne déjà prise sur l'un des créneaux. Rien n'est créé tant qu'il en reste un.
+     *
+     * @param list<array{0: \Carbon\CarbonInterface, 1: \Carbon\CarbonInterface}> $slots
+     * @param array<int, string> $userIds
+     */
+    private function findScheduleConflict(string $roomId, array $slots, array $userIds): ?string
+    {
+        $existing = Meeting::whereIn('status', ['planned', 'in_progress'])
+            ->where('starts_at', '<', end($slots)[1])
+            ->where('ends_at', '>', $slots[0][0])
+            ->where(function ($query) use ($roomId, $userIds) {
+                $query->where('meeting_room_id', $roomId)
+                    ->orWhereIn('organizer_id', $userIds)
+                    ->orWhereIn('minutes_writer_id', $userIds)
+                    ->orWhereIn('validator_id', $userIds)
+                    ->orWhereHas('participants', fn ($participants) => $participants->whereIn('user_id', $userIds));
+            })
+            ->with('participants')
+            ->get();
+
+        $roomDates = [];
+        $userDates = [];
+        $busyUserIds = [];
+        foreach ($slots as [$start, $end]) {
+            foreach ($existing as $other) {
+                if (!$other->starts_at->lt($end) || !$other->ends_at->gt($start)) {
+                    continue;
+                }
+                if ((string) $other->meeting_room_id === $roomId) {
+                    $roomDates[$start->format('d/m/Y')] = true;
+                }
+                $engaged = array_intersect($userIds, array_map('strval', array_filter(array_merge(
+                    [$other->organizer_id, $other->minutes_writer_id, $other->validator_id],
+                    $other->participants->pluck('user_id')->all(),
+                ))));
+                if ($engaged) {
+                    $userDates[$start->format('d/m/Y')] = true;
+                    $busyUserIds = array_merge($busyUserIds, $engaged);
+                }
+            }
+        }
+
+        if (!$roomDates && !$userDates) {
+            return null;
+        }
+
+        $series = count($slots) > 1;
+        $dates = function (array $found) {
+            $all = array_keys($found);
+
+            return implode(', ', array_slice($all, 0, 8)) . (count($all) > 8 ? ' et ' . (count($all) - 8) . ' autre(s) date(s)' : '');
+        };
+        $messages = [];
+        if ($roomDates) {
+            $messages[] = $series ? 'La salle est déjà réservée le ' . $dates($roomDates) . '.' : 'La salle est déjà réservée sur ce créneau horaire.';
+        }
+        if ($userDates) {
+            $names = User::whereIn('id', array_unique($busyUserIds))->pluck('name')->unique()->implode(', ') ?: 'un ou plusieurs participants';
+            $messages[] = 'Conflit de planning : ' . $names . ' déjà engagé(s) sur une autre réunion ' . ($series ? 'le ' . $dates($userDates) : 'à ce créneau') . '.';
+        }
+
+        return ($series ? 'Aucune réunion créée. ' : '') . implode(' ', $messages);
     }
 
     public function show(Meeting $meeting)
@@ -429,7 +500,20 @@ class MeetingController extends Controller
         $isValidator = (string) ($meeting->validator_id    ?? '') === $currentUserId;
         $isOrganizer = (string) ($meeting->organizer_id   ?? '') === $currentUserId;
 
-        return view('meetings.show', compact('meeting', 'qrUrl', 'qrImageDataUri', 'isWriter', 'isValidator', 'isOrganizer'));
+        $series = null;
+        if ($meeting->recurrence_series_id) {
+            $ids = Meeting::where('recurrence_series_id', $meeting->recurrence_series_id)->orderBy('starts_at')->pluck('id')->map(fn ($id) => (string) $id)->all();
+            $position = (int) array_search((string) $meeting->id, $ids, true);
+            $series = [
+                'label'    => MeetingRecurrence::LABELS[$meeting->recurrence_type] ?? '',
+                'position' => $position + 1,
+                'total'    => count($ids),
+                'previous' => $ids[$position - 1] ?? null,
+                'next'     => $ids[$position + 1] ?? null,
+            ];
+        }
+
+        return view('meetings.show', compact('meeting', 'qrUrl', 'qrImageDataUri', 'isWriter', 'isValidator', 'isOrganizer', 'series'));
     }
 
     public function updateMinutes(Request $request, Meeting $meeting)

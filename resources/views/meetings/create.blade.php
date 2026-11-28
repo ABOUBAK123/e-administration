@@ -56,7 +56,7 @@
             <select name="minutes_writer_id" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 <option value="">Sélectionner</option>
                 @foreach($users as $u)
-                <option value="{{ $u->id }}">{{ $u->name }} ({{ $u->email }})</option>
+                <option value="{{ $u->id }}" {{ old('minutes_writer_id') === (string) $u->id ? 'selected' : '' }}>{{ $u->name }} ({{ $u->email }})</option>
                 @endforeach
             </select>
         </div>
@@ -95,18 +95,19 @@
 
         <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Récurrence</label>
-            <select name="recurrence_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                <option value="none">Aucune</option>
-                <option value="daily">Quotidienne</option>
-                <option value="weekly">Hebdomadaire</option>
-                <option value="monthly">Mensuelle</option>
-                <option value="yearly">Annuelle</option>
+            <select name="recurrence_type" id="recurrence_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <option value="none" {{ old('recurrence_type') === 'none' ? 'selected' : '' }}>Aucune</option>
+                <option value="daily" {{ old('recurrence_type') === 'daily' ? 'selected' : '' }}>Quotidienne</option>
+                <option value="weekly" {{ old('recurrence_type') === 'weekly' ? 'selected' : '' }}>Hebdomadaire</option>
+                <option value="monthly" {{ old('recurrence_type') === 'monthly' ? 'selected' : '' }}>Mensuelle</option>
+                <option value="yearly" {{ old('recurrence_type') === 'yearly' ? 'selected' : '' }}>Annuelle</option>
             </select>
         </div>
 
         <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">Fin de récurrence</label>
-            <input type="date" name="recurrence_until" value="{{ old('recurrence_until') }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <input type="date" name="recurrence_until" id="recurrence_until" value="{{ old('recurrence_until') }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100">
+            <p class="text-xs text-gray-400 mt-1">Une réunion est créée pour chaque date, sur un an au plus (cinq ans en récurrence annuelle).</p>
         </div>
 
         <div class="md:col-span-2 border border-gray-100 rounded-lg p-3 bg-gray-50/50">
@@ -157,7 +158,7 @@
             <label class="block text-xs font-semibold text-gray-700 mb-1">Participants internes</label>
             <select name="participants[]" multiple class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm h-40">
                 @foreach($users as $u)
-                <option value="{{ $u->id }}">{{ $u->name }} ({{ $u->email }})</option>
+                <option value="{{ $u->id }}" {{ in_array((string) $u->id, (array) old('participants', []), true) ? 'selected' : '' }}>{{ $u->name }} ({{ $u->email }})</option>
                 @endforeach
             </select>
             <p class="text-xs text-gray-400 mt-1">Maintenez Ctrl (ou Cmd) pour sélectionner plusieurs utilisateurs.</p>
@@ -207,6 +208,17 @@
         <button class="px-4 py-2 rounded-lg bg-[#2453d6] text-white text-sm font-semibold hover:bg-[#1f47bb]">Créer la réunion</button>
     </div>
 </form>
+
+<script>
+(function () {
+    // La date de fin n'a de sens que pour une réunion récurrente.
+    const type = document.getElementById('recurrence_type');
+    const until = document.getElementById('recurrence_until');
+    const sync = () => { until.disabled = type.value === 'none'; until.required = type.value !== 'none'; };
+    type.addEventListener('change', sync);
+    sync();
+})();
+</script>
 
 <script>
 (function () {

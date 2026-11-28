@@ -16,6 +16,15 @@
 @include('meetings._nav')
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
     <div class="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
+        @if(!empty($series))
+        <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+            <span><i class="fas fa-redo mr-1"></i> Série {{ $series['label'] }} : réunion {{ $series['position'] }} sur {{ $series['total'] }}</span>
+            <span class="flex gap-3 font-semibold">
+                @if($series['previous'])<a href="{{ route('meetings.show', $series['previous']) }}" class="hover:underline">&larr; Précédente</a>@endif
+                @if($series['next'])<a href="{{ route('meetings.show', $series['next']) }}" class="hover:underline">Suivante &rarr;</a>@endif
+            </span>
+        </div>
+        @endif
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
             <div><span class="text-gray-500">Type:</span> {{ $meeting->meeting_type }}</div>
             <div><span class="text-gray-500">Salle:</span> {{ $meeting->room?->name }} ({{ $meeting->room?->location }})</div>
