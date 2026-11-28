@@ -186,12 +186,19 @@
 
         <div class="md:col-span-2">
             <label class="block text-xs font-semibold text-gray-700 mb-1">Participants internes</label>
-            <select name="participants[]" multiple class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm h-40">
+            <select name="participants[]" id="participants-select" multiple class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm h-40">
                 @foreach($users as $u)
                 <option value="{{ $u->id }}" {{ in_array((string) $u->id, $selectedParticipants, true) ? 'selected' : '' }}>{{ $u->name }} ({{ $u->email }})</option>
                 @endforeach
             </select>
-            <p class="text-xs text-gray-400 mt-1">Maintenez Ctrl (ou Cmd) pour sélectionner plusieurs utilisateurs.</p>
+            <p class="text-xs text-gray-400 mt-1">Cliquez sur un nom pour l'ajouter ; cliquez à nouveau, ou sur la croix ci-dessous, pour le retirer.</p>
+            <div id="participants-summary" class="mt-2 hidden">
+                <div class="flex items-center justify-between gap-2 mb-1">
+                    <span id="participants-count" class="text-xs font-semibold text-gray-700"></span>
+                    <button type="button" id="participants-clear" class="text-xs font-semibold text-red-600 hover:underline">Tout retirer</button>
+                </div>
+                <div id="participant-chips" class="flex flex-wrap gap-2"></div>
+            </div>
         </div>
 
         <div class="md:col-span-2">
@@ -283,6 +290,53 @@
     rows.addEventListener('click', function (event) {
         if (event.target.closest('.external-remove')) event.target.closest('.external-row').remove();
     });
+})();
+</script>
+
+<script>
+(function () {
+    // Participants internes : un clic ajoute ou retire, la liste des retenus permet d'enlever chacun.
+    const select = document.getElementById('participants-select');
+    const summary = document.getElementById('participants-summary');
+    const chips = document.getElementById('participant-chips');
+    const count = document.getElementById('participants-count');
+
+    function render() {
+        const chosen = [...select.options].filter(option => option.selected);
+        summary.classList.toggle('hidden', chosen.length === 0);
+        count.textContent = chosen.length + ' participant(s) sélectionné(s)';
+        chips.replaceChildren(...chosen.map(option => {
+            const chip = document.createElement('span');
+            chip.className = 'inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold';
+            const name = document.createElement('span');
+            name.textContent = option.text;
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.textContent = '×';
+            remove.title = 'Retirer';
+            remove.setAttribute('aria-label', 'Retirer ' + option.text);
+            remove.addEventListener('click', () => { option.selected = false; render(); });
+            chip.append(name, remove);
+            return chip;
+        }));
+    }
+
+    // Sans cela, un simple clic remplace toute la sélection (il faudrait maintenir Ctrl).
+    select.addEventListener('mousedown', function (event) {
+        if (event.target.tagName !== 'OPTION' || event.shiftKey) return;
+        event.preventDefault();
+        const position = select.scrollTop;
+        event.target.selected = !event.target.selected;
+        select.focus();
+        select.scrollTop = position;
+        render();
+    });
+    select.addEventListener('change', render);
+    document.getElementById('participants-clear').addEventListener('click', function () {
+        [...select.options].forEach(option => { option.selected = false; });
+        render();
+    });
+    render();
 })();
 </script>
 
